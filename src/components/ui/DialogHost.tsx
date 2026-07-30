@@ -69,12 +69,12 @@ export function DialogHost() {
           aria-modal="true"
           aria-labelledby="confirm-dialog-title"
           aria-describedby="confirm-dialog-message"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-[var(--space-lg)]"
+          className="fixed inset-0 z-[100] flex cursor-pointer items-center justify-center bg-black/40 p-[var(--space-lg)]"
           onClick={() => settle(false)}
           onKeyDown={(e) => e.key === "Escape" && settle(false)}
         >
           <div
-            className="w-full max-w-sm rounded-lg bg-white p-[var(--space-lg)] shadow-xl"
+            className="w-full max-w-sm cursor-auto rounded-lg bg-white p-[var(--space-lg)] shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-[var(--space-sm)]">

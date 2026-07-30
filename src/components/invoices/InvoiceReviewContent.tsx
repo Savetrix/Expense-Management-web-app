@@ -658,10 +658,10 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
 
       {showConfidenceInfo && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-[var(--space-lg)]"
+          className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/45 p-[var(--space-lg)]"
           onClick={() => setShowConfidenceInfo(false)}
         >
-          <div className="w-full max-w-md rounded-2xl bg-white p-[var(--space-lg)]" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md cursor-auto rounded-2xl bg-white p-[var(--space-lg)]" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-h3 font-extrabold text-text-primary">Confidence Score Calculation</h2>
             <p className="mt-[var(--space-sm)] text-body-sm text-text-secondary">
               Every invoice starts with a confidence score of <strong>100%</strong>.
