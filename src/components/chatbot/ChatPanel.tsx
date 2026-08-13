@@ -192,7 +192,9 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
       cancelLabel: "Cancel",
       tone: "destructive",
     });
-    if (confirmed) sendText("Yes, proceed.", { userConfirmed: true, confirmationToken });
+    // Strict === true: this is the human click the server treats as the
+    // authorization for a destructive tool. Never widen it to a truthy check.
+    if (confirmed === true) sendText("Yes, proceed.", { userConfirmed: true, confirmationToken });
   };
 
   const handleSend = () => sendText(input.trim());

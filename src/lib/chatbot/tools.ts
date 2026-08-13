@@ -444,11 +444,17 @@ export interface PostInvoiceToQbArgs {
   confirm: boolean;
 }
 
-// Same concurrent-post lock as the postInvoiceToQuickBooks thunk in
+// Concurrent-post lock, mirroring the postInvoiceToQuickBooks thunk in
 // src/store/invoice/invoiceApi.ts: two posts of the same invoice in flight at
 // once both pass the idempotency preflight before either commits, and the
-// second PATCH creates a duplicate bill. Keyed by invoiceId across the whole
-// tab so the review page and the chatbot can't race each other.
+// second PATCH creates a duplicate bill.
+//
+// Scope, precisely: this module runs SERVER-side in the /api/chat route, so it
+// is a different process from the browser's copy and the two cannot see each
+// other — this does NOT stop the review page and the chatbot racing. It is
+// also per-instance, so it does not span Vercel's instance fan-out. It closes
+// the same-instance repeat, and the preflight above plus the backend remain
+// the real defences.
 const postingInFlight = new Set<string>();
 
 // PATCH /invoices/:id with vendorId + postedStatus:"manual" — sends an

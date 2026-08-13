@@ -482,7 +482,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
       message: "Please verify all details are correct before confirming.",
       confirmLabel: "Post invoice",
     });
-    if (confirmed) submitToQuickBooks();
+    if (confirmed === true) submitToQuickBooks();
   };
 
   // Edit path for an already-posted (auto/manual) invoice, reached via the

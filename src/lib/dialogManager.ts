@@ -52,14 +52,25 @@ let nextId = 0;
 // contract (callers `await` this exactly like they awaited the synchronous
 // window.confirm return value) but resolves on the themed dialog's button
 // click instead of a native browser dialog.
-export function confirmDialog(options: {
+interface ConfirmDialogOptions {
   title: string;
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
   altLabel?: string;
   tone?: DialogTone;
-}): Promise<ConfirmResult> {
+}
+
+// Overloaded on purpose. Adding the third button widened the result to
+// `boolean | "alt"`, and "alt" is TRUTHY — so a caller doing `if (confirmed)`
+// would treat "the user picked the other option" as "the user said yes". Two
+// of those call sites authorize destructive work (the chatbot's consent gate
+// and post-to-QuickBooks). Rather than rely on every present and future
+// caller remembering to compare against `true`, the boolean stays the type
+// unless you explicitly opt into an alt button.
+export function confirmDialog(options: ConfirmDialogOptions & { altLabel: string }): Promise<ConfirmResult>;
+export function confirmDialog(options: ConfirmDialogOptions & { altLabel?: never }): Promise<boolean>;
+export function confirmDialog(options: ConfirmDialogOptions): Promise<ConfirmResult> {
   return new Promise((resolve) => {
     const request: ConfirmRequest = {
       id: ++nextId,
