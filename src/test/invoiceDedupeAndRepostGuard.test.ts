@@ -292,3 +292,140 @@ describe("postInvoiceToQuickBooks — server-side freshness check", () => {
     assert.equal(patchCalls.length, 1, "preflight failure must fail open, not lock posting out");
   });
 });
+
+describe("postInvoiceToQuickBooks — empty vendorId guard", () => {
+  // A post with no resolved vendor is the "new vendor threw an error but the
+  // invoice still got posted to QuickBooks" failure mode: an empty vendorId
+  // must never reach the PATCH, no matter which caller reaches the thunk.
+  const postPayload = {
+    invoiceId: "inv-empty",
+    vendorId: "",
+    extractedData: {
+      vendorName: "Acme Corp",
+      currency: "USD",
+      invoiceNumber: "INV-100",
+      amountBeforeTax: 500,
+      taxAmount: 0,
+      totalAmount: 500,
+      lineItems: [],
+    },
+  };
+
+  it("refuses to post an empty vendorId — nothing is fetched or patched", async () => {
+    let getCalled = false;
+    let patchCalled = false;
+    api.get = (async () => {
+      getCalled = true;
+      return { data: { data: { invoice: makeInvoice({ _id: "inv-empty" }) } } };
+    }) as unknown as typeof api.get;
+    api.patch = (async () => {
+      patchCalled = true;
+      return { data: { data: { invoice: {} } } };
+    }) as unknown as typeof api.patch;
+
+    const store = makeStore();
+    const result = await store.dispatch(
+      postInvoiceToQuickBooks(postPayload) as unknown as UnknownAction,
+    );
+
+    assert.match(String((result as { payload?: unknown }).payload ?? ""), /no vendor is resolved/i);
+    assert.equal(getCalled, false, "no freshness check should run for an empty vendor");
+    assert.equal(patchCalled, false, "no PATCH should fire for an empty vendor");
+  });
+
+  it("refuses a whitespace-only vendorId the same way", async () => {
+    let patchCalled = false;
+    api.patch = (async () => {
+      patchCalled = true;
+      return { data: { data: { invoice: {} } } };
+    }) as unknown as typeof api.patch;
+
+    const store = makeStore();
+    const result = await store.dispatch(
+      postInvoiceToQuickBooks({ ...postPayload, vendorId: "   " }) as unknown as UnknownAction,
+    );
+
+    assert.match(String((result as { payload?: unknown }).payload ?? ""), /no vendor is resolved/i);
+    assert.equal(patchCalled, false);
+  });
+});
+
+describe("postInvoiceToQuickBooks — concurrent in-flight lock", () => {
+  // Two posts of the same invoice can both pass the idempotency preflight if
+  // they start before either commits (double-click, or the review page and the
+  // chatbot posting together) — the second PATCH then creates a duplicate
+  // bill. The second post must be refused outright while the first is still
+  // in flight, and the lock must release when the first completes.
+  const postPayload = {
+    invoiceId: "inv-conc",
+    vendorId: "v-1",
+    extractedData: {
+      vendorName: "Acme Corp",
+      currency: "USD",
+      invoiceNumber: "INV-100",
+      amountBeforeTax: 500,
+      taxAmount: 0,
+      totalAmount: 500,
+      lineItems: [],
+    },
+  };
+
+  it("refuses a second post while the first is still in flight, then releases the lock", async () => {
+    const patchCalls: unknown[][] = [];
+    let releasePatch: (value: unknown) => void = () => {};
+    const patchGate = new Promise((resolve) => {
+      releasePatch = resolve;
+    });
+
+    api.get = (async () => ({
+      data: { data: { invoice: makeInvoice({ _id: "inv-conc" }) } },
+    })) as unknown as typeof api.get;
+    api.patch = (async (...args: unknown[]) => {
+      patchCalls.push(args);
+      await patchGate;
+      return { data: { data: { invoice: makeInvoice({ _id: "inv-conc", postedStatus: "manual" }) } } };
+    }) as unknown as typeof api.patch;
+
+    const store = makeStore();
+
+    let firstResult: unknown;
+    try {
+      const first = store.dispatch(
+        postInvoiceToQuickBooks(postPayload) as unknown as UnknownAction,
+      );
+      // The lock is registered synchronously when the thunk starts, so a
+      // second dispatch immediately after must already be refused.
+      const second = await store.dispatch(
+        postInvoiceToQuickBooks(postPayload) as unknown as UnknownAction,
+      );
+
+      assert.match(String((second as { payload?: unknown }).payload ?? ""), /already being posted/i);
+      assert.equal(patchCalls.length, 1, "only the first post may reach the PATCH");
+
+      // Let the first post finish.
+      releasePatch({});
+      firstResult = await first;
+    } finally {
+      releasePatch({});
+    }
+
+    assert.equal((firstResult as { type?: string }).type, "invoice/postInvoiceToQuickBooks/fulfilled");
+
+    // The lock must now be released: a fresh post of the same invoice is no
+    // longer refused by the in-flight lock. To prove WHICH guard is doing the
+    // rejecting, make the server report the bill exists — the retry must then
+    // be refused by the idempotency guard ("already posted"), not the lock
+    // ("already being posted").
+    api.get = (async () => ({
+      data: { data: { invoice: makeInvoice({ _id: "inv-conc", postedStatus: "manual", quickbooks: { billId: "QB-CONC" } }) } },
+    })) as unknown as typeof api.get;
+
+    const retryPatchCalls = patchCalls.length;
+    const retry = await store.dispatch(
+      postInvoiceToQuickBooks(postPayload) as unknown as UnknownAction,
+    );
+    assert.equal(patchCalls.length, retryPatchCalls, "no duplicate PATCH on retry");
+    assert.match(String((retry as { payload?: unknown }).payload ?? ""), /already posted/i);
+    assert.doesNotMatch(String((retry as { payload?: unknown }).payload ?? ""), /already being posted/i);
+  });
+});

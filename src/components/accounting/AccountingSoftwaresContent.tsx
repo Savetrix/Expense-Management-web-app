@@ -542,16 +542,19 @@ export function AccountingSoftwaresContent() {
                     Switch to this account
                   </button>
                 )}
-                {(selectedConnection.role === "owner" || selectedConnection.role === "admin") && (
-                  <button
-                    type="button"
-                    onClick={() => handleReconnect(selectedConnection)}
-                    disabled={reconnectingId === selectedConnection._id}
-                    className="h-11 w-full rounded-md border border-border font-bold text-text-primary hover:bg-background-alt disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {reconnectingId === selectedConnection._id ? "Reconnecting…" : "Reconnect"}
-                  </button>
-                )}
+                {/* Reconnect is offered for every connection in the detail
+                    panel, not just owner/admin: reconnecting re-runs OAuth for
+                    THIS connection to rotate its tokens, which is how an active
+                    account gets refreshed. The backend still enforces whatever
+                    role it enforces. */}
+                <button
+                  type="button"
+                  onClick={() => handleReconnect(selectedConnection)}
+                  disabled={reconnectingId === selectedConnection._id}
+                  className="h-11 w-full rounded-md border border-border font-bold text-text-primary hover:bg-background-alt disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {reconnectingId === selectedConnection._id ? "Reconnecting…" : "Reconnect"}
+                </button>
                 {!isSelectedDisconnected && (
                   <button
                     type="button"

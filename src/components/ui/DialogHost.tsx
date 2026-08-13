@@ -88,7 +88,7 @@ export function DialogHost() {
     if (confirmRequest) confirmButtonRef.current?.focus();
   }, [confirmRequest]);
 
-  const settle = (value: boolean) => {
+  const settle = (value: boolean | "alt") => {
     confirmRequest?.resolve(value);
     setConfirmRequest(null);
   };
@@ -161,6 +161,11 @@ export function DialogHost() {
               <Button variant="outline" size="sm" onClick={() => settle(false)}>
                 {confirmRequest.cancelLabel}
               </Button>
+              {confirmRequest.altLabel && (
+                <Button variant="outline" size="sm" onClick={() => settle("alt")}>
+                  {confirmRequest.altLabel}
+                </Button>
+              )}
               <Button
                 ref={confirmButtonRef}
                 variant={confirmRequest.tone === "destructive" ? "danger" : "primary"}

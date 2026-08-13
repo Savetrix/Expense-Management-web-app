@@ -14,9 +14,17 @@ export interface ConfirmRequest {
   message: string;
   confirmLabel: string;
   cancelLabel: string;
+  /** Optional third, non-destructive action — renders between Cancel and the
+   *  confirm button and resolves the promise with "alt" instead of a boolean.
+   *  Used for "Reconnect instead" on the disconnect dialog (disconnect +
+   *  reconnect is the token-refresh path) without giving up the blocking
+   *  confirm contract. */
+  altLabel?: string;
   tone: DialogTone;
-  resolve: (value: boolean) => void;
+  resolve: (value: boolean | "alt") => void;
 }
+
+export type ConfirmResult = boolean | "alt";
 
 export interface NotificationItem {
   id: number;
@@ -49,8 +57,9 @@ export function confirmDialog(options: {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  altLabel?: string;
   tone?: DialogTone;
-}): Promise<boolean> {
+}): Promise<ConfirmResult> {
   return new Promise((resolve) => {
     const request: ConfirmRequest = {
       id: ++nextId,
@@ -58,6 +67,7 @@ export function confirmDialog(options: {
       message: options.message,
       confirmLabel: options.confirmLabel ?? "Confirm",
       cancelLabel: options.cancelLabel ?? "Cancel",
+      altLabel: options.altLabel,
       tone: options.tone ?? "default",
       resolve,
     };

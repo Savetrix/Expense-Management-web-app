@@ -555,7 +555,9 @@ export function DashboardContent() {
           if (!scanInvoice.fulfilled.match(result)) {
             const payload = result.payload;
             showToast(
-              `${selected[i].name}: ${typeof payload === "string" ? payload : "Invoice scan failed"}`,
+              `${selected[i].name}: ${
+                typeof payload === "string" ? payload : "Invoice scan failed"
+              }. It may still have been created — check the list before rescanning.`,
               "error",
             );
           }

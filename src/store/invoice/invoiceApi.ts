@@ -187,86 +187,116 @@ interface PostInvoicePayload {
   extractedData: PostInvoiceExtractedData;
 }
 
+// Concurrent-post lock: an invoice must never have two posts in flight at
+// once. The idempotency checks below both read state, so two posts that start
+// together (double-click, or the review page and the chatbot posting at the
+// same time) can both pass those reads before either one commits — the second
+// PATCH then creates a duplicate bill in QuickBooks. The second post is
+// refused outright while the first is still running.
+const postingInFlight = new Set<string>();
+
 export const postInvoiceToQuickBooks = createAsyncThunk(
   "invoice/postInvoiceToQuickBooks",
 
   async (data: PostInvoicePayload, thunkAPI) => {
+    // A post with no resolved vendor is exactly the "invoice for a new vendor
+    // threw an error but was still posted" failure mode: an empty vendorId
+    // must never be sent, regardless of which caller reaches this thunk.
+    // The review page guards this already; this is defense in depth at the
+    // choke point every posting path funnels through.
+    if (!data.vendorId || !String(data.vendorId).trim()) {
+      return thunkAPI.rejectWithValue(
+        "Cannot post to QuickBooks: no vendor is resolved for this invoice. Resolve the vendor first.",
+      );
+    }
+
+    if (postingInFlight.has(data.invoiceId)) {
+      return thunkAPI.rejectWithValue(
+        "This invoice is already being posted to QuickBooks. Wait for the current post to finish.",
+      );
+    }
+    postingInFlight.add(data.invoiceId);
+
     try {
-      // Idempotency guard. The scan pipeline is not transactional: an
-      // upload/auto-post can fail (or error on a 401 that retries) AFTER the
-      // backend has already created the bill in QuickBooks. Re-running this
-      // post in that state creates a second, identical bill. So before
-      // touching the API, look the invoice up in Redux and refuse to post if
-      // it already carries a billId or a terminal posted status.
-      const state = thunkAPI.getState() as RootState;
-      const knownInvoices: InvoiceRecord[] = [
-        ...state.invoice.invoices,
-        state.invoice.selectedInvoice,
-        state.invoice.invoiceDetails,
-      ].filter((inv): inv is InvoiceRecord => Boolean(inv));
-
-      const existing = knownInvoices.find((inv) => inv._id === data.invoiceId);
-
-      if (existing) {
-        const alreadyPosted =
-          existing.postedStatus === "auto" ||
-          existing.postedStatus === "manual" ||
-          Boolean(existing.quickbooks?.billId);
-
-        if (alreadyPosted) {
-          return thunkAPI.rejectWithValue(
-            `Invoice is already posted to QuickBooks${existing.quickbooks?.billId ? ` (bill #${existing.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
-          );
-        }
-      }
-
-      // The Redux check above only catches what this tab already knows. The
-      // dangerous case is the opposite one: the backend committed the bill and
-      // the client never found out (timeout, or a 401 on a write that is no
-      // longer re-sent), so Redux still says "pending". Ask the server for the
-      // invoice's current state before posting. This mirrors the guard the
-      // chatbot path performs in src/lib/chatbot/tools.ts.
-      //
-      // A failed preflight deliberately does NOT block the post — refusing on
-      // a transient read error would make posting impossible while the real
-      // first post is still legitimate.
       try {
-        const fresh = await api.get(`/invoices/${data.invoiceId}`);
-        const body = fresh.data?.data ?? fresh.data;
-        const serverInvoice: InvoiceRecord | undefined =
-          body && typeof body === "object" && "invoice" in body ? body.invoice : body;
+        // Idempotency guard. The scan pipeline is not transactional: an
+        // upload/auto-post can fail (or error on a 401 that retries) AFTER the
+        // backend has already created the bill in QuickBooks. Re-running this
+        // post in that state creates a second, identical bill. So before
+        // touching the API, look the invoice up in Redux and refuse to post if
+        // it already carries a billId or a terminal posted status.
+        const state = thunkAPI.getState() as RootState;
+        const knownInvoices: InvoiceRecord[] = [
+          ...state.invoice.invoices,
+          state.invoice.selectedInvoice,
+          state.invoice.invoiceDetails,
+        ].filter((inv): inv is InvoiceRecord => Boolean(inv));
 
-        if (serverInvoice) {
-          const serverSaysPosted =
-            serverInvoice.postedStatus === "auto" ||
-            serverInvoice.postedStatus === "manual" ||
-            Boolean(serverInvoice.quickbooks?.billId);
+        const existing = knownInvoices.find((inv) => inv._id === data.invoiceId);
 
-          if (serverSaysPosted) {
+        if (existing) {
+          const alreadyPosted =
+            existing.postedStatus === "auto" ||
+            existing.postedStatus === "manual" ||
+            Boolean(existing.quickbooks?.billId);
+
+          if (alreadyPosted) {
             return thunkAPI.rejectWithValue(
-              `Invoice is already posted to QuickBooks${serverInvoice.quickbooks?.billId ? ` (bill #${serverInvoice.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
+              `Invoice is already posted to QuickBooks${existing.quickbooks?.billId ? ` (bill #${existing.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
             );
           }
         }
-      } catch {
-        // Preflight unavailable — fall through to the post itself.
+
+        // The Redux check above only catches what this tab already knows. The
+        // dangerous case is the opposite one: the backend committed the bill and
+        // the client never found out (timeout, or a 401 on a write that is no
+        // longer re-sent), so Redux still says "pending". Ask the server for the
+        // invoice's current state before posting. This mirrors the guard the
+        // chatbot path performs in src/lib/chatbot/tools.ts.
+        //
+        // A failed preflight deliberately does NOT block the post — refusing on
+        // a transient read error would make posting impossible while the real
+        // first post is still legitimate.
+        try {
+          const fresh = await api.get(`/invoices/${data.invoiceId}`);
+          const body = fresh.data?.data ?? fresh.data;
+          const serverInvoice: InvoiceRecord | undefined =
+            body && typeof body === "object" && "invoice" in body ? body.invoice : body;
+
+          if (serverInvoice) {
+            const serverSaysPosted =
+              serverInvoice.postedStatus === "auto" ||
+              serverInvoice.postedStatus === "manual" ||
+              Boolean(serverInvoice.quickbooks?.billId);
+
+            if (serverSaysPosted) {
+              return thunkAPI.rejectWithValue(
+                `Invoice is already posted to QuickBooks${serverInvoice.quickbooks?.billId ? ` (bill #${serverInvoice.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
+              );
+            }
+          }
+        } catch {
+          // Preflight unavailable — fall through to the post itself.
+        }
+
+        console.log("========== POST TO QB ==========");
+
+        const response = await api.patch(`/invoices/${data.invoiceId}`, {
+          vendorId: data.vendorId,
+          postedStatus: "manual",
+          extractedData: data.extractedData,
+        });
+
+        console.log("========== POST QB SUCCESS ==========");
+
+        return response.data;
+      } catch (error: any) {
+        console.log("========== POST QB ERROR ==========");
+        console.log(error);
+        return thunkAPI.rejectWithValue(getErrorMessage(error));
       }
-
-      console.log("========== POST TO QB ==========");
-
-      const response = await api.patch(`/invoices/${data.invoiceId}`, {
-        vendorId: data.vendorId,
-        postedStatus: "manual",
-        extractedData: data.extractedData,
-      });
-
-      console.log("========== POST QB SUCCESS ==========");
-
-      return response.data;
-    } catch (error: any) {
-      console.log("========== POST QB ERROR ==========");
-      console.log(error);
-      return thunkAPI.rejectWithValue(getErrorMessage(error));
+    } finally {
+      postingInFlight.delete(data.invoiceId);
     }
   },
 );

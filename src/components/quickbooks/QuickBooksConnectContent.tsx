@@ -85,16 +85,19 @@ export function QuickBooksConnectContent() {
                       Switch
                     </button>
                   )}
-                  {(connection.role === "owner" || connection.role === "admin") && (
-                    <button
-                      type="button"
-                      onClick={() => handleReconnect(connection)}
-                      disabled={reconnectingId === connection._id}
-                      className="text-body-sm font-semibold text-primary disabled:opacity-60"
-                    >
-                      {reconnectingId === connection._id ? "…" : "Reconnect"}
-                    </button>
-                  )}
+                  {/* Reconnect is offered for every live connection, not just
+                      owner/admin: reconnecting re-runs the OAuth flow for THIS
+                      connection and rotates its tokens, which is how an active
+                      account gets refreshed when access starts failing. The
+                      backend still enforces whatever role it enforces. */}
+                  <button
+                    type="button"
+                    onClick={() => handleReconnect(connection)}
+                    disabled={reconnectingId === connection._id}
+                    className="text-body-sm font-semibold text-primary disabled:opacity-60"
+                  >
+                    {reconnectingId === connection._id ? "…" : "Reconnect"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleDisconnect(connection)}

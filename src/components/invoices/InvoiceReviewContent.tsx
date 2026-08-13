@@ -9,6 +9,7 @@ import { BrandIcon } from "@/components/icons/BrandIcon";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   getInvoiceDetails,
+  getInvoices,
   postInvoiceToQuickBooks,
   rejectInvoice,
   updateInvoiceExtractedData,
@@ -220,12 +221,18 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
   const createdVendor = useAppSelector((state) => state.vendor.createdVendor);
   const selectedVendor = useAppSelector((state) => state.vendor.selectedVendor);
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
+  const allInvoices = useAppSelector((state) => state.invoice.invoices);
 
   const [scanLoading, setScanLoading] = useState(true);
   const [scanZoom, setScanZoom] = useState(1);
 
   useEffect(() => {
     dispatch(getInvoiceDetails(invoiceId));
+    // Pull the full invoice list so the pre-post duplicate-number check below
+    // can compare against every invoice this tab knows about (list screens and
+    // the scan pipeline populate the same slice). Without this, a re-scan of a
+    // failed upload would never see the earlier record and could post twice.
+    dispatch(getInvoices());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceId]);
 
@@ -439,6 +446,37 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
       if (confirmed) router.push(`/invoices/${invoiceId}/vendor`);
       return;
     }
+
+    // Duplicate-invoice warning. QuickBooks rejects duplicate invoice numbers
+    // per vendor (WebhooksError 6140), and the scan pipeline isn't
+    // transactional — a re-scan of a "failed" upload creates a whole new
+    // invoice record, which then posts a second bill for the same underlying
+    // invoice. Before confirming the post, look for a DIFFERENT record with
+    // the same vendor + invoice number + amount that already has a billId in
+    // QuickBooks, and surface it instead of silently posting a duplicate.
+    const existingBill = allInvoices.find(
+      (inv) =>
+        inv._id !== invoiceId &&
+        inv.quickbooks?.billId &&
+        String(inv.extractedData?.vendorName ?? "").trim().toLowerCase() === invoice.vendor.toLowerCase() &&
+        String(inv.extractedData?.invoiceNumber ?? "").trim().toLowerCase() ===
+          String(invoice.invoiceNumber).trim().toLowerCase() &&
+        Number(inv.extractedData?.totalAmount) === Number(invoice.totalAfterTax),
+    );
+
+    if (existingBill) {
+      const confirmed = await confirmDialog({
+        title: "Possible duplicate invoice",
+        message: `Invoice #${invoice.invoiceNumber} for ${invoice.vendor} already exists in QuickBooks as bill #${existingBill.quickbooks?.billId} (${formatDetailAmount(Number(existingBill.extractedData?.totalAmount))}). Posting anyway may create a duplicate bill.`,
+        confirmLabel: "Post anyway",
+        cancelLabel: "Cancel",
+        tone: "destructive",
+      });
+      if (!confirmed) return;
+      await submitToQuickBooks();
+      return;
+    }
+
     const confirmed = await confirmDialog({
       title: "Post to QuickBooks?",
       message: "Please verify all details are correct before confirming.",

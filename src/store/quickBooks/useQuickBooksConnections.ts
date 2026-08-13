@@ -136,16 +136,24 @@ export function useQuickBooksConnections(redirectPath: string) {
 
   // Returns whether the disconnect actually went through — callers that show
   // a detail panel for the connection being disconnected use this to close
-  // that panel afterward.
+  // that panel afterward. The dialog also offers "Reconnect instead": for a
+  // live account, disconnect + reconnect is how you force a fresh OAuth
+  // authorization and rotate the tokens, so the destructive path always
+  // has a non-destructive refresh option right next to it.
   const handleDisconnect = async (connection: QBConnection): Promise<boolean> => {
     if (!accessToken) return false;
-    const confirmed = await confirmDialog({
+    const choice = await confirmDialog({
       title: "Disconnect QuickBooks account?",
-      message: `Disconnect "${connection.name}"? This cannot be undone.`,
+      message: `Disconnect "${connection.name}"? This cannot be undone.\n\nReconnect instead to refresh the connection without removing it.`,
       confirmLabel: "Disconnect",
+      altLabel: "Reconnect instead",
       tone: "destructive",
     });
-    if (!confirmed) return false;
+    if (choice === "alt") {
+      await handleReconnect(connection);
+      return false;
+    }
+    if (choice !== true) return false;
     setDisconnectingId(connection._id);
     try {
       const result = await dispatch(disconnectQuickBooks({ accessToken, qbConnectionId: connection._id }));

@@ -12,6 +12,7 @@ import {
   fetchQuickBooksTaxCodes,
   fetchQuickBooksVendors,
 } from "@/store/quickBooks/quickBooksApi";
+import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { setSelectedVendor } from "@/store/vendor/vendorSlice";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { showToast } from "@/lib/dialogManager";
@@ -143,6 +144,37 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
         router.back();
       } else {
         const payload = result.payload as { message?: string } | undefined;
+
+        // The backend's vendor-create is not transactional either: it can throw
+        // AFTER the vendor was actually created in QuickBooks (the exact "new
+        // vendor errored but the invoice still posted" bug). Before giving up,
+        // refetch the vendor list and see whether our vendor now exists under a
+        // stable id — if it does, treat the create as successful and proceed
+        // with the resolve flow using the freshly-returned vendor.
+        const refetch = await dispatch(fetchQuickBooksVendors({ accessToken }));
+        const refetchedPayload = refetch.payload;
+        const freshVendors: Vendor[] = Array.isArray(refetchedPayload) ? refetchedPayload : [];
+        const target = newVendorName.trim();
+        const fresh =
+          freshVendors.find((v) => v.displayName?.trim().toLowerCase() === target.toLowerCase()) ??
+          freshVendors.find((v) => v.normalizedName?.trim().toLowerCase() === target.toLowerCase());
+
+        if (fresh) {
+          dispatch(
+            setSelectedVendor({
+              _id: fresh._id,
+              displayName: fresh.displayName,
+              qbVendorId: fresh.qbVendorId,
+              email: fresh.email ?? null,
+              phone: fresh.phone ?? null,
+              address: fresh.address ?? null,
+            }),
+          );
+          showToast(`"${fresh.displayName}" was created in QuickBooks.`, "success");
+          router.back();
+          return;
+        }
+
         showToast(payload?.message || "Failed to create vendor", "error");
       }
     } finally {

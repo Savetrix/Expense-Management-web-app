@@ -444,6 +444,13 @@ export interface PostInvoiceToQbArgs {
   confirm: boolean;
 }
 
+// Same concurrent-post lock as the postInvoiceToQuickBooks thunk in
+// src/store/invoice/invoiceApi.ts: two posts of the same invoice in flight at
+// once both pass the idempotency preflight before either commits, and the
+// second PATCH creates a duplicate bill. Keyed by invoiceId across the whole
+// tab so the review page and the chatbot can't race each other.
+const postingInFlight = new Set<string>();
+
 // PATCH /invoices/:id with vendorId + postedStatus:"manual" — sends an
 // approved invoice into QuickBooks. Destructive: requires confirm=true.
 // Mirrors mcp/mcp-server/src/client/invoices.ts's postInvoiceToQuickBooks and
@@ -458,49 +465,58 @@ export async function postInvoiceToQuickBooks(
   const missing = missingFields(args, ["invoiceId", "vendorId"]);
   if (missing.length) return { success: false, message: `Missing required field(s): ${missing.join(", ")}.` };
 
-  // Idempotency guard — same reasoning as the invoiceApi.ts thunk. The scan
-  // pipeline is not transactional, so an invoice can carry a billId / terminal
-  // posted status while the model still sees it as "pending" from an earlier
-  // fetch. Re-posting creates a duplicate bill in QuickBooks (the exact bug
-  // the tools.ts:847 comment calls out), so fetch current state first and
-  // refuse when the bill already exists.
+  if (postingInFlight.has(args.invoiceId)) {
+    return { success: false, message: "That invoice is already being posted to QuickBooks — not posting it again." };
+  }
+  postingInFlight.add(args.invoiceId);
+
   try {
-    const preflight = await savetrixGet<{ data?: { invoice?: InvoiceRecord } | InvoiceRecord }>(
+    // Idempotency guard — same reasoning as the invoiceApi.ts thunk. The scan
+    // pipeline is not transactional, so an invoice can carry a billId / terminal
+    // posted status while the model still sees it as "pending" from an earlier
+    // fetch. Re-posting creates a duplicate bill in QuickBooks (the exact bug
+    // the tools.ts:847 comment calls out), so fetch current state first and
+    // refuse when the bill already exists.
+    try {
+      const preflight = await savetrixGet<{ data?: { invoice?: InvoiceRecord } | InvoiceRecord }>(
+        `/invoices/${pathSegment(args.invoiceId, "invoiceId")}`,
+        accessToken,
+        qbConnectionId,
+      );
+      const payload = preflight.data?.data;
+      const invoice =
+        payload && typeof payload === "object" && "invoice" in payload
+          ? (payload as { invoice?: InvoiceRecord }).invoice
+          : (payload as InvoiceRecord | undefined);
+
+      if (invoice) {
+        const alreadyPosted =
+          invoice.postedStatus === "auto" ||
+          invoice.postedStatus === "manual" ||
+          Boolean(invoice.quickbooks?.billId);
+        if (alreadyPosted) {
+          return {
+            success: false,
+            message: `Invoice ${args.invoiceId} is already posted to QuickBooks${invoice.quickbooks?.billId ? ` (bill #${invoice.quickbooks.billId})` : ""}. Refusing to post again so no duplicate bill is created.`,
+          };
+        }
+      }
+    } catch {
+      // Preflight fetch failed — fall through and let the PATCH itself surface
+      // the real error rather than blocking a legitimate first post.
+    }
+
+    const res = await savetrixPatch(
       `/invoices/${pathSegment(args.invoiceId, "invoiceId")}`,
+      { vendorId: args.vendorId, postedStatus: "manual", extractedData: args.extractedData },
       accessToken,
       qbConnectionId,
     );
-    const payload = preflight.data?.data;
-    const invoice =
-      payload && typeof payload === "object" && "invoice" in payload
-        ? (payload as { invoice?: InvoiceRecord }).invoice
-        : (payload as InvoiceRecord | undefined);
-
-    if (invoice) {
-      const alreadyPosted =
-        invoice.postedStatus === "auto" ||
-        invoice.postedStatus === "manual" ||
-        Boolean(invoice.quickbooks?.billId);
-      if (alreadyPosted) {
-        return {
-          success: false,
-          message: `Invoice ${args.invoiceId} is already posted to QuickBooks${invoice.quickbooks?.billId ? ` (bill #${invoice.quickbooks.billId})` : ""}. Refusing to post again so no duplicate bill is created.`,
-        };
-      }
-    }
-  } catch {
-    // Preflight fetch failed — fall through and let the PATCH itself surface
-    // the real error rather than blocking a legitimate first post.
+    const invoice = unwrapWriteResult(res.data, ["invoice"]);
+    return isInvoiceRecord(invoice) ? toInvoiceDetailChatContext(invoice) : { success: true };
+  } finally {
+    postingInFlight.delete(args.invoiceId);
   }
-
-  const res = await savetrixPatch(
-    `/invoices/${pathSegment(args.invoiceId, "invoiceId")}`,
-    { vendorId: args.vendorId, postedStatus: "manual", extractedData: args.extractedData },
-    accessToken,
-    qbConnectionId,
-  );
-  const invoice = unwrapWriteResult(res.data, ["invoice"]);
-  return isInvoiceRecord(invoice) ? toInvoiceDetailChatContext(invoice) : { success: true };
 }
 
 export interface RejectInvoiceArgs {
