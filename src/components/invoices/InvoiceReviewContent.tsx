@@ -465,28 +465,54 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     // per vendor (WebhooksError 6140), and the scan pipeline isn't
     // transactional — a re-scan of a "failed" upload creates a whole new
     // invoice record, which then posts a second bill for the same underlying
-    // invoice. Before confirming the post, look for a DIFFERENT record with
-    // the same vendor + invoice number + amount that already has a billId in
-    // QuickBooks, and surface it instead of silently posting a duplicate.
-    const existingBill = allInvoices.find(
-      (inv) =>
-        inv._id !== invoiceId &&
-        inv.quickbooks?.billId &&
-        String(inv.extractedData?.vendorName ?? "").trim().toLowerCase() === invoice.vendor.toLowerCase() &&
-        String(inv.extractedData?.invoiceNumber ?? "").trim().toLowerCase() ===
-          String(invoice.invoiceNumber).trim().toLowerCase() &&
-        Number(inv.extractedData?.totalAmount) === Number(invoice.totalAfterTax),
-    );
+    // invoice.
+    //
+    // Fetched fresh rather than read off the cached list: the mount-time fetch
+    // may not have landed yet (post within a second of opening this screen), and
+    // a duplicate created in another tab or by the scan pipeline would not be in
+    // this tab's copy at all. If the fetch fails we fall back to the cached list
+    // rather than blocking a legitimate post.
+    let candidates = allInvoices;
+    try {
+      const refreshed = await dispatch(getInvoices());
+      if (getInvoices.fulfilled.match(refreshed) && Array.isArray(refreshed.payload)) {
+        candidates = refreshed.payload as typeof allInvoices;
+      }
+    } catch {
+      // keep the cached list
+    }
+
+    // Matched on vendor + invoice number ONLY. Requiring the amount to match too
+    // meant OCR reading the total even slightly differently on the re-scan let a
+    // real duplicate through — and the amount is not what QuickBooks rejects on.
+    // This is a warning with a "Post anyway", so erring toward asking is right.
+    const sameNumberForVendor = (inv: (typeof allInvoices)[number]) =>
+      inv._id !== invoiceId &&
+      Boolean(inv.quickbooks?.billId) &&
+      String(inv.extractedData?.vendorName ?? "").trim().toLowerCase() ===
+        String(invoice.vendor ?? "").trim().toLowerCase() &&
+      String(inv.extractedData?.invoiceNumber ?? "").trim().toLowerCase() ===
+        String(invoice.invoiceNumber ?? "").trim().toLowerCase() &&
+      String(invoice.invoiceNumber ?? "").trim() !== "";
+
+    const existingBill = candidates.find(sameNumberForVendor);
 
     if (existingBill) {
       const confirmed = await confirmDialog({
         title: "Possible duplicate invoice",
-        message: `Invoice #${invoice.invoiceNumber} for ${invoice.vendor} already exists in QuickBooks as bill #${existingBill.quickbooks?.billId} (${formatDetailAmount(Number(existingBill.extractedData?.totalAmount))}). Posting anyway may create a duplicate bill.`,
+        message:
+          `Invoice #${invoice.invoiceNumber} for ${invoice.vendor} already exists in QuickBooks as bill ` +
+          `#${existingBill.quickbooks?.billId} (${formatDetailAmount(Number(existingBill.extractedData?.totalAmount))}).` +
+          (Math.round(Number(existingBill.extractedData?.totalAmount) * 100) !==
+          Math.round(Number(invoice.totalAfterTax) * 100)
+            ? ` This one is ${formatDetailAmount(Number(invoice.totalAfterTax))}, so the amounts differ — check which is correct.`
+            : "") +
+          " Posting anyway may create a duplicate bill.",
         confirmLabel: "Post anyway",
         cancelLabel: "Cancel",
         tone: "destructive",
       });
-      if (!confirmed) return;
+      if (confirmed !== true) return;
       await submitToQuickBooks();
       return;
     }
