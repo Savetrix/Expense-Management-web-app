@@ -12,7 +12,18 @@ write and then reporting failure, and from there being no dedupe key on the
 bill itself.
 
 ---
+We've added every guard we can on the frontend, but the remaining causes are server-side. Full ticket is BACKEND_duplicate-bills.md on main. The five asks:
 
+POST /invoices shouldn't return an error after it's already created the invoice/bill. Either return success with a warning, or roll back. Right now the client can't tell the difference, so the user re-uploads and we get a duplicate.
+Accept an Idempotency-Key header on POST /invoices — same key within 24h returns the original result instead of creating a second record. We'll start sending it as soon as it's supported.
+Refuse to create a second bill for the same (connection, vendor, invoice number). normalizedInvoiceNumber already exists on the model. Return something specific like DUPLICATE_INVOICE_NUMBER with the existing invoice and bill ids so we can show it properly.
+Same for POST /quickbooks/vendors — it can create the vendor in QuickBooks and still return an error, so a retry makes a second vendor.
+Make "mark as posted" atomic — only post if not already posted, in one conditional update. We check before posting, but two simultaneous requests both pass that check and we can't close it from the client.
+Also please confirm the "vendor needs a default GL account" rule is enforced server-side and returned as a field-level validation error.
+
+Important for testing: reproduce with two concurrent requests, not just clicking twice. Sequential clicks are already blocked on our side — the concurrent case is the one that still gets through.
+
+---
 ## 1. The scan pipeline is not atomic
 
 `POST /invoices` performs several steps server-side: store the file, OCR it,
