@@ -19,7 +19,7 @@ import {
   fetchQuickBooksTaxCodes,
   fetchQuickBooksVendors,
 } from "@/store/quickBooks/quickBooksApi";
-import { setSelectedVendor } from "@/store/vendor/vendorSlice";
+import { clearVendorResolutionForOtherInvoice, setSelectedVendor } from "@/store/vendor/vendorSlice";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { formatDetailAmount, formatDetailDateTime, resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
@@ -218,8 +218,18 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
   const taxCodes = useAppSelector((state) => state.quickBooks.taxCodes);
   const taxCodesLoading = useAppSelector((state) => state.quickBooks.taxCodesLoading);
   const taxCodesError = useAppSelector((state) => state.quickBooks.taxCodesError);
-  const createdVendor = useAppSelector((state) => state.vendor.createdVendor);
-  const selectedVendor = useAppSelector((state) => state.vendor.selectedVendor);
+  // A vendor resolution belongs to ONE invoice. Reading it unconditionally is
+  // how a vendor resolved on a previous invoice became the vendor posted to
+  // QuickBooks for this one: the resolution outlived the screen that made it,
+  // and only the Pending list cleared it, so arriving from the Invoices list
+  // inherited it silently. Gated here as well as cleared in the mount effect
+  // below, because the first render happens before that effect runs.
+  const vendorResolutionInvoiceId = useAppSelector((state) => state.vendor.forInvoiceId);
+  const resolutionIsForThisInvoice = vendorResolutionInvoiceId === invoiceId;
+  const createdVendorRaw = useAppSelector((state) => state.vendor.createdVendor);
+  const selectedVendorRaw = useAppSelector((state) => state.vendor.selectedVendor);
+  const createdVendor = resolutionIsForThisInvoice ? createdVendorRaw : null;
+  const selectedVendor = resolutionIsForThisInvoice ? selectedVendorRaw : null;
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
   const allInvoices = useAppSelector((state) => state.invoice.invoices);
 
@@ -227,6 +237,9 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
   const [scanZoom, setScanZoom] = useState(1);
 
   useEffect(() => {
+    // Drop any resolution left behind by a different invoice before it can be
+    // used as this invoice's vendor.
+    dispatch(clearVendorResolutionForOtherInvoice(invoiceId));
     dispatch(getInvoiceDetails(invoiceId));
     // Pull the full invoice list so the pre-post duplicate-number check below
     // can compare against every invoice this tab knows about (list screens and
@@ -328,6 +341,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     updateField("vendor", vendor.displayName);
     dispatch(
       setSelectedVendor({
+        forInvoiceId: invoiceId,
         _id: vendor._id,
         displayName: vendor.displayName,
         qbVendorId: vendor.qbVendorId,

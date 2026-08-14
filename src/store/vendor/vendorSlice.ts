@@ -21,11 +21,23 @@ interface SelectedVendor {
 interface VendorState {
   createdVendor: CreatedVendor | null;
   selectedVendor: SelectedVendor | null;
+  /**
+   * The invoice this vendor resolution was made FOR.
+   *
+   * Without it the selection was global: resolving a vendor on one invoice
+   * left it selected for whatever invoice you opened next, and the review
+   * screen posted that stale vendor to QuickBooks. Only the Pending list
+   * happened to clear it, so opening the next invoice from the Invoices list
+   * inherited it silently. Readers must ignore the selection unless this
+   * matches the invoice actually on screen.
+   */
+  forInvoiceId: string | null;
 }
 
 const initialState: VendorState = {
   createdVendor: null,
   selectedVendor: null,
+  forInvoiceId: null,
 };
 
 const vendorSlice = createSlice({
@@ -34,21 +46,35 @@ const vendorSlice = createSlice({
   reducers: {
     setCreatedVendor: (
       state,
-      action: PayloadAction<CreatedVendor>
+      action: PayloadAction<CreatedVendor & { forInvoiceId: string }>
     ) => {
-      state.createdVendor = action.payload;
+      const { forInvoiceId, ...vendor } = action.payload;
+      state.createdVendor = vendor;
+      state.forInvoiceId = forInvoiceId;
     },
     clearCreatedVendor: (state) => {
       state.createdVendor = null;
+      if (!state.selectedVendor) state.forInvoiceId = null;
     },
     setSelectedVendor: (
       state,
-      action: PayloadAction<SelectedVendor>
+      action: PayloadAction<SelectedVendor & { forInvoiceId: string }>
     ) => {
-      state.selectedVendor = action.payload;
+      const { forInvoiceId, ...vendor } = action.payload;
+      state.selectedVendor = vendor;
+      state.forInvoiceId = forInvoiceId;
     },
     clearSelectedVendor: (state) => {
       state.selectedVendor = null;
+      if (!state.createdVendor) state.forInvoiceId = null;
+    },
+    /** Drops a resolution that belongs to a different invoice. */
+    clearVendorResolutionForOtherInvoice: (state, action: PayloadAction<string>) => {
+      if (state.forInvoiceId !== null && state.forInvoiceId !== action.payload) {
+        state.createdVendor = null;
+        state.selectedVendor = null;
+        state.forInvoiceId = null;
+      }
     },
   },
   extraReducers: (builder) => {
@@ -63,6 +89,7 @@ export const {
   clearCreatedVendor,
   setSelectedVendor,
   clearSelectedVendor,
+  clearVendorResolutionForOtherInvoice,
 } = vendorSlice.actions;
 
 export default vendorSlice.reducer;

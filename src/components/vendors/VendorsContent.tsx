@@ -94,6 +94,9 @@ export function VendorsContent() {
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [form, setForm] = useState<VendorFormState>(EMPTY_FORM);
   const [formError, setFormError] = useState("");
+  // True only for the specific "GL account is required" failure, so the
+  // message can render against the field that caused it.
+  const glMissing = formError === "GL account is required to create a vendor";
   const [saving, setSaving] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -677,9 +680,19 @@ export function VendorsContent() {
                 </label>
                 <select
                   value={form.glAccountId}
-                  onChange={(e) => setForm((f) => ({ ...f, glAccountId: e.target.value }))}
+                  onChange={(e) => {
+                    const glAccountId = e.target.value;
+                    setForm((f) => ({ ...f, glAccountId }));
+                    // Clear the requirement message as soon as it is satisfied,
+                    // rather than leaving stale red text under the field.
+                    if (glAccountId && glMissing) setFormError("");
+                  }}
                   disabled={saving}
-                  className="mt-[var(--space-xs)] h-[50px] w-full rounded-md border border-border bg-white px-[var(--space-md)] text-body focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  aria-invalid={glMissing || undefined}
+                  aria-describedby={glMissing ? "vendor-gl-error" : undefined}
+                  className={`mt-[var(--space-xs)] h-[50px] w-full rounded-md border bg-white px-[var(--space-md)] text-body focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                    glMissing ? "border-error" : "border-border"
+                  }`}
                 >
                   <option value="">Select GL account</option>
                   {glAccounts.map((account) => (
@@ -688,6 +701,18 @@ export function VendorsContent() {
                     </option>
                   ))}
                 </select>
+                {glMissing && (
+                  <p id="vendor-gl-error" className="mt-[var(--space-xs)] text-caption font-semibold text-error">
+                    {formError}
+                  </p>
+                )}
+                {!editingVendor && glAccounts.length === 0 && (
+                  // Otherwise the form is unsatisfiable with no explanation:
+                  // creation is blocked on a field that has nothing to pick.
+                  <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
+                    No GL accounts found. Sync them from QuickBooks first.
+                  </p>
+                )}
               </div>
 
               <div>

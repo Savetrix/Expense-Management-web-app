@@ -85,6 +85,7 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
     if (!selectedVendorObj) return;
     dispatch(
       setSelectedVendor({
+        forInvoiceId: invoiceId,
         _id: selectedVendorObj._id,
         displayName: selectedVendorObj.displayName,
         qbVendorId: selectedVendorObj.qbVendorId,
@@ -99,6 +100,16 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
   const handleCreateVendor = async () => {
     if (!newVendorName.trim()) {
       showToast("Please enter a vendor name.", "error");
+      return;
+    }
+    // The backend rejects a vendor created without a default GL account
+    // ("QuickBooks requires a default GL account for new vendors" — observed
+    // from a real create). This screen used to label the field optional and
+    // send an empty value, so the create failed at the backend after the user
+    // had filled everything in. The Vendors page has always required it; these
+    // two paths now agree.
+    if (!selectedGlAccountId) {
+      showToast("Choose a GL account — QuickBooks requires one for a new vendor.", "error");
       return;
     }
     if (creatingVendor || !accessToken) return;
@@ -128,6 +139,7 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
 
         dispatch(
           setSelectedVendor({
+        forInvoiceId: invoiceId,
             _id: (created?._id as string) || "",
             displayName: (created?.displayName as string) || (created?.DisplayName as string) || newVendorName.trim(),
             qbVendorId: (created?.qbVendorId as string) || (created?.Id as string) || "",
@@ -162,6 +174,7 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
         if (fresh) {
           dispatch(
             setSelectedVendor({
+        forInvoiceId: invoiceId,
               _id: fresh._id,
               displayName: fresh.displayName,
               qbVendorId: fresh.qbVendorId,
@@ -355,13 +368,13 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
             </div>
 
             <div>
-              <label className="text-body-sm font-semibold text-trust-navy">GL account</label>
+              <label className="text-body-sm font-semibold text-trust-navy">GL account *</label>
               <select
                 value={selectedGlAccountId}
                 onChange={(e) => setSelectedGlAccountId(e.target.value)}
                 className="mt-[var(--space-xs)] h-11 w-full rounded-md border border-border px-[var(--space-md)] text-body focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
-                <option value="">{glAccountsLoading ? "Loading accounts…" : "Select GL account (optional)"}</option>
+                <option value="">{glAccountsLoading ? "Loading accounts…" : "Select GL account"}</option>
                 {glAccounts.map((account) => (
                   <option key={account._id} value={account.qbAccountId}>
                     {account.name}
