@@ -107,21 +107,21 @@ Postmark (excellent inbound parsing, but adds a second vendor relationship).
 
 ## 6. Inbound domain and DNS
 
-Dedicated subdomain: **`in.scantrix.ai`**.
+Dedicated subdomain: **`invoice.scantrix.ai`**.
 
 Using the apex or an existing mail domain would put invoice ingestion in the same MX
 path as employee/support/transactional mail. A separate subdomain means an inbound
 misconfiguration cannot break existing delivery, and the blast radius of a leaked
 inbound credential is contained.
 
-Records on `in.scantrix.ai` (values from the provider console — never commit them):
+Records on `invoice.scantrix.ai` (values from the provider console — never commit them):
 
 | Type | Host | Purpose |
 |---|---|---|
-| MX | `in.scantrix.ai` | Route inbound mail to the provider. |
-| TXT | `in.scantrix.ai` | SPF for the subdomain. |
+| MX | `invoice.scantrix.ai` | Route inbound mail to the provider. |
+| TXT | `invoice.scantrix.ai` | SPF for the subdomain. |
 | TXT | `<selector>._domainkey.in` | DKIM. |
-| TXT | `_dmarc.in` | DMARC (`p=quarantine` minimum). |
+| TXT | `_dmarc.invoice` | DMARC (`p=quarantine` minimum). |
 
 `scantrix.ai` records are **not** modified.
 
@@ -133,21 +133,54 @@ one sender maps to many workspaces: `GET /qb-connections` on a single real accou
 returns 5 connections (verified live). A global address cannot decide which
 company/QuickBooks connection an invoice belongs to.
 
-**Address shape:** `inv-<token>@in.scantrix.ai`, where `token` is 20 random bytes,
-base32-encoded (32 chars, unpadded, lowercase). ~100 bits of entropy.
+**Address shape:** `<company-slug>-<6 chars>@invoice.scantrix.ai`
 
-Properties:
+```
+acme-corp-7k2m9x@invoice.scantrix.ai
+devyani-international-limited-9p3xkt@invoice.scantrix.ai
+```
 
-- Cryptographically random (`crypto.randomBytes`), non-guessable.
-- Encodes nothing — no user id, workspace id, email, or company name.
+The prefix is derived from the QuickBooks company name; the suffix is 6 random
+characters from a 32-character alphabet (~30 bits).
+
+Why not the company name alone — three reasons, the first of which is functional
+rather than security:
+
+1. **QuickBooks company names are not unique across Scantrix customers.** Two
+   accounts each managing an "Acme Corp" would collide on one address. The suffix
+   removes that case entirely.
+2. **Renames would break saved contacts.** The address is minted once and never
+   re-derived, so renaming the company in QuickBooks leaves it working.
+3. **A guessable address is a spam target** and discloses which companies use
+   Scantrix.
+
+Why not an opaque token alone: an accountant managing five clients ends up with five
+saved contacts, and `inv-7k2m9x…` gives them nothing to tell apart. The prefix is
+what makes the address usable in practice; nobody types it from memory.
+
+**Correction to an earlier draft of this document.** It claimed only a hash of the
+alias is stored. That is not achievable and was wrong: the settings screen has to
+*display* the address, so it must be stored in plaintext. The design is therefore:
+
+- `receiving_address` — plaintext, because the UI shows it and the user pastes it
+  into a mail client.
+- `token_hash` — SHA-256 of the normalized local-part, **UNIQUE**, used as the
+  lookup key so resolution is O(1) and the index cannot be walked by prefix.
+
+The alias is an **identifier, not a credential.** It selects which workspace an
+invoice belongs to. Authority to create one comes solely from the sender check in
+§8 — knowing an address is never sufficient. The random suffix raises the cost of
+*discovering* valid addresses; it is not a secret, and the security of the feature
+does not rest on it.
+
+Properties that do hold:
+
+- Cryptographically random suffix (`crypto.randomBytes`, no modulo bias).
+- Encodes no user id, workspace id, or email address.
 - Revocable and regeneratable; revocation is immediate.
-- **Stored as SHA-256 hash only.** Lookup is by hash of the incoming local-part, so
-  it stays O(1) with a unique index and the raw token is never at rest.
-- The alias determines the **target workspace**.
-- The authenticated sender determines **whether that user may submit there**.
-
-Alias and sender are deliberately separate axes: knowing an address must not be
-sufficient to create an invoice.
+- Collision-safe: a unique index on `token_hash`, and the caller re-mints with a
+  fresh suffix on the (very unlikely) conflict.
+- Local-part stays within the RFC 5321 64-character limit even for long names.
 
 **Documented fallback:** a global address may be retained only for accounts with
 exactly one workspace, and only when the resolved sender has exactly one authorized
@@ -222,7 +255,7 @@ breaks SPF while DKIM survives. Rejecting on SPF alone would break the primary u
 
 ## 11. End-to-end data flow
 
-1. Provider accepts mail to `inv-<token>@in.scantrix.ai`.
+1. Provider accepts mail to `inv-<token>@invoice.scantrix.ai`.
 2. Signed webhook → server-only endpoint.
 3. Verify signature over **raw** body; verify timestamp freshness.
 4. Validate event schema.
@@ -260,7 +293,7 @@ sequenceDiagram
     participant B as Invoice backend
     participant QB as QuickBooks
 
-    A->>P: Forward invoice to inv-<token>@in.scantrix.ai
+    A->>P: Forward invoice to inv-<token>@invoice.scantrix.ai
     P->>W: Signed webhook (event id, email id, auth results)
     W->>W: Verify signature over RAW body + timestamp
     W->>DB: Insert inbound_email_messages (unique provider_event_id)
@@ -401,10 +434,11 @@ nullable columns.
 |---|---|
 | `id` | PK |
 | `user_id`, `workspace_id` | FK; `(workspace_id, active)` indexed |
-| `token_hash` | SHA-256 of local-part. **UNIQUE.** Raw token never stored |
-| `provider`, `receiving_address` | display only |
+| `token_hash` | SHA-256 of normalized local-part. **UNIQUE.** Lookup key |
+| `provider`, `receiving_address` | plaintext — the UI must display it (§7) |
 | `active` | bool |
 | `created_at`, `revoked_at`, `last_used_at` | |
+| `company_slug` | prefix at mint time; kept for audit after a rename |
 | `rotation_version` | increments on regenerate |
 
 **`inbound_email_messages`**
@@ -618,7 +652,7 @@ All server-only. **No `NEXT_PUBLIC_` prefix on any of these.**
 |---|---|
 | `INBOUND_EMAIL_ENABLED` | Global kill switch (default `false`) |
 | `INBOUND_EMAIL_PROVIDER` | `resend` \| `ses` \| `postmark` |
-| `INBOUND_EMAIL_DOMAIN` | e.g. `in.scantrix.ai` |
+| `INBOUND_EMAIL_DOMAIN` | e.g. `invoice.scantrix.ai` |
 | `INBOUND_PROVIDER_API_KEY` | Fetch email/attachments |
 | `INBOUND_WEBHOOK_SIGNING_SECRET` | Verify signatures |
 | `INBOUND_WEBHOOK_TOLERANCE_SECONDS` | Replay window (default 300) |
@@ -632,9 +666,9 @@ All server-only. **No `NEXT_PUBLIC_` prefix on any of these.**
 
 ## 28. Provider console and DNS setup
 
-1. Add `in.scantrix.ai` as an inbound domain in the provider console.
+1. Add `invoice.scantrix.ai` as an inbound domain in the provider console.
 2. Publish MX/SPF/DKIM/DMARC for that subdomain only (§6). Verify.
-3. Create a catch-all inbound route for `in.scantrix.ai` → webhook URL.
+3. Create a catch-all inbound route for `invoice.scantrix.ai` → webhook URL.
 4. Store the signing secret in the deployment's secret manager (never in git).
 5. Create a least-privilege API key (read email + attachments only).
 6. Send a test forward; confirm signature verification and a `queued` response.
@@ -676,6 +710,12 @@ All server-only. **No `NEXT_PUBLIC_` prefix on any of these.**
 7. **Alias-per-workspace assumes** a user may hold several aliases. Confirm the backend
    user↔workspace model supports that before migrating.
 8. Global-address fallback rejects rather than guesses on ambiguity (§7).
+9. **The readable prefix makes part of the address guessable by design.** A company
+   name is often public, so only the 6-character suffix resists a guess. Accepted
+   deliberately: the address is not a credential (§7), and the sender check is what
+   actually gates invoice creation. Rate limits per alias and per sender (§16) cover
+   the abuse case. Raising the suffix to 8–10 characters is a one-constant change if
+   enumeration ever shows up in the metrics.
 
 ## 32. What is implemented in THIS repository vs. blocked
 
@@ -691,7 +731,7 @@ will consume verbatim, under `src/lib/inboundEmail/`:
 |---|---|
 | `types.ts` | Normalized event, statuses, rejection codes, typed errors |
 | `address.ts` | RFC address parsing, normalization, display-name rejection |
-| `alias.ts` | Token mint, SHA-256 hashing, timing-safe verify, address formatting |
+| `alias.ts` | Company-name slug, address mint, hashing, timing-safe verify, formatting |
 | `authorization.ts` | Sender-authorization decision table (§8) + auth policy (§9) |
 | `attachment.ts` | Magic bytes, MIME cross-check, filename sanitization, caps, inline filtering |
 | `signature.ts` | Raw-body signature verification + replay window |

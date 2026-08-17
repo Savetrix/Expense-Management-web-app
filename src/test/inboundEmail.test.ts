@@ -18,11 +18,11 @@ import {
 } from "../lib/inboundEmail/address";
 import {
   aliasHashMatches,
-  extractAliasToken,
   formatAliasAddress,
-  hashAliasToken,
-  mintAliasToken,
+  hashAliasLocalPart,
+  mintAliasForCompany,
   resolveAliasHash,
+  slugifyCompanyName,
 } from "../lib/inboundEmail/alias";
 import {
   authorizeInboundSender,
@@ -100,58 +100,115 @@ describe("email address parsing", () => {
   });
 
   it("finds the inbound recipient among unrelated ones", () => {
-    const recipients = ["boss@client.com", "inv-abc@in.scantrix.ai", "cc@other.com"];
-    assert.equal(findInboundLocalPart(recipients, "in.scantrix.ai"), "inv-abc");
-    assert.equal(findInboundLocalPart(recipients, "@in.scantrix.ai"), "inv-abc");
+    const recipients = ["boss@client.com", "acme-corp-7k2m9x@invoice.scantrix.ai", "cc@other.com"];
+    assert.equal(findInboundLocalPart(recipients, "invoice.scantrix.ai"), "acme-corp-7k2m9x");
+    assert.equal(findInboundLocalPart(recipients, "@invoice.scantrix.ai"), "acme-corp-7k2m9x");
     // An address on any other domain must never select a workspace.
-    assert.equal(findInboundLocalPart(["inv-abc@evil.com"], "in.scantrix.ai"), null);
+    assert.equal(findInboundLocalPart(["acme-corp-7k2m9x@evil.com"], "invoice.scantrix.ai"), null);
   });
 });
 
-// ── alias tokens ───────────────────────────────────────────────────────────
-describe("inbound alias tokens", () => {
-  it("mints unguessable, non-encoding tokens", () => {
-    const a = mintAliasToken();
-    const b = mintAliasToken();
-    assert.equal(a.token.length, 32);
-    assert.notEqual(a.token, b.token);
-    assert.match(a.localPart, /^inv-[a-z0-9]{32}$/);
-    // Nothing about the tenant may be recoverable from the address.
-    assert.equal(a.token.includes("savetrix"), false);
+// ── alias addresses ───────────────────────────────────────────────────────
+describe("company-name slugs", () => {
+  it("produces a readable prefix from a real QuickBooks company name", () => {
+    assert.equal(slugifyCompanyName("Devyani International Limited"), "devyani-international-limited");
+    assert.equal(slugifyCompanyName("Acme Corp"), "acme-corp");
+    assert.equal(slugifyCompanyName("1001679542 ONTARIO INC."), "1001679542-ontario-inc");
   });
 
-  it("stores only a hash, and the hash is stable", () => {
-    const { token, tokenHash } = mintAliasToken();
-    assert.equal(tokenHash.length, 64);
-    assert.notEqual(tokenHash, token);
-    assert.equal(hashAliasToken(token), tokenHash);
+  it("handles punctuation the way a human would expect", () => {
+    // Apostrophes join, everything else separates.
+    assert.equal(slugifyCompanyName("O'Brien & Sons, LLC."), "obrien-sons-llc");
+    assert.equal(slugifyCompanyName("A/B  Testing   Co"), "a-b-testing-co");
   });
 
-  it("resolves a local-part to the stored hash", () => {
-    const { token, tokenHash, localPart } = mintAliasToken();
-    assert.equal(resolveAliasHash(localPart), tokenHash);
-    assert.equal(resolveAliasHash(localPart.toUpperCase()), tokenHash);
-    assert.equal(extractAliasToken(localPart), token);
+  it("keeps accented letters instead of dropping them", () => {
+    // "caf" would be a worse address than "cafe".
+    assert.equal(slugifyCompanyName("Café München GmbH"), "cafe-munchen-gmbh");
   });
 
-  it("rejects local-parts that are not ours", () => {
-    for (const bad of ["support", "inv-", "inv-tooshort", "invoices@x", `inv-${"z".repeat(33)}`, null]) {
-      assert.equal(resolveAliasHash(bad as string), null, `should reject ${bad}`);
+  it("falls back rather than producing an empty prefix", () => {
+    for (const name of ["", "   ", "!!!", "→→→", null, undefined]) {
+      assert.equal(slugifyCompanyName(name as string), "company", `for ${JSON.stringify(name)}`);
     }
-    // 'i' is not in the alphabet, so a same-length lookalike still fails.
-    assert.equal(extractAliasToken(`inv-${"i".repeat(32)}`), null);
+  });
+
+  it("truncates a very long name at a word boundary", () => {
+    const slug = slugifyCompanyName(
+      "International Business Consulting And Advisory Services Private Limited",
+    );
+    assert.ok(slug.length <= 40, `slug too long: ${slug}`);
+    assert.equal(slug.endsWith("-"), false);
+    assert.ok(slug.startsWith("international-business"));
+  });
+});
+
+describe("inbound alias addresses", () => {
+  it("mints a readable, unique address for a company", () => {
+    const a = mintAliasForCompany("Acme Corp");
+    assert.match(a.localPart, /^acme-corp-[a-z0-9]{6}$/);
+    assert.equal(a.slug, "acme-corp");
+    assert.equal(a.suffix.length, 6);
+    assert.equal(formatAliasAddress(a.localPart, "invoice.scantrix.ai"), `${a.localPart}@invoice.scantrix.ai`);
+  });
+
+  it("gives two workspaces with the SAME company name different addresses", () => {
+    // The reason a bare company name cannot be the address: names are not unique
+    // across Scantrix customers.
+    const a = mintAliasForCompany("Acme Corp");
+    const b = mintAliasForCompany("Acme Corp");
+    assert.equal(a.slug, b.slug);
+    assert.notEqual(a.localPart, b.localPart);
+    assert.notEqual(a.tokenHash, b.tokenHash);
+  });
+
+  it("does not repeat a suffix across many mints", () => {
+    const seen = new Set(Array.from({ length: 300 }, () => mintAliasForCompany("Acme Corp").localPart));
+    assert.equal(seen.size, 300, "suffixes must not collide in a small sample");
+  });
+
+  it("stays within the RFC local-part limit even for a long name", () => {
+    const a = mintAliasForCompany("A".repeat(200));
+    assert.ok(a.localPart.length <= 64, `local-part too long: ${a.localPart.length}`);
+    assert.match(a.localPart, /-[a-z0-9]{6}$/);
+  });
+
+  it("resolves its own address back to the stored hash, case-insensitively", () => {
+    const a = mintAliasForCompany("Acme Corp");
+    assert.equal(resolveAliasHash(a.localPart), a.tokenHash);
+    assert.equal(resolveAliasHash(a.localPart.toUpperCase()), a.tokenHash);
+    assert.equal(resolveAliasHash(`  ${a.localPart}  `), a.tokenHash);
+    assert.equal(hashAliasLocalPart(a.localPart), a.tokenHash);
+  });
+
+  it("refuses local-parts that were never issued as addresses", () => {
+    for (const bad of [
+      "support",            // a bare word carries no suffix
+      "postmaster",
+      "acme corp-7k2m9x",   // space
+      "acme_corp-7k2m9x",   // underscore
+      "-acme-7k2m9x",       // leading separator
+      "acme--7k2m9x",       // empty label
+      "ab",                 // too short
+      "a".repeat(70),       // too long
+      "acme-corp-7k2m9x@x", // a full address, not a local-part
+      null,
+      undefined,
+    ]) {
+      assert.equal(resolveAliasHash(bad as string), null, `should reject ${JSON.stringify(bad)}`);
+    }
   });
 
   it("compares hashes without leaking via length or early exit", () => {
-    const h = hashAliasToken("abc");
-    assert.equal(aliasHashMatches(h, h), true);
-    assert.equal(aliasHashMatches(h, hashAliasToken("abd")), false);
-    assert.equal(aliasHashMatches("short", h), false);
+    const a = mintAliasForCompany("Acme Corp");
+    const b = mintAliasForCompany("Acme Corp");
+    assert.equal(aliasHashMatches(a.tokenHash, a.tokenHash), true);
+    assert.equal(aliasHashMatches(a.tokenHash, b.tokenHash), false);
+    assert.equal(aliasHashMatches("short", a.tokenHash), false);
   });
 
-  it("formats the receiving address", () => {
-    assert.equal(formatAliasAddress("inv-abc", "in.scantrix.ai"), "inv-abc@in.scantrix.ai");
-    assert.equal(formatAliasAddress("inv-abc", "@In.Scantrix.AI"), "inv-abc@in.scantrix.ai");
+  it("normalizes the domain when formatting", () => {
+    assert.equal(formatAliasAddress("acme-7k2m9x", "@Invoice.Scantrix.AI"), "acme-7k2m9x@invoice.scantrix.ai");
   });
 });
 
@@ -608,8 +665,8 @@ describe("Resend payload normalization", () => {
       message_id: "<abc@mail.example.com>",
       created_at: "2026-08-14T10:00:00.000Z",
       from: ['"Nikhil" <nikhil@savetrix.com>'],
-      to: ["inv-token@in.scantrix.ai"],
-      envelope: { from: "nikhil@savetrix.com", to: ["inv-token@in.scantrix.ai"] },
+      to: ["acme-corp-7k2m9x@invoice.scantrix.ai"],
+      envelope: { from: "nikhil@savetrix.com", to: ["acme-corp-7k2m9x@invoice.scantrix.ai"] },
       subject: "FW: Invoice 123",
       authentication: { spf: "pass", dkim: "pass", dmarc: "pass" },
       attachments: [
@@ -642,7 +699,7 @@ describe("Resend payload normalization", () => {
     const r = normalizeResendEvent(payload);
     assert.equal(r.ok, true);
     if (!r.ok) return;
-    assert.equal(findInboundLocalPart(r.value.event!.recipients, "in.scantrix.ai"), "inv-token");
+    assert.equal(findInboundLocalPart(r.value.event!.recipients, "invoice.scantrix.ai"), "acme-corp-7k2m9x");
   });
 
   it("acknowledges an unsupported event type without producing an event", () => {

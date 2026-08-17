@@ -1,71 +1,141 @@
-// SERVER-ONLY. Opaque inbound aliases: mint, hash, verify, format.
+// SERVER-ONLY. Inbound aliases: readable prefix + random suffix.
 //
-// The alias decides WHICH WORKSPACE an invoice lands in (§7), so it has to be
-// unguessable — otherwise anyone could aim invoices at someone else's books. It
-// deliberately encodes nothing: no user id, workspace id, email, or company name.
-// Only the SHA-256 hash is stored, so a database leak does not hand over working
-// receiving addresses.
+//   acme-corp-7k2m9x@invoice.scantrix.ai
+//   devyani-international-9p3xkt@invoice.scantrix.ai
+//
+// The prefix comes from the QuickBooks company name so an accountant managing
+// several clients can tell five saved contacts apart. The suffix is what makes the
+// address unique and non-enumerable.
+//
+// Why not the company name alone: QuickBooks company names are not unique across
+// Scantrix customers, so two accounts both managing an "Acme Corp" would collide on
+// one address. The suffix removes that entirely, and also survives a company being
+// renamed — the address is minted once and never re-derived, so a rename cannot
+// invalidate a contact the user has already saved.
+//
+// What the alias is and is not: it selects WHICH WORKSPACE an invoice lands in. It
+// is an identifier, not a credential — it is displayed in the UI, pasted into mail
+// clients, and therefore stored in plaintext so it can be shown again. Authority to
+// create an invoice comes from the sender check in authorization.ts, never from
+// knowing an address. The random suffix raises the cost of discovering valid
+// addresses; it is not a secret.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-/** 20 bytes -> 32 base32 chars, ~100 bits. Long enough that guessing is hopeless,
- *  short enough that a human can paste the address without wrapping. */
-const TOKEN_BYTES = 20;
-const PREFIX = "inv-";
+/** Suffix length. 6 chars over a 32-char alphabet is ~30 bits — about a billion
+ *  possibilities, so addresses cannot be walked, while staying short enough to read
+ *  aloud. Drop to 4 if the shorter form matters more than enumeration resistance. */
+const SUFFIX_LENGTH = 6;
 
-/** Crockford-style alphabet minus i/l/o/u: avoids characters people misread when
- *  copying an address out of a support ticket by hand. */
+/** Keeps the whole local-part comfortably inside the 64-char RFC limit. */
+const MAX_SLUG_LENGTH = 40;
+const MAX_LOCAL_PART_LENGTH = 64;
+
+/** No i/l/o/u: avoids the characters people misread when copying by hand. */
 const ALPHABET = "abcdefghjkmnpqrstvwxyz0123456789";
 
-function base32(bytes: Buffer): string {
-  let bits = 0;
-  let value = 0;
-  let out = "";
-  for (const byte of bytes) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      out += ALPHABET[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
+/**
+ * QuickBooks company name -> address-safe prefix.
+ *
+ * "Devyani International Limited"  -> devyani-international-limited
+ * "O'Brien & Sons, LLC."           -> obrien-sons-llc
+ * "1001679542 ONTARIO INC."        -> 1001679542-ontario-inc
+ * "Café München GmbH"              -> cafe-munchen-gmbh
+ */
+export function slugifyCompanyName(name: string | null | undefined): string {
+  if (typeof name !== "string" || !name.trim()) return "company";
+
+  // Decompose accents so "é" becomes "e" rather than being dropped entirely —
+  // losing the letter would mangle names like "Café" into "caf".
+  const decomposed = name.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+
+  let slug = decomposed
+    .toLowerCase()
+    // Apostrophes join words ("O'Brien" -> obrien); everything else separates.
+    .replace(/['’`]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  if (!slug) return "company";
+
+  if (slug.length > MAX_SLUG_LENGTH) {
+    slug = slug.slice(0, MAX_SLUG_LENGTH);
+    // Prefer cutting at a word boundary, but only if a reasonable prefix survives.
+    const lastDash = slug.lastIndexOf("-");
+    if (lastDash >= 8) slug = slug.slice(0, lastDash);
+    slug = slug.replace(/-$/, "");
   }
-  if (bits > 0) out += ALPHABET[(value << (5 - bits)) & 31];
+  return slug || "company";
+}
+
+function randomSuffix(length: number = SUFFIX_LENGTH): string {
+  // Rejection-free because 32 divides 256 evenly, so no modulo bias.
+  const bytes = randomBytes(length);
+  let out = "";
+  for (const byte of bytes) out += ALPHABET[byte & 31];
   return out;
 }
 
 export interface MintedAlias {
-  /** Show once, then never again — only the hash is persisted. */
-  token: string;
-  tokenHash: string;
+  /** Local-part, e.g. "acme-corp-7k2m9x". */
   localPart: string;
-}
-
-export function mintAliasToken(): MintedAlias {
-  const token = base32(randomBytes(TOKEN_BYTES));
-  return { token, tokenHash: hashAliasToken(token), localPart: `${PREFIX}${token}` };
+  /** Indexed lookup key. Unique constraint lives on this column. */
+  tokenHash: string;
+  slug: string;
+  suffix: string;
 }
 
 /**
- * Hash of the bare token. Lookup is by this value with a unique index, which keeps
- * resolution O(1) while leaving the raw token absent from the database — the
- * "prefer storing a hash when lookup requirements permit" case in the brief.
+ * Mint an alias for one workspace.
+ *
+ * `attempt` exists for the (very unlikely) unique-index collision: the caller
+ * retries with attempt+1 to get a fresh suffix rather than failing the request.
  */
-export function hashAliasToken(token: string): string {
-  return createHash("sha256").update(`savetrix-inbound-alias:${token}`).digest("hex");
+export function mintAliasForCompany(companyName: string | null | undefined): MintedAlias {
+  const slug = slugifyCompanyName(companyName);
+  const suffix = randomSuffix();
+  let localPart = `${slug}-${suffix}`;
+
+  if (localPart.length > MAX_LOCAL_PART_LENGTH) {
+    const room = MAX_LOCAL_PART_LENGTH - suffix.length - 1;
+    localPart = `${slug.slice(0, room).replace(/-$/, "")}-${suffix}`;
+  }
+  return { localPart, tokenHash: hashAliasLocalPart(localPart), slug, suffix };
 }
 
-/** Strips the `inv-` prefix. Returns null when the local-part is not one of ours. */
-export function extractAliasToken(localPart: string | null | undefined): string | null {
+/**
+ * Lookup key for a local-part.
+ *
+ * Hashed rather than compared directly so the index cannot be walked by prefix and
+ * a stray log line carrying a hash reveals nothing usable. Lowercased first because
+ * mail clients rewrite case freely and `Acme-Corp-7K2M9X` must resolve.
+ */
+export function hashAliasLocalPart(localPart: string): string {
+  return createHash("sha256")
+    .update(`savetrix-inbound-alias:${localPart.trim().toLowerCase()}`)
+    .digest("hex");
+}
+
+/** Shape a local-part must have before it is worth a database round trip. */
+const LOCAL_PART_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Normalize and hash an incoming local-part, or null when it cannot be one of ours.
+ *
+ * A null here means `unknown_alias` — the same answer an unrecognised address gets,
+ * so a probe cannot tell a malformed address from a real one it does not own.
+ */
+export function resolveAliasHash(localPart: string | null | undefined): string | null {
   if (typeof localPart !== "string") return null;
   const value = localPart.trim().toLowerCase();
-  if (!value.startsWith(PREFIX)) return null;
-  const token = value.slice(PREFIX.length);
-  // Length and alphabet are fixed, so anything else cannot be a token we minted.
-  if (token.length !== 32) return null;
-  for (const ch of token) if (!ALPHABET.includes(ch)) return null;
-  return token;
+  if (value.length < 3 || value.length > MAX_LOCAL_PART_LENGTH) return null;
+  if (!LOCAL_PART_SHAPE.test(value)) return null;
+  // Must carry a suffix; a bare company slug was never issued as an address.
+  if (!value.includes("-")) return null;
+  return hashAliasLocalPart(value);
 }
 
-/** Hash comparison in constant time — the comparison input is attacker-supplied. */
+/** Constant-time: the left side is attacker-supplied. */
 export function aliasHashMatches(candidateHash: string, storedHash: string): boolean {
   const a = Buffer.from(candidateHash, "utf8");
   const b = Buffer.from(storedHash, "utf8");
@@ -76,15 +146,4 @@ export function aliasHashMatches(candidateHash: string, storedHash: string): boo
 export function formatAliasAddress(localPart: string, inboundDomain: string): string {
   const domain = inboundDomain.trim().toLowerCase().replace(/^@/, "");
   return `${localPart}@${domain}`;
-}
-
-/**
- * Resolve an incoming local-part to a stored alias hash, without touching a
- * database. The caller does the lookup; this owns the parsing and the comparison
- * so both stay in one tested place.
- */
-export function resolveAliasHash(localPart: string | null | undefined): string | null {
-  const token = extractAliasToken(localPart);
-  if (!token) return null;
-  return hashAliasToken(token);
 }
