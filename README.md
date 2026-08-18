@@ -4,6 +4,19 @@ A Next.js (App Router) web port of the Scantrix mobile app — AI-assisted
 invoice scanning, QuickBooks sync, and team management for small
 businesses.
 
+## Invoice forwarding by email — user flow
+
+![Invoice forwarding by email: an invoice forwarded to a company's Scantrix address passes three checks, then joins the same processing pipeline as a manual upload](./EMAIL_FORWARDING_USER_FLOW.svg)
+
+Forward an invoice to the address for a QuickBooks company and it enters the *same*
+pipeline a manual upload uses — reading, vendor matching, duplicate checks, review,
+then posting. Email is an extra front door, not a second system.
+
+Design and contracts: [`EMAIL_INVOICE_INGESTION_ARCHITECTURE.md`](./EMAIL_INVOICE_INGESTION_ARCHITECTURE.md).
+Not live yet — the receiving address and the processing behind it still need setting
+up (§32 of that document).
+
+
 ## What this is
 
 This repo is a genuine web-native re-implementation of the mobile app at
