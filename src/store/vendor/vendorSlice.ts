@@ -16,6 +16,8 @@ interface SelectedVendor {
   email: string | null;
   phone: string | null;
   address: string | null;
+  glAccountId?: string | null;
+  taxCodeId?: string | null;
 }
 
 interface VendorState {

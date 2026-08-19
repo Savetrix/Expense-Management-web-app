@@ -9,7 +9,7 @@ import type { InvoiceRecord } from "./invoiceSlice";
 // ======================================
 
 interface ScanInvoicePayload {
-  file: File;
+  files: File[];
   qbId: string;
 }
 
@@ -46,8 +46,10 @@ export const scanInvoice = createAsyncThunk(
       // In a real browser, FormData.append requires an actual File/Blob —
       // anything else gets silently coerced via toString() and the upload
       // parses as garbage server-side. Fixed to take a browser File directly.
+      // All files share the "files" field name — that's how multer's
+      // upload.array("files", 10) collects them into req.files server-side.
       const formData = new FormData();
-      formData.append("files", data.file, data.file.name);
+      data.files.forEach((file) => formData.append("files", file, file.name));
 
       const response = await api.post("/invoices", formData, {
         headers: {
