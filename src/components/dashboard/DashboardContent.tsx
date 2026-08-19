@@ -40,7 +40,7 @@ function timeAgo(ms: number): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-const MAX_UPLOAD_FILES = 20;
+const MAX_UPLOAD_FILES = 10;
 const WEEKLY_SCAN_WEEKS = 5;
 // "Sync now" pulls the QB connection status plus vendors/GL accounts/tax
 // codes in one shot — throttled so a user mashing the button doesn't fan out
@@ -254,7 +254,7 @@ export function DashboardContent() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [uploadCount, setUploadCount] = useState<number | null>(null);
   const [connectingQB, setConnectingQB] = useState(false);
   const [syncingQB, setSyncingQB] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -531,10 +531,11 @@ export function DashboardContent() {
   // Single upload path for every entry point (click-to-browse, drag-and-drop) —
   // both call this, neither duplicates it. Keeps the FormData/scanInvoice call
   // exactly as it was before the dropzone existed (see scanInvoice's own
-  // comment on the RN-FormData bug this fixed once already). Multiple files
-  // are uploaded one scanInvoice call at a time — the backend accepts one
-  // invoice per request — so a failure partway through still leaves every
-  // file before it posted.
+  // comment on the RN-FormData bug this fixed once already). All selected
+  // files go up in ONE request, matching the backend's upload.array("files",
+  // 10) — the backend processes each file independently (one bad file only
+  // fails itself, not the rest of the batch), so a fulfilled result here can
+  // still carry a partial `data.failed` list, handled below.
   const uploadFiles = useCallback(
     async (files: File[]) => {
       if (!qbConnectionId) {
@@ -542,22 +543,32 @@ export function DashboardContent() {
         return;
       }
 
-      const selected = files.slice(0, MAX_UPLOAD_FILES);
       if (files.length > MAX_UPLOAD_FILES) {
-        showToast(`You can upload up to ${MAX_UPLOAD_FILES} invoices at a time. Only the first ${MAX_UPLOAD_FILES} were selected.`, "error");
+        showToast(`You can upload up to ${MAX_UPLOAD_FILES} invoices at a time. Please select ${MAX_UPLOAD_FILES} or fewer.`, "error");
+        return;
       }
 
       setUploading(true);
+      setUploadCount(files.length);
       try {
-        for (let i = 0; i < selected.length; i++) {
-          setUploadProgress({ current: i + 1, total: selected.length });
-          const result = await dispatch(scanInvoice({ file: selected[i], qbId: qbConnectionId }));
-          if (!scanInvoice.fulfilled.match(result)) {
-            const payload = result.payload;
+        const result = await dispatch(scanInvoice({ files, qbId: qbConnectionId }));
+        if (!scanInvoice.fulfilled.match(result)) {
+          const payload = result.payload;
+          showToast(
+            typeof payload === "string" ? payload : "Invoice upload failed.",
+            "error",
+          );
+        } else {
+          // The backend processes each file independently — one bad file
+          // (corrupt upload, S3 hiccup) doesn't cost the rest of the batch,
+          // so a 201 here can still carry a partial list of failures.
+          const failed = (result.payload as { data?: { failed?: { fileName?: string; message?: string }[] } })?.data
+            ?.failed;
+          if (failed && failed.length > 0) {
             showToast(
-              `${selected[i].name}: ${
-                typeof payload === "string" ? payload : "Invoice scan failed"
-              }. It may still have been created — check the list before rescanning.`,
+              `${failed.length} of ${files.length} file(s) failed: ${failed
+                .map((f) => f.fileName || "unknown file")
+                .join(", ")}. The rest were uploaded.`,
               "error",
             );
           }
@@ -572,7 +583,7 @@ export function DashboardContent() {
         setTimeout(syncInvoices, 1500);
       } finally {
         setUploading(false);
-        setUploadProgress(null);
+        setUploadCount(null);
       }
     },
     [dispatch, qbConnectionId, syncInvoices],
@@ -656,7 +667,7 @@ export function DashboardContent() {
       <div className="flex flex-col gap-[var(--space-md)] md:flex-row">
         <InvoiceDropzone
           uploading={uploading}
-          progressLabel={uploadProgress ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : undefined}
+          progressLabel={uploadCount ? `Uploading ${uploadCount} invoice${uploadCount === 1 ? "" : "s"}…` : undefined}
           onFilesSelected={uploadFiles}
         />
         <div className="flex flex-col gap-[var(--space-sm)] md:w-64">

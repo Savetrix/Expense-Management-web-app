@@ -158,6 +158,7 @@ function SectionHeader({
 // form. `stacked` puts the control on its own line below the label, for
 // multiline fields (address, bank details, item descriptions).
 function EditableRow({
+  id,
   label,
   labelColor,
   dividerColor,
@@ -168,6 +169,7 @@ function EditableRow({
   editable,
   children,
 }: {
+  id?: string;
   label: string;
   labelColor: string;
   dividerColor: string;
@@ -180,7 +182,8 @@ function EditableRow({
 }) {
   return (
     <div
-      className="px-[var(--space-md)] py-[var(--space-sm)]"
+      id={id}
+      className="scroll-mt-24 px-[var(--space-md)] py-[var(--space-sm)]"
       style={!isLast ? { borderBottom: `1px solid ${dividerColor}` } : undefined}
     >
       <div className={stacked ? "flex flex-col gap-[var(--space-xs)]" : "flex items-center justify-between gap-[var(--space-md)]"}>
@@ -299,6 +302,16 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     const normalized = normalizeInvoiceData(invoiceObject?.extractedData || {});
     if (selectedVendor?.displayName) normalized.vendor = selectedVendor.displayName;
     else if (createdVendor?.name) normalized.vendor = createdVendor.name;
+    // The extracted data never had a GL account when the vendor couldn't be
+    // matched (that's why resolution was required in the first place), so
+    // once resolved, fall back to the vendor's own default GL account/tax
+    // code rather than leaving the invoice's copy empty.
+    if (!normalized.glAccountId) {
+      normalized.glAccountId = selectedVendor?.glAccountId || createdVendor?.glAccountId || "";
+    }
+    if (!normalized.taxCodeId) {
+      normalized.taxCodeId = selectedVendor?.taxCodeId || createdVendor?.taxCodeId || "";
+    }
     setInvoice(normalized);
     setFieldErrors(getInitialFieldErrors(normalized));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -348,6 +361,8 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
         email: null,
         phone: null,
         address: null,
+        glAccountId: vendor.glAccountId ?? null,
+        taxCodeId: vendor.taxCodeId ?? null,
       }),
     );
   };
@@ -447,8 +462,11 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
 
   const handlePrimaryAction = async () => {
     const errors = validateQuickBooksFields();
-    if (Object.keys(errors).length > 0) {
+    const errorKeys = Object.keys(errors);
+    if (errorKeys.length > 0) {
       setFieldErrors(errors);
+      showToast(errors[errorKeys[0]] || "Please fill in the required fields.", "error");
+      document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     if (vendorResolutionRequired && !vendorIsResolved) {
@@ -535,8 +553,11 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
 
   const handleSaveChanges = async () => {
     const errors = validateQuickBooksFields();
-    if (Object.keys(errors).length > 0) {
+    const errorKeys = Object.keys(errors);
+    if (errorKeys.length > 0) {
       setFieldErrors(errors);
+      showToast(errors[errorKeys[0]] || "Please fill in the required fields.", "error");
+      document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
@@ -727,7 +748,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
             {/* Invoice Information */}
             <div className="overflow-hidden rounded-lg bg-white shadow-sm">
               <SectionHeader title="Invoice Information" bg={theme.sectionHeaderBg} color={theme.headerBg} />
-              <EditableRow label="Invoice Number" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.invoiceNumber} editable>
+              <EditableRow id="field-invoiceNumber" label="Invoice Number" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.invoiceNumber} editable>
                 <input
                   value={invoice.invoiceNumber}
                   onChange={(e) => updateField("invoiceNumber", e.target.value)}
@@ -761,7 +782,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                   </p>
                 )}
               </EditableRow>
-              <EditableRow label="Currency" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.currency}>
+              <EditableRow id="field-currency" label="Currency" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.currency}>
                 <select
                   value={invoice.currency}
                   onChange={(e) => updateField("currency", e.target.value)}
@@ -777,7 +798,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                   ))}
                 </select>
               </EditableRow>
-              <EditableRow label="GL Code / Category" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.glAccountId}>
+              <EditableRow id="field-glAccountId" label="GL Code / Category" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.glAccountId}>
                 <select value={invoice.glAccountId} onChange={handleGlAccountChange} className={INPUT_CLASS}>
                   <option value="" disabled>
                     {glAccountsLoading
@@ -858,7 +879,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
             {/* Financial Summary */}
             <div className="overflow-hidden rounded-lg bg-white shadow-sm">
               <SectionHeader title="Financial Summary" bg={theme.sectionHeaderBg} color={theme.headerBg} />
-              <EditableRow label="Amount Before Tax" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.amountBeforeTax} editable>
+              <EditableRow id="field-amountBeforeTax" label="Amount Before Tax" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.amountBeforeTax} editable>
                 <input
                   value={invoice.amountBeforeTax}
                   onChange={(e) => updateField("amountBeforeTax", e.target.value)}
@@ -867,7 +888,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                   className={INPUT_CLASS}
                 />
               </EditableRow>
-              <EditableRow label="Tax Amount" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.taxAmount} editable>
+              <EditableRow id="field-taxAmount" label="Tax Amount" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.taxAmount} editable>
                 <input
                   value={invoice.taxAmount}
                   onChange={(e) => updateField("taxAmount", e.target.value)}
@@ -877,6 +898,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                 />
               </EditableRow>
               <EditableRow
+                id="field-totalAfterTax"
                 label="Total Amount"
                 labelColor={theme.primaryText}
                 dividerColor={theme.divider}
@@ -899,7 +921,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
             {/* Vendor Details */}
             <div className="overflow-hidden rounded-lg bg-white shadow-sm">
               <SectionHeader title="Vendor Details" bg={theme.sectionHeaderBg} color={theme.headerBg} />
-              <EditableRow label="Vendor" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.vendor}>
+              <EditableRow id="field-vendor" label="Vendor" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.vendor}>
                 {isPendingReview ? (
                   <select value={selectedVendor?._id || ""} onChange={handleVendorChange} className={INPUT_CLASS}>
                     {/* A neutral placeholder, not an echo of the current

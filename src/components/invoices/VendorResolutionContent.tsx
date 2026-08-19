@@ -92,6 +92,8 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
         email: null,
         phone: null,
         address: null,
+        glAccountId: selectedVendorObj.glAccountId ?? null,
+        taxCodeId: selectedVendorObj.taxCodeId ?? null,
       }),
     );
     router.back();
@@ -150,19 +152,25 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
               (created?.phone as string) ||
               ((created?.PrimaryPhone as { FreeFormNumber?: string } | undefined)?.FreeFormNumber ?? null),
             address: (created?.address as string) || null,
+            glAccountId: (created?.glAccountId as string) || selectedGlAccountId || null,
+            taxCodeId: (created?.taxCodeId as string) || selectedTaxCodeIdValue || null,
           }),
         );
+
+        // The backend already saved this vendor to the local DB as part of
+        // creating it — refetch (cheap local read) so it shows up in the
+        // Redux vendor list for every other screen, not just this invoice's
+        // resolution, without another soft-navigation round trip.
+        await dispatch(fetchQuickBooksVendors({ accessToken }));
 
         router.back();
       } else {
         const payload = result.payload as { message?: string } | undefined;
 
-        // The backend's vendor-create is not transactional either: it can throw
-        // AFTER the vendor was actually created in QuickBooks (the exact "new
-        // vendor errored but the invoice still posted" bug). Before giving up,
-        // refetch the vendor list and see whether our vendor now exists under a
-        // stable id — if it does, treat the create as successful and proceed
-        // with the resolve flow using the freshly-returned vendor.
+        // The backend now checks its own DB and QuickBooks itself before
+        // attempting a create, so a genuine duplicate-name throw here should
+        // be rare — but as a safety net, refetch the vendor list and see
+        // whether our vendor exists under a stable id anyway before giving up.
         const refetch = await dispatch(fetchQuickBooksVendors({ accessToken }));
         const refetchedPayload = refetch.payload;
         const freshVendors: Vendor[] = Array.isArray(refetchedPayload) ? refetchedPayload : [];
@@ -181,6 +189,8 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
               email: fresh.email ?? null,
               phone: fresh.phone ?? null,
               address: fresh.address ?? null,
+              glAccountId: fresh.glAccountId ?? null,
+              taxCodeId: fresh.taxCodeId ?? null,
             }),
           );
           showToast(`"${fresh.displayName}" was created in QuickBooks.`, "success");
