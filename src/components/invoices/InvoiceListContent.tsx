@@ -15,6 +15,7 @@ import {
   getInvoicePostedDate,
   getInvoiceStatus,
   getInvoiceTitle,
+  getUserDisplayName,
 } from "@/lib/invoiceDisplay";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
@@ -231,7 +232,7 @@ export function InvoiceListContent() {
   const meta = STATUS_META[statusFilter];
 
   return (
-    <div className="mx-auto max-w-6xl p-[var(--space-lg)]">
+    <div className="mx-auto max-w-7xl p-[var(--space-lg)]">
       <div className="grid grid-cols-1 gap-[var(--space-lg)] lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
         <div className="flex flex-col gap-[var(--space-md)]">
           {/* Stat tiles — real dollar totals per status, doubling as status
@@ -347,10 +348,11 @@ export function InvoiceListContent() {
 
             {/* Table header */}
             {!loading && !error && statusFilteredInvoices.length > 0 && (
-              <div className="hidden gap-[var(--space-sm)] px-[var(--space-md)] pb-[var(--space-sm)] pt-[var(--space-md)] text-caption font-bold uppercase tracking-wide text-text-secondary lg:grid lg:grid-cols-[40px_2fr_1fr_1fr_1fr_24px]">
+              <div className="hidden gap-[var(--space-sm)] px-[var(--space-md)] pb-[var(--space-sm)] pt-[var(--space-md)] text-caption font-bold uppercase tracking-wide text-text-secondary lg:grid lg:grid-cols-[40px_2fr_1fr_1.5fr_1fr_1fr_24px]">
                 <span />
                 <span>Vendor / Invoice</span>
                 <span>Received</span>
+                <span>Uploaded By</span>
                 <span>Status</span>
                 <span className="text-right">Amount</span>
                 <span />
@@ -401,7 +403,7 @@ export function InvoiceListContent() {
                       key={invoice._id}
                       type="button"
                       onClick={() => setSelectedInvoiceId(invoice._id)}
-                      className={`flex w-full items-start gap-[var(--space-sm)] border-b border-border px-[var(--space-md)] py-[var(--space-sm)] text-left last:border-b-0 lg:grid lg:grid-cols-[40px_2fr_1fr_1fr_1fr_24px] lg:items-center ${
+                      className={`flex w-full items-start gap-[var(--space-sm)] border-b border-border px-[var(--space-md)] py-[var(--space-sm)] text-left last:border-b-0 lg:grid lg:grid-cols-[40px_2fr_1fr_1.5fr_1fr_1fr_24px] lg:items-center ${
                         isSelected ? "bg-primary-50" : "hover:bg-background-alt"
                       }`}
                     >
@@ -435,17 +437,20 @@ export function InvoiceListContent() {
                           <span className="ml-auto font-bold text-text-primary">{getInvoiceAmount(invoice)}</span>
                         </span>
                       </span>
-                      <span className="hidden text-body-sm text-text-secondary lg:block">
+                      <span className="hidden min-w-0 truncate text-body-sm text-text-secondary lg:block">
                         {getInvoicePostedDate(invoice)}
                       </span>
-                      <span className="hidden lg:block">
+                      <span className="hidden min-w-0 truncate text-body-sm text-text-secondary lg:block">
+                        {getUserDisplayName(invoice.uploadedBy) || "—"}
+                      </span>
+                      <span className="hidden min-w-0 lg:block">
                         <span
                           className={`inline-flex w-fit items-center rounded-pill px-[var(--space-sm)] py-[2px] text-caption font-bold ${rowTheme.badgeClass}`}
                         >
                           {rowTheme.label}
                         </span>
                       </span>
-                      <span className="hidden text-right font-bold text-text-primary lg:block">
+                      <span className="hidden min-w-0 truncate text-right font-bold text-text-primary lg:block">
                         {getInvoiceAmount(invoice)}
                       </span>
                       <ChevronRight
@@ -461,7 +466,7 @@ export function InvoiceListContent() {
           </div>
         </div>
 
-        <aside className="flex flex-col gap-[var(--space-md)]">
+        <aside className="flex flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--space-lg)]">
           {selectedInvoice ? (
             <SelectedInvoiceCard
               invoice={selectedInvoice}
