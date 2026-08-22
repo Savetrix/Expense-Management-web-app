@@ -169,6 +169,7 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
   const vendorBankDetails = safeDetailValue(rawData?.bankingDetails);
   const glCode = safeDetailValue(resolvedGlAccount?.name);
   const itemDescriptions = safeDetailValue(rawData?.description);
+  const uploadedByName = safeDetailValue(getUserDisplayName(invoiceObject?.uploadedBy));
 
   const previewHref = invoiceUrl
     ? `/invoices/preview?url=${encodeURIComponent(invoiceUrl)}&mimeType=${encodeURIComponent(previewMimeType)}`
@@ -293,7 +294,8 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
               <DetailRow label="Invoice Date" value={invoiceDate} labelColor={theme.labelColor} dividerColor={theme.divider} />
               <DetailRow label="Due Date" value={dueDate} labelColor={theme.labelColor} dividerColor={theme.divider} />
               <DetailRow label="Currency" value={currency} labelColor={theme.labelColor} dividerColor={theme.divider} />
-              <DetailRow label="GL Code / Category" value={glCode} labelColor={theme.labelColor} dividerColor={theme.divider} isLast />
+              <DetailRow label="GL Code / Category" value={glCode} labelColor={theme.labelColor} dividerColor={theme.divider} />
+              <DetailRow label="Uploaded By" value={uploadedByName} labelColor={theme.labelColor} dividerColor={theme.divider} isLast />
             </div>
 
             {/* Financial Summary */}
