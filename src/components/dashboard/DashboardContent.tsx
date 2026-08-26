@@ -637,7 +637,7 @@ export function DashboardContent() {
       )}
 
       <Link
-        href="/invoices/pending"
+        href="/invoices?type=pending"
         className="flex items-center gap-[var(--space-md)] rounded-lg bg-primary-900 p-[var(--space-lg)] text-white shadow-md"
       >
         {/* Icon fill and count badge use dark text on their bright teal

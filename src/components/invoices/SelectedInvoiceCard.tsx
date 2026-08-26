@@ -75,8 +75,8 @@ export function SelectedInvoiceCard({
   const resolvedTaxCode = taxCodes.find((code) => taxCodeId(code) === String(data?.taxCodeId ?? ""));
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-white">
-      <div className="flex items-center justify-between gap-[var(--space-sm)] bg-primary-900 px-[var(--space-md)] py-[var(--space-sm)]">
+    <div className="flex max-h-[85vh] flex-col overflow-hidden rounded-lg border border-border bg-white">
+      <div className="flex shrink-0 items-center justify-between gap-[var(--space-sm)] bg-primary-900 px-[var(--space-md)] py-[var(--space-sm)]">
         <span className="text-caption font-bold uppercase tracking-wide text-primary-200">Selected invoice</span>
         <button
           type="button"
@@ -88,7 +88,7 @@ export function SelectedInvoiceCard({
         </button>
       </div>
 
-      <div className="p-[var(--space-md)]">
+      <div className="min-h-0 flex-1 overflow-y-auto p-[var(--space-md)] pb-[var(--space-lg)]">
         <div className="flex items-center gap-[var(--space-sm)]">
           <span
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-caption font-bold ${theme.cardBgClass} ${theme.accentTextClass}`}
