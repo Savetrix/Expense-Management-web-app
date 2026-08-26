@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Pencil, ZoomIn, ZoomOut } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import { ChangeEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
@@ -14,6 +14,7 @@ import {
   rejectInvoice,
   updateInvoiceExtractedData,
 } from "@/store/invoice/invoiceApi";
+import type { LineItem } from "@/store/invoice/invoiceSlice";
 import {
   fetchQuickBooksAccounts,
   fetchQuickBooksTaxCodes,
@@ -296,8 +297,15 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>(() =>
     getInitialFieldErrors(normalizeInvoiceData(rawData)),
   );
+  const [lineItems, setLineItems] = useState<LineItem[]>(() => rawData.lineItems || []);
   const [showConfidenceInfo, setShowConfidenceInfo] = useState(false);
 
+  // Full reset — only when the underlying invoice itself changes (first
+  // load, or a different invoice fetched). Deliberately NOT re-run when
+  // selectedVendor/createdVendor change on their own: that used to rebuild
+  // `normalized` from invoiceObject.extractedData every time, which threw
+  // away anything the user had already typed (invoice number, amounts,
+  // dates, ...) the moment they picked a different vendor mid-edit.
   useEffect(() => {
     const normalized = normalizeInvoiceData(invoiceObject?.extractedData || {});
     if (selectedVendor?.displayName) normalized.vendor = selectedVendor.displayName;
@@ -314,8 +322,27 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     }
     setInvoice(normalized);
     setFieldErrors(getInitialFieldErrors(normalized));
+    setLineItems(invoiceObject?.extractedData?.lineItems || []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invoiceObject, selectedVendor, createdVendor]);
+  }, [invoiceObject]);
+
+  // Vendor picked/resolved after the invoice already loaded — patch only
+  // the vendor-derived fields onto whatever's currently in the form (a
+  // functional-style merge off the current `invoice`/`fieldErrors`, read
+  // from closure rather than listed as deps) instead of rebuilding the
+  // whole form from the original extracted data.
+  useEffect(() => {
+    if (!selectedVendor && !createdVendor) return;
+    const merged = {
+      ...invoice,
+      vendor: selectedVendor?.displayName || createdVendor?.name || invoice.vendor,
+      glAccountId: invoice.glAccountId || selectedVendor?.glAccountId || createdVendor?.glAccountId || "",
+      taxCodeId: invoice.taxCodeId || selectedVendor?.taxCodeId || createdVendor?.taxCodeId || "",
+    };
+    setInvoice(merged);
+    setFieldErrors(getInitialFieldErrors(merged));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVendor, createdVendor]);
 
   const updateField = (key: keyof NormalizedInvoiceData, value: string) => {
     setInvoice((prev) => ({ ...prev, [key]: value }));
@@ -325,6 +352,24 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
       delete updated[key];
       return updated;
     });
+  };
+
+  const updateLineItem = (index: number, key: keyof LineItem, value: string) => {
+    setLineItems((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? { ...item, [key]: key === "description" ? value : Number(value) || 0 }
+          : item,
+      ),
+    );
+  };
+
+  const addLineItem = () => {
+    setLineItems((prev) => [...prev, { description: "", quantity: 1, unitPrice: 0, amount: 0 }]);
+  };
+
+  const removeLineItem = (index: number) => {
+    setLineItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const theme = useMemo(() => getReviewTheme(frozenConfidenceScore), [frozenConfidenceScore]);
@@ -406,7 +451,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     const result = await dispatch(rejectInvoice({ invoiceId }));
     if (rejectInvoice.fulfilled.match(result)) {
       showToast("The invoice has been moved to the Failed section.", "success");
-      router.push("/invoices/pending");
+      router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to reject the invoice.", "error");
@@ -438,7 +483,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
           amountBeforeTax: Number(invoice.amountBeforeTax) || 0,
           taxAmount: Number(invoice.taxAmount) || 0,
           totalAmount: Number(invoice.totalAfterTax) || 0,
-          lineItems: rawData.lineItems || [],
+          lineItems,
           description: cleanValue(invoice.itemDescriptionsText) || null,
           vendorAddress: cleanValue(invoice.vendorAddress) || null,
           bankingDetails: cleanValue(invoice.vendorBankDetails) || null,
@@ -450,7 +495,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
 
     if (postInvoiceToQuickBooks.fulfilled.match(result)) {
       showToast("Invoice posted to QuickBooks successfully.", "success");
-      router.push("/invoices/pending");
+      router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(
@@ -572,7 +617,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
           amountBeforeTax: Number(invoice.amountBeforeTax) || 0,
           taxAmount: Number(invoice.taxAmount) || 0,
           totalAmount: Number(invoice.totalAfterTax) || 0,
-          lineItems: rawData.lineItems || [],
+          lineItems,
           description: cleanValue(invoice.itemDescriptionsText) || null,
           vendorAddress: cleanValue(invoice.vendorAddress) || null,
           bankingDetails: cleanValue(invoice.vendorBankDetails) || null,
@@ -984,6 +1029,78 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                   rows={3}
                   className={TEXTAREA_CLASS}
                 />
+              </div>
+            </div>
+
+            {/* Line Items — same data InvoiceDetailContent shows read-only
+                post-post; here it's editable before the invoice is posted. */}
+            <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+              <SectionHeader title={`Line Items (${lineItems.length})`} bg={theme.sectionHeaderBg} color={theme.headerBg} editable />
+              <div className="flex flex-col gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-md)]">
+                {lineItems.map((item, index) => (
+                  <div key={index} className="rounded-md border p-[var(--space-sm)]" style={{ borderColor: theme.divider }}>
+                    <div className="flex items-center gap-[var(--space-sm)]">
+                      <span
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-caption font-bold"
+                        style={{ backgroundColor: theme.sectionHeaderBg, color: theme.headerBg }}
+                      >
+                        {index + 1}
+                      </span>
+                      <input
+                        value={item.description}
+                        onChange={(e) => updateLineItem(index, "description", e.target.value)}
+                        placeholder="Item description"
+                        className="min-w-0 flex-1 bg-transparent text-body-sm font-semibold text-text-primary focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLineItem(index)}
+                        aria-label="Remove line item"
+                        className="shrink-0 text-text-secondary hover:text-error"
+                      >
+                        <Trash2 size={14} strokeWidth={2} />
+                      </button>
+                    </div>
+                    <div className="mt-[var(--space-xs)] grid grid-cols-3 gap-[var(--space-sm)] pl-[calc(24px+var(--space-sm))]">
+                      <label className="flex flex-col gap-[2px]">
+                        <span className="text-caption text-text-secondary">Qty</span>
+                        <input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => updateLineItem(index, "quantity", e.target.value)}
+                          className="w-full rounded-md bg-background-soft px-[var(--space-xs)] py-[2px] text-body-sm font-medium text-text-primary focus:outline-none"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-[2px]">
+                        <span className="text-caption text-text-secondary">Unit price</span>
+                        <input
+                          type="number"
+                          value={item.unitPrice}
+                          onChange={(e) => updateLineItem(index, "unitPrice", e.target.value)}
+                          className="w-full rounded-md bg-background-soft px-[var(--space-xs)] py-[2px] text-body-sm font-medium text-text-primary focus:outline-none"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-[2px]">
+                        <span className="text-caption text-text-secondary">Amount</span>
+                        <input
+                          type="number"
+                          value={item.amount}
+                          onChange={(e) => updateLineItem(index, "amount", e.target.value)}
+                          className="w-full rounded-md bg-background-soft px-[var(--space-xs)] py-[2px] text-body-sm font-bold text-text-primary focus:outline-none"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addLineItem}
+                  className="flex items-center justify-center gap-[var(--space-xs)] rounded-md border border-dashed py-[var(--space-sm)] text-body-sm font-semibold"
+                  style={{ borderColor: theme.divider, color: theme.headerBg }}
+                >
+                  <Plus size={14} strokeWidth={2.5} />
+                  Add line item
+                </button>
               </div>
             </div>
           </div>

@@ -466,7 +466,7 @@ export function InvoiceListContent() {
           </div>
         </div>
 
-        <aside className="flex flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--space-lg)]">
+        <aside className="sticky top-[var(--space-lg)] flex flex-col gap-[var(--space-md)]">
           {selectedInvoice ? (
             <SelectedInvoiceCard
               invoice={selectedInvoice}
