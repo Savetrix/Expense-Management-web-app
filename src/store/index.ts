@@ -23,6 +23,7 @@ import vendorReducer from "./vendor/vendorSlice";
 import quickBooksReducer from "./quickBooks/quickBooksSlice";
 import subscriptionReducer from "./subscription/subscriptionSlice";
 import chatReducer from "./chat/chatSlice";
+import inboundEmailReducer from "./inboundEmail/inboundEmailSlice";
 
 // Only persist the QB fields we need across restarts.
 // auth/invoice/vendor are untouched — auth already uses its own
@@ -40,6 +41,9 @@ const rootReducer = combineReducers({
   quickBooks: persistReducer(quickBooksPersistConfig, quickBooksReducer),
   subscription: subscriptionReducer,
   chat: chatReducer, // unchanged — deliberately not persisted, see chatSlice.ts
+  // Not persisted either: a stale cached receiving address would have an
+  // accountant forwarding invoices to an address that no longer resolves.
+  inboundEmail: inboundEmailReducer,
 });
 
 export const store = configureStore({

@@ -35,7 +35,8 @@ that consumes them is the current work.
 - Typecheck: `npx tsc --noEmit`
 - Full gate (required, not optional — tsc alone misses SSR failures):
   `npx tsc --noEmit && npx next build`
-- No test suite exists yet in this repo.
+- Tests: `npm test` (node:test via tsx, `src/test/*.test.ts`). 270 tests.
+  An earlier version of this file claimed no test suite existed; that was stale.
 
 ## During an active LOOP.md run
 If LOOP.md and TASKS.md exist at repo root and a loop is in progress,

@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpDown, ChevronRight, FileX2, Search } from "lucide-react";
+import { ArrowUpDown, ChevronRight, FileX2, Mail, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchEmailInvoiceIds } from "@/store/inboundEmail/inboundEmailApi";
 import { getInvoices } from "@/store/invoice/invoiceApi";
 import { setSelectedInvoice } from "@/store/invoice/invoiceSlice";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
@@ -109,6 +110,7 @@ export function InvoiceListContent() {
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
   const glAccounts = useAppSelector((state) => state.quickBooks.accounts);
   const taxCodes = useAppSelector((state) => state.quickBooks.taxCodes);
+  const emailInvoiceIds = useAppSelector((state) => state.inboundEmail.emailInvoiceIds);
 
   const [searchText, setSearchText] = useState("");
   const [sortIndex, setSortIndex] = useState(0);
@@ -132,6 +134,15 @@ export function InvoiceListContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qbConnectionId]);
 
+  // Which invoices arrived by email. The backend cannot tell us — emailed
+  // invoices go through the SAME POST /invoices a manual upload uses, so there
+  // is no `source` field upstream — so this comes from our own record of the
+  // invoices the webhook created (see src/app/api/inbound/sources/route.ts).
+  // Failure is silently ignored: a missing badge must never break the list.
+  useEffect(() => {
+    dispatch(fetchEmailInvoiceIds());
+  }, [dispatch]);
+
   // Clears a leftover search/selection when switching status — a match (or
   // a selected row) from a different status has no bearing on this one.
   useEffect(() => {
@@ -143,6 +154,9 @@ export function InvoiceListContent() {
     () => [...pendingInvoices, ...autoPostedInvoices, ...manualPostedInvoices, ...failedInvoices],
     [pendingInvoices, autoPostedInvoices, manualPostedInvoices, failedInvoices],
   );
+
+  // Set, not array.includes, so badging stays O(1) per row.
+  const emailSourced = useMemo(() => new Set(emailInvoiceIds), [emailInvoiceIds]);
 
   const statusFilteredInvoices: InvoiceRecord[] = useMemo(() => {
     if (statusFilter === "all") return combinedInvoices;
@@ -398,6 +412,7 @@ export function InvoiceListContent() {
                   const confidence =
                     invoice.confidenceScore != null ? `${Math.round(Number(invoice.confidenceScore))}%` : null;
                   const isSelected = invoice._id === selectedInvoiceId;
+                  const fromEmail = emailSourced.has(invoice._id);
                   return (
                     <button
                       key={invoice._id}
@@ -433,6 +448,12 @@ export function InvoiceListContent() {
                           >
                             {rowTheme.label}
                           </span>
+                          {fromEmail && (
+                            <span className="inline-flex w-fit items-center gap-[2px] rounded-pill bg-background-alt px-[var(--space-sm)] py-[2px] text-caption font-bold text-text-secondary">
+                              <Mail size={11} strokeWidth={2.5} />
+                              Email
+                            </span>
+                          )}
                           <span className="text-caption text-text-secondary">{getInvoicePostedDate(invoice)}</span>
                           <span className="ml-auto font-bold text-text-primary">{getInvoiceAmount(invoice)}</span>
                         </span>
@@ -442,6 +463,18 @@ export function InvoiceListContent() {
                       </span>
                       <span className="hidden min-w-0 truncate text-body-sm text-text-secondary lg:block">
                         {getUserDisplayName(invoice.uploadedBy) || "—"}
+                        {/* Rides the "uploaded by" column because that column
+                            already answers "how did this get here" — a separate
+                            column would cost grid width for one word. */}
+                        {fromEmail && (
+                          <span
+                            title="Forwarded by email"
+                            className="ml-[var(--space-xs)] inline-flex w-fit items-center gap-[2px] rounded-pill bg-background-alt px-[var(--space-xs)] py-[1px] text-caption font-bold text-text-secondary"
+                          >
+                            <Mail size={11} strokeWidth={2.5} />
+                            Email
+                          </span>
+                        )}
                       </span>
                       <span className="hidden min-w-0 lg:block">
                         <span
