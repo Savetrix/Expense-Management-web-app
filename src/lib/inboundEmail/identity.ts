@@ -20,9 +20,25 @@
 // own books, and worse, the value would be trusted forever afterwards. So it is
 // read here, server-side, from the backend's own view of the account, and the
 // route refuses to create an alias when it cannot be established.
+import { createHash } from "node:crypto";
+
 import { SAVETRIX_API_BASE_URL } from "./config";
 
 const UPSTREAM_TIMEOUT_MS = 10_000;
+
+/**
+ * Verified identities are cached briefly, keyed by a hash of the token — the
+ * same device chatHistory/identity.ts uses, and for a sharper reason here: the
+ * invoice list calls /api/inbound/sources on every mount to decide which rows
+ * get an "Email" badge. Without this, every visit to the invoice list would cost
+ * an upstream round trip for every user, whether or not they use forwarding.
+ *
+ * Short by design: it must not outlive a logout or a token revocation by long.
+ * Per-instance and in-memory, exactly like the rate-limit map in
+ * src/app/api/chat/route.ts.
+ */
+const IDENTITY_CACHE_TTL_MS = 60_000;
+const IDENTITY_CACHE_MAX_ENTRIES = 500;
 
 export type InboundIdentity =
   | { kind: "authenticated"; userId: string; email: string }
@@ -52,17 +68,27 @@ function candidateRecords(payload: unknown): Array<Record<string, unknown>> {
   );
 }
 
+/**
+ * `sub` is in this list because a JWT names its subject there by convention,
+ * while a REST profile body names it `_id`/`id`. Both shapes pass through here,
+ * and leaving `sub` out silently broke the JWT case: a perfectly good
+ * `{sub, email}` token matched the id-and-email pair below on neither key, so
+ * the email came back null and alias creation failed with "no-email" on any
+ * deployment where `/users/me` does not exist.
+ */
+const ID_KEYS = ["_id", "id", "userId", "uid", "sub"] as const;
+
 function readIdAndEmail(payload: unknown): { userId: string | null; email: string | null } {
   for (const record of candidateRecords(payload)) {
     const email = pickString(record, ["email"]);
-    const userId = pickString(record, ["_id", "id", "userId", "uid"]);
+    const userId = pickString(record, ID_KEYS);
     // Require the pair together. An unexpected 200 (a catch-all handler, a
     // collection response) must not contribute an id from one shape and an
     // email from another.
     if (email && userId) return { userId, email };
   }
   for (const record of candidateRecords(payload)) {
-    const userId = pickString(record, ["_id", "id", "userId", "uid"]);
+    const userId = pickString(record, ID_KEYS);
     if (userId) return { userId, email: null };
   }
   return { userId: null, email: null };
@@ -105,11 +131,54 @@ async function callUpstream(path: string, accessToken: string): Promise<Response
  */
 let profileEndpointUsable = true;
 
+const identityCache = new Map<string, { expiresAt: number; outcome: InboundIdentity }>();
+
+const tokenKey = (accessToken: string): string =>
+  createHash("sha256").update(accessToken).digest("hex");
+
+function readCache(key: string): InboundIdentity | null {
+  const hit = identityCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    identityCache.delete(key);
+    return null;
+  }
+  return hit.outcome;
+}
+
+function writeCache(key: string, outcome: InboundIdentity): void {
+  // Never cache "unavailable" — it is a transient upstream condition, and
+  // caching it would keep the feature down after upstream recovers.
+  if (outcome.kind === "unavailable") return;
+  if (identityCache.size >= IDENTITY_CACHE_MAX_ENTRIES) {
+    // Coarse eviction: drop the oldest insertion. Map preserves insertion
+    // order, and this map only ever holds short-lived entries.
+    const oldest = identityCache.keys().next();
+    if (!oldest.done) identityCache.delete(oldest.value);
+  }
+  identityCache.set(key, { expiresAt: Date.now() + IDENTITY_CACHE_TTL_MS, outcome });
+}
+
+/**
+ * Test-only. Drops the identity cache AND re-arms the `/users/me` probe, both of
+ * which are module-scoped on purpose and would otherwise leak between cases.
+ */
 export function __resetInboundIdentityForTests(): void {
   profileEndpointUsable = true;
+  identityCache.clear();
 }
 
 export async function resolveInboundIdentity(accessToken: string): Promise<InboundIdentity> {
+  const key = tokenKey(accessToken);
+  const cached = readCache(key);
+  if (cached) return cached;
+
+  const outcome = await resolveUncached(accessToken);
+  writeCache(key, outcome);
+  return outcome;
+}
+
+async function resolveUncached(accessToken: string): Promise<InboundIdentity> {
   let vouched = false;
   let reportedUserId: string | null = null;
   let reportedEmail: string | null = null;
@@ -148,9 +217,8 @@ export async function resolveInboundIdentity(accessToken: string): Promise<Inbou
   // vouched for it.
   const claims = decodeJwtPayload(accessToken);
   const fromToken = readIdAndEmail(claims);
-  const sub = pickString(claims, ["sub"]);
 
-  const userId = fromToken.userId ?? sub ?? reportedUserId;
+  const userId = fromToken.userId ?? reportedUserId;
   const email = fromToken.email ?? reportedEmail;
 
   if (!userId) return { kind: "unavailable", reason: "no-subject" };
