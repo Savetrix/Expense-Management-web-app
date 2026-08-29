@@ -6,15 +6,12 @@
 // and no refresh-token interceptor to inherit. Credentials are passed explicitly
 // from Redux state.
 //
-// ── WHY THE REFRESH TOKEN IS SENT, ONCE, DELIBERATELY ────────────────────────
-// Enabling forwarding delegates the caller's session to the server so an inbound
-// email — which has no browser session — can create an invoice as them. That is
-// the whole mechanism (see lib/inboundEmail/ingest.ts). It is sent only on the
-// two paths that establish or repair the delegation (`enable`, `reconnect`),
-// never on a read, and the server seals it with AES-256-GCM before storing it.
-//
-// The server independently proves the token is valid AND belongs to the caller
-// before storing it, so nothing here is taken on trust.
+// NO CREDENTIAL IS SENT FROM HERE. An earlier version delegated the caller's
+// refresh token so the webhook could act as them; that could not work, because
+// the backend allows one live session per account and the delegation fought with
+// the user's own browser for it. Uploads are now performed by a dedicated
+// service account (lib/inboundEmail/serviceAccount.ts), so the browser sends
+// nothing but the company id.
 import { createAsyncThunk } from "@reduxjs/toolkit";
 
 import { SESSION_EXPIRED, sessionEmitter } from "../../lib/sessionManager";
@@ -90,18 +87,6 @@ function requireAccessToken(state: RootState): string {
   const accessToken: string | undefined = state.auth.user?.data?.accessToken;
   if (!accessToken) throw new InboundRequestError("You need to sign in.", 401);
   return accessToken;
-}
-
-/** Only the delegation paths need this, and only from Redux — never re-read from storage. */
-function requireRefreshToken(state: RootState): string {
-  const refreshToken: string | undefined = state.auth.user?.data?.refreshToken;
-  if (!refreshToken) {
-    throw new InboundRequestError(
-      "Sign out and sign in again to enable email forwarding.",
-      400,
-    );
-  }
-  return refreshToken;
 }
 
 /**
@@ -181,8 +166,6 @@ export const enableInboundForwarding = createAsyncThunk<
       method: "POST",
       body: JSON.stringify({
         qbConnectionId,
-        // The delegation. Sent once, over HTTPS, to our own origin.
-        refreshToken: requireRefreshToken(state),
         // Fallback only — the server uses its own sources when it has any.
         ownerEmail: accountEmail(state),
       }),
@@ -247,10 +230,9 @@ export const reconnectInboundForwarding = createAsyncThunk<
   { state: RootState; rejectValue: RejectionValue }
 >("inboundEmail/reconnect", async ({ id }, thunkAPI) => {
   try {
-    const state = thunkAPI.getState();
-    const response = await inboundFetch(state, `/aliases/${encodeURIComponent(id)}`, {
+    const response = await inboundFetch(thunkAPI.getState(), `/aliases/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      body: JSON.stringify({ action: "reconnect", refreshToken: requireRefreshToken(state) }),
+      body: JSON.stringify({ action: "reconnect" }),
     });
     const body = (await response.json()) as { alias: InboundAlias };
     return body.alias;

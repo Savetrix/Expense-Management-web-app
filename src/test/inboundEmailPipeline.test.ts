@@ -468,6 +468,8 @@ function config(overrides: Partial<InboundEmailConfig> = {}): InboundEmailConfig
     limits: { maxAttachments: 10, maxFileBytes: 15 * 1024 * 1024, maxTotalBytes: 40 * 1024 * 1024 },
     retentionDays: 30,
     tokenEncryptionKey: KEY,
+    serviceEmail: "invoices@example.com",
+    servicePassword: "service-secret",
     ...overrides,
   };
 }
@@ -494,12 +496,11 @@ function event(overrides: Partial<NormalizedInboundEvent> = {}): NormalizedInbou
 }
 
 interface FakeOptions {
-  rotatedRefreshToken?: string;
   headers?: Record<string, string | string[]>;
   metas?: ResendAttachmentMeta[];
   bytes?: Record<string, Buffer>;
   uploadResults?: Array<{ ok: boolean; transient?: boolean; invoiceId?: string }>;
-  mintFails?: "credential_expired" | "transient";
+  acquireFails?: "unauthorized" | "transient";
   fetchThrows?: boolean;
   downloadTransient?: boolean;
 }
@@ -526,18 +527,14 @@ function fakes(options: FakeOptions = {}) {
   const bytes = options.bytes ?? { att_1: PDF };
 
   const authority: IngestAuthority = {
-    async mintAccessToken() {
-      if (options.mintFails === "credential_expired") {
-        return { ok: false, reason: "credential_expired", detail: "refresh-401" };
+    async acquire() {
+      if (options.acquireFails === "unauthorized") {
+        return { ok: false, reason: "unauthorized", detail: "login-401" };
       }
-      if (options.mintFails === "transient") {
-        return { ok: false, reason: "transient", detail: "refresh-503" };
+      if (options.acquireFails === "transient") {
+        return { ok: false, reason: "transient", detail: "login-503" };
       }
-      return {
-        ok: true,
-        accessToken: "access-xyz",
-        rotatedRefreshToken: options.rotatedRefreshToken ?? null,
-      };
+      return { ok: true, accessToken: "service-access-xyz" };
     },
     async uploadInvoice(file, _token, qbConnectionId) {
       uploads.push({ filename: file.filename, qbId: qbConnectionId, bytes: file.bytes.length });
@@ -773,14 +770,14 @@ describe("inbound pipeline", () => {
   });
 
   it("stops permanently when the delegated credential is dead", async () => {
-    const { authority, provider } = fakes({ mintFails: "credential_expired" });
+    const { authority, provider } = fakes({ acquireFails: "unauthorized" });
     const result = await processInboundEvent(event(), { config: config(), authority, provider });
     assert.equal(result.kind, "rejected");
     if (result.kind === "rejected") assert.equal(result.code, "credential_expired");
   });
 
   it("asks for redelivery when the token exchange is merely unavailable", async () => {
-    const { authority, provider } = fakes({ mintFails: "transient" });
+    const { authority, provider } = fakes({ acquireFails: "transient" });
     const result = await processInboundEvent(event(), { config: config(), authority, provider });
     assert.equal(result.kind, "retry");
   });
@@ -972,31 +969,27 @@ describe("inbound pipeline", () => {
     assert.equal(uploads.length, 0);
   });
 
-  it("PERSISTS a rotated refresh token, so the delegation survives past one email", async () => {
-    // The bug this guards against, seen live: the backend rotates refresh
-    // tokens on use, we kept storing the spent one, and the very next inbound
-    // email failed with credential_expired/refresh-401. Forwarding worked
-    // exactly zero times.
-    const { authority, provider } = fakes({ rotatedRefreshToken: "refresh-NEW" });
-    await processInboundEvent(event(), { config: config(), authority, provider });
+  it("ingests with NO per-alias credential stored", async () => {
+    // The regression this guards: the pipeline used to refuse outright when an
+    // alias carried no sealed refresh token. Uploads are now performed by the
+    // service account, so an alias holding no user credential at all is the
+    // NORMAL case — and every alias created from now on looks like this.
+    __setInboundBlobIoForTests(memoryIo());
+    await createAlias(aliasRecord({ sealedRefreshToken: null }));
 
-    const stored = await readAlias(ALIAS_HASH);
-    assert.ok(stored?.sealedRefreshToken);
-    assert.equal(openSecret(stored!.sealedRefreshToken!, KEY, ALIAS_HASH), "refresh-NEW");
+    const { authority, provider, uploads } = fakes();
+    const result = await processInboundEvent(event(), { config: config(), authority, provider });
+
+    assert.equal(result.kind, "done");
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].qbId, "qb_acme");
   });
 
-  it("keeps the existing token when the backend does not rotate", async () => {
+  it("never stores a user credential on the alias while ingesting", async () => {
+    __setInboundBlobIoForTests(memoryIo());
+    await createAlias(aliasRecord({ sealedRefreshToken: null }));
+
     const { authority, provider } = fakes();
-    await processInboundEvent(event(), { config: config(), authority, provider });
-
-    const stored = await readAlias(ALIAS_HASH);
-    assert.equal(openSecret(stored!.sealedRefreshToken!, KEY, ALIAS_HASH), "refresh-abc");
-  });
-
-  it("clears the dead credential so the panel says \"Needs reconnect\"", async () => {
-    // Otherwise the alias still reads Active and the owner only discovers the
-    // breakage by noticing invoices silently not arriving.
-    const { authority, provider } = fakes({ mintFails: "credential_expired" });
     await processInboundEvent(event(), { config: config(), authority, provider });
 
     const stored = await readAlias(ALIAS_HASH);

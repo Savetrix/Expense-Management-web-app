@@ -58,7 +58,7 @@ const REJECTION_COPY: Record<string, string> = {
   file_too_large: "Attachment was too large.",
   too_many_attachments: "Too many attachments in one email.",
   duplicate_attachment: "The same file appeared twice.",
-  credential_expired: "Your session expired — reconnect below to resume forwarding.",
+  credential_expired: "Email forwarding lost access to this company — reconnect below.",
   ingestion_failed: "The invoice couldn't be processed.",
   attachment_download_failed: "We couldn't retrieve the attachment from the mail provider.",
   invalid_payload: "The email couldn't be read.",
@@ -460,8 +460,8 @@ export function EmailForwardingPanel({
       {!alias.delegationActive && (
         <div className="flex flex-col gap-[var(--space-sm)] rounded-md bg-error/10 p-[var(--space-sm)]">
           <p className="text-caption text-error">
-            Your saved session expired, so new invoices can&apos;t be created. Reconnect to resume —
-            the address stays the same.
+            Email forwarding has lost access to this company, so new invoices can&apos;t be created.
+            Reconnect to restore it — the address stays the same.
           </p>
           <button
             type="button"

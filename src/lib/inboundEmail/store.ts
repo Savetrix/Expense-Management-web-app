@@ -46,6 +46,11 @@ import type { InboundAttachmentStatus, InboundMessageStatus, RejectionCode } fro
 const ALIAS_PREFIX = "inbound-email/v1/aliases/";
 const USER_PREFIX = "inbound-email/v1/users/";
 const MESSAGE_PREFIX = "inbound-email/v1/messages/";
+/**
+ * The service account's cached access token. ONE document for the whole
+ * deployment — it is a single shared account, not per-user state.
+ */
+const SERVICE_SESSION_PATH = "inbound-email/v1/service-session.json";
 const DOCUMENT_VERSION = 1 as const;
 
 /** Conditional write attempts before giving up on a contended document. */
@@ -580,6 +585,40 @@ export async function listUserAliases(userId: string): Promise<AliasRecord[]> {
 // ==============================
 // MESSAGES (IDEMPOTENCY + AUDIT)
 // ==============================
+
+// ==============================
+// SERVICE SESSION
+// ==============================
+
+export interface ServiceSession {
+  /** Which account this token belongs to, so a config change invalidates it. */
+  email: string;
+  accessToken: string;
+  expiresAtMs: number;
+}
+
+export async function readServiceSession(): Promise<ServiceSession | null> {
+  const found = await blobIo().read(SERVICE_SESSION_PATH);
+  if (!found) return null;
+  const record = parseJson<ServiceSession>(found.text);
+  if (!record || typeof record.accessToken !== "string" || typeof record.expiresAtMs !== "number") {
+    return null;
+  }
+  return record;
+}
+
+/**
+ * Unconditional write. Two instances racing here both hold VALID tokens — this
+ * backend's access tokens survive each other (see serviceAccount.ts) — so
+ * last-writer-wins costs nothing and a precondition would only add failures.
+ */
+export async function writeServiceSession(session: ServiceSession): Promise<void> {
+  await blobIo().write(SERVICE_SESSION_PATH, JSON.stringify(session), { kind: "none" });
+}
+
+export async function clearServiceSession(): Promise<void> {
+  await blobIo().remove(SERVICE_SESSION_PATH);
+}
 
 export type ClaimOutcome =
   /** We are the first to see this event, or resuming an unfinished attempt. */

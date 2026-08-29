@@ -75,7 +75,13 @@ export interface PublicAlias {
   rotationVersion: number;
   ownerEmail: string;
   additionalSenders: string[];
-  /** Whether a usable delegation is stored. False means "needs reconnecting". */
+  /**
+   * Whether this address can currently create invoices.
+   *
+   * Once derived from a stored per-user credential. That credential is gone —
+   * uploads are performed by the service account — so the only thing that can
+   * make an address unusable is the alias itself being revoked.
+   */
   delegationActive: boolean;
   createdAt: string;
   lastUsedAt: string | null;
@@ -92,7 +98,7 @@ export function publicAlias(alias: AliasRecord): PublicAlias {
     rotationVersion: alias.rotationVersion,
     ownerEmail: alias.ownerEmail,
     additionalSenders: alias.additionalSenders ?? [],
-    delegationActive: Boolean(alias.sealedRefreshToken),
+    delegationActive: alias.active,
     createdAt: alias.createdAt,
     lastUsedAt: alias.lastUsedAt,
     revokedAt: alias.revokedAt,

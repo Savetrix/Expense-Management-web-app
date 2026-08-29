@@ -30,7 +30,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 import { readInboundConfig } from "@/lib/inboundEmail/config";
-import { RefreshTokenAuthority } from "@/lib/inboundEmail/ingest";
+import { ServiceAccountAuthority } from "@/lib/inboundEmail/ingest";
 import { correlationIdFor, processInboundEvent } from "@/lib/inboundEmail/pipeline";
 import { normalizeResendEvent } from "@/lib/inboundEmail/providers/resend";
 import { verifyWebhookSignature } from "@/lib/inboundEmail/signature";
@@ -124,7 +124,10 @@ export async function POST(request: Request) {
   try {
     const result = await processInboundEvent(event, {
       config,
-      authority: new RefreshTokenAuthority(config.tokenEncryptionKey),
+      authority: new ServiceAccountAuthority({
+        email: config.serviceEmail,
+        password: config.servicePassword,
+      }),
     });
 
     switch (result.kind) {

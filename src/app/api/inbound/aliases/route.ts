@@ -7,16 +7,17 @@
 // email IS the sender allow-list).
 export const runtime = "nodejs";
 // Creation does a handful of upstream round trips (vouch, connection lookup,
-// token exchange) plus two blob writes.
+// service login, invite + accept) plus two blob writes.
 export const maxDuration = 60;
 
 import { normalizeEmailAddress } from "@/lib/inboundEmail/address";
 import { formatAliasAddress, mintAliasForCompany } from "@/lib/inboundEmail/alias";
 import { readAliasConfig } from "@/lib/inboundEmail/config";
 import { findOwnedConnection } from "@/lib/inboundEmail/connections";
-import { resolveInboundIdentity } from "@/lib/inboundEmail/identity";
-import { RefreshTokenAuthority } from "@/lib/inboundEmail/ingest";
-import { sealSecret } from "@/lib/inboundEmail/secretBox";
+import {
+  ensureServiceMembership,
+  getServiceAccessToken,
+} from "@/lib/inboundEmail/serviceAccount";
 import {
   addAliasToUser,
   createAlias,
@@ -93,19 +94,13 @@ export async function POST(request: Request) {
 
   const payload = (body ?? {}) as Record<string, unknown>;
   const qbConnectionId = typeof payload.qbConnectionId === "string" ? payload.qbConnectionId.trim() : "";
-  const refreshToken = typeof payload.refreshToken === "string" ? payload.refreshToken.trim() : "";
 
   if (!qbConnectionId) {
     return Response.json({ error: "Choose a QuickBooks company first." }, { status: 400 });
   }
-  if (!refreshToken) {
-    // The delegated credential is what makes ingestion possible at all; there is
-    // no useful half-configured state to store.
-    return Response.json(
-      { error: "Your session could not be delegated. Sign out, sign in again, and retry." },
-      { status: 400 },
-    );
-  }
+  // NOTE: no refreshToken is read here any more. Turning forwarding on used to
+  // require delegating the caller's session; it now provisions a service member
+  // instead, so the browser sends no credential at all.
 
   // ── The caller must actually own this company ────────────────────────────
   const lookup = await findOwnedConnection(auth.accessToken, qbConnectionId);
@@ -122,47 +117,53 @@ export async function POST(request: Request) {
     return Response.json({ error: "Couldn't reach QuickBooks. Please try again." }, { status: 503 });
   }
 
-  // ── Prove the delegation works BEFORE promising the user it does ─────────
-  // Two things are being established here, and both matter:
-  //   1. The refresh token is valid and can mint an access token. Storing an
-  //      unusable credential would produce an address that looks live and fails
-  //      silently on the accountant's first real invoice.
-  //   2. The credential belongs to THIS caller. Without this, someone could
-  //      paste another user's refresh token and have their own alias post
-  //      invoices under that user's identity.
-  const authority = new RefreshTokenAuthority(config.tokenEncryptionKey);
-  const probeSeal = sealSecret(refreshToken, config.tokenEncryptionKey, "probe");
-  const minted = await authority.mintAccessToken(probeSeal, "probe");
-  if (!minted.ok) {
-    // Structural only — a status code, never the token or the response body.
-    console.log(`[inbound] delegation probe failed: ${minted.reason}/${minted.detail}`);
-    if (minted.reason === "credential_expired") {
-      // The detail is echoed because this is the authenticated owner asking
-      // about their own session, and "refresh-404" (wrong path) versus
-      // "refresh-401" (refused token) are opposite problems — one is a
-      // deployment bug, the other is genuinely "sign in again".
-      return Response.json(
-        {
-          error:
-            minted.detail === "refresh-404" || minted.detail === "refresh-405"
-              ? "The sign-in service didn't recognise the refresh endpoint. This is a configuration problem, not your account."
-              : "Your session could not be delegated. Sign out, sign in again, and retry.",
-          reason: minted.detail,
-        },
-        { status: 400 },
-      );
-    }
+  // ── Give the service account access to this company ──────────────────────
+  // This is what replaced storing the accountant's own session. A dedicated
+  // account is invited as a Contributor — the role the product defines as "can
+  // upload and edit invoices only" — and it is what performs every inbound
+  // upload from here on. See serviceAccount.ts for why a user's own session
+  // could not work: this backend allows one live session per account, so the
+  // stored credential and the person's browser destroyed each other.
+  //
+  // Done HERE, at enable time, because inviting requires the owner's token and
+  // the owner is only present at this moment.
+  const serviceToken = await getServiceAccessToken({
+    email: config.serviceEmail,
+    password: config.servicePassword,
+  });
+  if (!serviceToken.ok) {
+    console.log(`[inbound] service login failed: ${serviceToken.reason}/${serviceToken.detail}`);
     return Response.json(
-      { error: "Couldn't verify your session. Please try again.", reason: minted.detail },
-      { status: 503 },
+      {
+        error:
+          serviceToken.reason === "unauthorized"
+            ? "Email forwarding is misconfigured on this deployment. Please contact support."
+            : "Couldn't set up email forwarding right now. Please try again.",
+        reason: serviceToken.detail,
+      },
+      { status: serviceToken.reason === "unauthorized" ? 500 : 503 },
     );
   }
 
-  const delegated = await resolveInboundIdentity(minted.accessToken);
-  if (delegated.kind !== "authenticated" || delegated.userId !== auth.identity.userId) {
+  const membership = await ensureServiceMembership(
+    auth.accessToken,
+    serviceToken.accessToken,
+    qbConnectionId,
+    config.serviceEmail,
+  );
+  if (!membership.ok) {
+    console.log(`[inbound] membership failed: ${membership.reason}`);
     return Response.json(
-      { error: "That session does not match your account. Sign in again and retry." },
-      { status: 403 },
+      {
+        // Refusing here rather than minting an address that would silently fail
+        // on the accountant's first real invoice.
+        error:
+          membership.reason === "not-authorized-to-invite"
+            ? "Only an owner or admin of this company can turn on email forwarding."
+            : "Couldn't set up email forwarding for this company. Please try again.",
+        reason: membership.reason,
+      },
+      { status: membership.reason === "not-authorized-to-invite" ? 403 : 503 },
     );
   }
 
@@ -173,7 +174,7 @@ export async function POST(request: Request) {
   // as a fallback. See identity.ts's ABOUT THE EMAIL note for why that is not
   // a privilege escalation: the owner can already add arbitrary additional
   // senders, and every boundary that matters is still verified above.
-  const serverEmail = normalizeEmailAddress(delegated.email ?? auth.identity.email);
+  const serverEmail = normalizeEmailAddress(auth.identity.email);
   const claimedEmail = normalizeEmailAddress(
     typeof payload.ownerEmail === "string" ? payload.ownerEmail : null,
   );
@@ -219,18 +220,9 @@ export async function POST(request: Request) {
         companySlug: minta.slug,
         active: true,
         rotationVersion: 1,
-        // Bound to this alias's token hash as AAD, so the sealed credential
-        // cannot be moved to another alias (secretBox.ts).
-        //
-        // Store whatever the PROBE left us holding. If the backend rotates
-        // refresh tokens, the probe above already consumed the one the browser
-        // sent, and sealing that spent token would produce an address that
-        // works zero times.
-        sealedRefreshToken: sealSecret(
-          minted.rotatedRefreshToken ?? refreshToken,
-          config.tokenEncryptionKey,
-          minta.tokenHash,
-        ),
+        // Nothing to store. Uploads are performed by the service account, so
+        // no user credential is held anywhere for this alias.
+        sealedRefreshToken: null,
         createdAt: new Date().toISOString(),
         revokedAt: null,
         lastUsedAt: null,

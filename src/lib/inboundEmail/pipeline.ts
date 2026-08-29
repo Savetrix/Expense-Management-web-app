@@ -40,7 +40,6 @@ import {
   listAttachments,
   type ResendAttachmentMeta,
 } from "./providers/resendClient";
-import { sealSecret } from "./secretBox";
 import {
   appendActivity,
   claimMessage,
@@ -48,7 +47,6 @@ import {
   recordEmailInvoiceIds,
   saveMessage,
   touchAliasUsed,
-  updateAlias,
   type AliasRecord,
   type MessageAttachmentRecord,
   type MessageRecord,
@@ -297,11 +295,6 @@ export async function processInboundEvent(
   await saveMessage(record);
   await touchAliasUsed(alias.tokenHash);
 
-  if (!alias.sealedRefreshToken) {
-    await finish("rejected", "credential_expired", "no stored delegation", alias);
-    return { kind: "rejected", code: "credential_expired", correlationId };
-  }
-
   // ── 8. Attachment metadata with fresh download URLs ───────────────────────
   // Re-listed on every attempt: `download_url` is signed and expires, so a URL
   // captured on attempt 1 is useless to the 10-hour retry.
@@ -335,40 +328,21 @@ export async function processInboundEvent(
     return { kind: "rejected", code: "no_supported_attachments", correlationId };
   }
 
-  // ── 9. Mint one access token for the whole message ────────────────────────
-  const minted = await authority.mintAccessToken(alias.sealedRefreshToken, alias.tokenHash);
-  if (!minted.ok) {
-    if (minted.reason === "credential_expired") {
-      // Clear the dead credential so the settings panel switches to "Needs
-      // reconnect". Without this the alias still looks Active and the owner has
-      // no idea their forwarding has stopped — they would only find out by
-      // noticing invoices silently not arriving.
-      await updateAlias(alias.tokenHash, (current) => ({
-        ...current,
-        sealedRefreshToken: null,
-      })).catch(() => undefined);
-      await finish("rejected", "credential_expired", minted.detail, alias);
+  // ── 9. Authority to create invoices in this company ──────────────────────
+  // A dedicated service account, cached for days (serviceAccount.ts). Nothing
+  // belonging to the accountant is stored or spent here — which is why signing
+  // in on another device can no longer break their forwarding.
+  const acquired = await authority.acquire(alias.qbConnectionId);
+  if (!acquired.ok) {
+    if (acquired.reason === "unauthorized") {
+      await finish("rejected", "credential_expired", acquired.detail, alias);
       return { kind: "rejected", code: "credential_expired", correlationId };
     }
-    record = { ...record, detail: minted.detail };
+    record = { ...record, detail: acquired.detail };
     await saveMessage(record);
-    return { kind: "retry", correlationId, detail: minted.detail };
+    return { kind: "retry", correlationId, detail: acquired.detail };
   }
-
-  // Persist a rotated refresh token IMMEDIATELY, before any upload. If the
-  // backend rotates on use, the token we just spent is now dead, and crashing
-  // between here and the end of the message would strand the delegation with a
-  // spent credential — turning one bad email into permanently broken forwarding.
-  if (minted.rotatedRefreshToken) {
-    await updateAlias(alias.tokenHash, (current) => ({
-      ...current,
-      sealedRefreshToken: sealSecret(
-        minted.rotatedRefreshToken as string,
-        config.tokenEncryptionKey,
-        current.tokenHash,
-      ),
-    })).catch(() => undefined);
-  }
+  const accessToken = acquired.accessToken;
 
   // ── 10. Per attachment: download, validate, ingest ────────────────────────
   const downloadUrlById = new Map(metas.map((meta) => [meta.id, meta.downloadUrl]));
@@ -506,7 +480,7 @@ export async function processInboundEvent(
         filename: validated.value.sanitizedFilename,
         mimeType: validated.value.detectedMimeType,
       },
-      minted.accessToken,
+      accessToken,
       alias.qbConnectionId,
     );
 

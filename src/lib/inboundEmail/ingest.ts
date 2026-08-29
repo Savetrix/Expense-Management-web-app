@@ -1,67 +1,44 @@
-// SERVER-ONLY. Turning validated bytes into an invoice, as the alias's owner.
+// SERVER-ONLY. Turning validated bytes into an invoice.
 //
-// ── THE PROBLEM THIS SOLVES ──────────────────────────────────────────────────
-// An inbound email has no browser session, but the invoice it carries must be
-// created AS the accountant who owns the receiving address: same permissions,
-// same company, same audit trail, same duplicate checks, same review rules. The
-// architecture doc's preferred answer was a trusted server-to-server endpoint
-// (`POST /internal/invoices/ingest` with a service credential) — but that lives
-// in the Savetrix backend, which is not in this workspace, so nothing could ship
-// while we waited for it.
+// ── WHO CREATES THE INVOICE ──────────────────────────────────────────────────
+// An inbound email has no browser session, so something has to hold authority to
+// call the same `POST /invoices` the Upload button calls.
 //
-// ── WHAT WE DO INSTEAD ───────────────────────────────────────────────────────
-// Delegation. When the accountant enables forwarding for a company they are
-// signed in, so the browser hands us its refresh token once; we seal it
-// (secretBox.ts) against the alias and store it. Ingestion then mints a
-// short-lived access token from it via the SAME `/auth/refresh-token` call
-// src/lib/api.ts's interceptor already uses, and posts to the SAME
-// `POST /invoices` the Upload button posts to, with the SAME `X-QB-Id`.
+// The first implementation stored the accountant's own refresh token and acted
+// as them. Measurement killed it: this backend permits exactly ONE live session
+// per account, so that stored credential and the person's own browser fought
+// over a single slot — signing in anywhere broke forwarding, and forwarding
+// risked signing them out.
 //
-// So this is emphatically NOT a second ingestion pipeline. It is the existing
-// one, called from a webhook instead of from a click. Nothing about OCR,
-// extraction, vendor matching, duplicate detection, review, or QuickBooks
-// posting is reimplemented or bypassed — the backend cannot tell the difference,
-// which is exactly the property §22 asks for.
+// It is now a dedicated service account (serviceAccount.ts), invited as a
+// Contributor to each forwarding-enabled company. No user credential is stored
+// anywhere.
+//
+// Either way this is NOT a second ingestion pipeline. It is the existing one,
+// called from a webhook instead of from a click: same endpoint, same `X-QB-Id`,
+// same OCR, extraction, vendor matching, duplicate detection, review and
+// posting rules. The backend cannot tell the two channels apart, which is
+// exactly the property §22 asks for.
 //
 // ── THE SEAM ─────────────────────────────────────────────────────────────────
 // `IngestAuthority` exists so the credential story can change without touching
-// the pipeline. Swapping to a backend service credential later means writing a
-// second implementation of this one interface; pipeline.ts never learns of it.
+// the pipeline — and it has now earned that twice over. Swapping to a backend
+// service credential later means writing one more implementation of these two
+// methods; pipeline.ts never learns of it.
 import { SAVETRIX_API_BASE_URL } from "./config";
 import { classifyHttpFailure } from "./idempotency";
-import { openSecret } from "./secretBox";
+import { getServiceAccessToken, type ServiceCredentials } from "./serviceAccount";
 
-const REFRESH_TIMEOUT_MS = 15_000;
 const UPLOAD_TIMEOUT_MS = 60_000;
 
-export type MintOutcome =
-  | {
-      ok: true;
-      accessToken: string;
-      /**
-       * A REPLACEMENT refresh token, when the backend rotates on use.
-       *
-       * This is not optional politeness — it is load-bearing. If the backend
-       * issues a new refresh token on every exchange and we keep storing the
-       * old one, the delegation works exactly once and then 401s forever. That
-       * is precisely what happened on the first live test: the create route's
-       * validation probe consumed the token, the replacement was discarded, and
-       * the next inbound email failed with credential_expired/refresh-401.
-       *
-       * Null when the backend does not rotate, in which case the caller keeps
-       * what it already has.
-       */
-      rotatedRefreshToken: string | null;
-    }
+export type AcquireOutcome =
+  | { ok: true; accessToken: string }
   /**
-   * The delegation is dead. A human must re-enable forwarding.
-   *
-   * `detail` is a short structural code (never a token or a response body) —
-   * "unsealable", "refresh-401", "refresh-400", … It exists because collapsing
-   * every cause into one message made a setup failure undiagnosable: a refused
-   * token, a wrong endpoint, and a corrupt stored blob all read identically.
+   * Nobody can act for this company until a human fixes something — a wrong
+   * service password, a disabled account, a lost membership. Permanent, so it
+   * must not be retried for 32 hours.
    */
-  | { ok: false; reason: "credential_expired"; detail: string }
+  | { ok: false; reason: "unauthorized"; detail: string }
   /** Upstream problem. Worth another delivery attempt. */
   | { ok: false; reason: "transient"; detail: string };
 
@@ -76,15 +53,15 @@ export interface IngestFile {
 }
 
 /**
- * How the pipeline obtains authority to create an invoice for one alias.
+ * How the pipeline obtains authority to create an invoice in one company.
  *
- * Deliberately narrow: given an alias's stored credential, produce an access
- * token; given a token, upload one file. Any future implementation (service
- * credential, signed assertion, backend-internal call) satisfies the same two
- * operations.
+ * Deliberately narrow, and deliberately says nothing about HOW the token is
+ * obtained: any future mechanism (service credential, signed assertion, a
+ * backend-internal call) satisfies the same two operations.
  */
 export interface IngestAuthority {
-  mintAccessToken(sealedRefreshToken: string, aliasTokenHash: string): Promise<MintOutcome>;
+  /** A token able to upload into this company. */
+  acquire(qbConnectionId: string): Promise<AcquireOutcome>;
   uploadInvoice(
     file: IngestFile,
     accessToken: string,
@@ -133,76 +110,25 @@ export function extractInvoiceId(payload: unknown): string | null {
   return null;
 }
 
-export class RefreshTokenAuthority implements IngestAuthority {
-  constructor(private readonly encryptionKey: Buffer) {}
+export class ServiceAccountAuthority implements IngestAuthority {
+  constructor(private readonly credentials: ServiceCredentials) {}
 
   /**
-   * Open the sealed refresh token and trade it for an access token.
+   * A service access token, cached for days at a time.
    *
-   * A 401/403 from `/auth/refresh-token` is the signal that the delegation is
-   * over — the owner signed out everywhere, rotated their password, or an admin
-   * revoked the session. That is permanent until a human acts, so it must not be
-   * retried for 32 hours; it becomes `credential_expired`, which the settings
-   * screen renders as "reconnect email forwarding".
+   * Membership in the company is established when the user turns forwarding on
+   * (serviceAccount.ensureServiceMembership), not here — inviting needs the
+   * OWNER's token, and the owner is only present at that moment. If membership
+   * were later removed, the upload below returns 403 and reports itself; there
+   * is no point paying for a membership probe on every message to discover
+   * something the upload tells us anyway.
    */
-  async mintAccessToken(sealedRefreshToken: string, aliasTokenHash: string): Promise<MintOutcome> {
-    const refreshToken = openSecret(sealedRefreshToken, this.encryptionKey, aliasTokenHash);
-    if (!refreshToken) {
-      // Wrong key, tampered record, or a blob moved between aliases.
-      return { ok: false, reason: "credential_expired", detail: "unsealable" };
-    }
-
-    let response: Response;
-    try {
-      // `/auth/refresh`, NOT `/auth/refresh-token`. The latter is what
-      // src/lib/api.ts's interceptor has always called, and it 404s ("Route not
-      // found") — verified against the live API. `/auth/refresh` answers
-      // 401 "Invalid or expired refresh token" for a junk token, i.e. it exists
-      // and reads the same {refreshToken} body.
-      response = await fetch(`${SAVETRIX_API_BASE_URL}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ refreshToken }),
-        signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
-        cache: "no-store",
-      });
-    } catch {
-      return { ok: false, reason: "transient", detail: "refresh-unreachable" };
-    }
-
-    if (response.status === 401 || response.status === 403) {
-      return { ok: false, reason: "credential_expired", detail: `refresh-${response.status}` };
-    }
-    if (!response.ok) {
-      if (classifyHttpFailure(response.status) === "retryable") {
-        return { ok: false, reason: "transient", detail: `refresh-${response.status}` };
-      }
-      // A 400/404 from the refresh endpoint means it did not like the request.
-      // 404 in particular means the PATH is wrong, not the token — worth
-      // distinguishing, because no amount of signing out will fix that.
-      return { ok: false, reason: "credential_expired", detail: `refresh-${response.status}` };
-    }
-
-    const payload = await response.json().catch(() => null);
-    const record = payload as Record<string, unknown> | null;
-    const accessToken =
-      pickString(record, ["accessToken"]) ??
-      pickString(record?.data as Record<string, unknown> | undefined, ["accessToken", "token"]);
-
-    if (!accessToken) {
-      // 2xx with no token is a contract violation, not a dead credential — do
-      // not burn the delegation over it.
-      return { ok: false, reason: "transient", detail: "refresh-no-token" };
-    }
-
-    // Capture a rotated refresh token if one came back. Probed in both shapes
-    // for the same reason as the access token: the API wraps some payloads and
-    // not others.
-    const rotatedRefreshToken =
-      pickString(record, ["refreshToken"]) ??
-      pickString(record?.data as Record<string, unknown> | undefined, ["refreshToken"]);
-
-    return { ok: true, accessToken, rotatedRefreshToken };
+  async acquire(_qbConnectionId: string): Promise<AcquireOutcome> {
+    const outcome = await getServiceAccessToken(this.credentials);
+    if (outcome.ok) return { ok: true, accessToken: outcome.accessToken };
+    return outcome.reason === "unauthorized"
+      ? { ok: false, reason: "unauthorized", detail: outcome.detail }
+      : { ok: false, reason: "transient", detail: outcome.detail };
   }
 
   /**
@@ -223,29 +149,48 @@ export class RefreshTokenAuthority implements IngestAuthority {
     accessToken: string,
     qbConnectionId: string,
   ): Promise<UploadOutcome> {
-    const form = new FormData();
-    // Field name "files" is what multer's upload.array("files", 10) collects.
-    form.append(
-      "files",
-      new Blob([new Uint8Array(file.bytes)], { type: file.mimeType }),
-      file.filename,
-    );
+    const send = async (token: string): Promise<Response | null> => {
+      const form = new FormData();
+      // Field name "files" is what multer's upload.array("files", 10) collects.
+      form.append(
+        "files",
+        new Blob([new Uint8Array(file.bytes)], { type: file.mimeType }),
+        file.filename,
+      );
+      try {
+        return await fetch(`${SAVETRIX_API_BASE_URL}/invoices`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-QB-Id": qbConnectionId,
+            Accept: "application/json",
+          },
+          body: form,
+          signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+          cache: "no-store",
+        });
+      } catch {
+        return null;
+      }
+    };
 
-    let response: Response;
-    try {
-      response = await fetch(`${SAVETRIX_API_BASE_URL}/invoices`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "X-QB-Id": qbConnectionId,
-          Accept: "application/json",
-        },
-        body: form,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-        cache: "no-store",
-      });
-    } catch {
-      return { ok: false, transient: true, detail: "upload-unreachable" };
+    let response = await send(accessToken);
+    if (!response) return { ok: false, transient: true, detail: "upload-unreachable" };
+
+    // A 401 means the cached token was refused. Sign in once more and retry —
+    // this is the whole self-healing story, and it is safe because a refused
+    // request never reached the invoice pipeline, so nothing can be duplicated.
+    if (response.status === 401) {
+      const refreshed = await getServiceAccessToken(this.credentials, { forceRefresh: true });
+      if (!refreshed.ok) {
+        return {
+          ok: false,
+          transient: refreshed.reason === "transient",
+          detail: `reauth-${refreshed.detail}`,
+        };
+      }
+      response = await send(refreshed.accessToken);
+      if (!response) return { ok: false, transient: true, detail: "upload-unreachable" };
     }
 
     if (response.ok) {
@@ -253,10 +198,10 @@ export class RefreshTokenAuthority implements IngestAuthority {
       return { ok: true, invoiceId: extractInvoiceId(payload) };
     }
 
-    // A 401 here means the freshly minted token was rejected — treat as
-    // transient so the next attempt mints a new one, rather than concluding the
-    // delegation is dead on what may be a clock-skew or replication blip.
-    const transient = response.status === 401 || classifyHttpFailure(response.status) === "retryable";
+    // 403 here almost always means the service account is not a member of this
+    // company — surfaced rather than retried, because no amount of waiting adds
+    // a membership.
+    const transient = classifyHttpFailure(response.status) === "retryable";
     return { ok: false, transient, detail: `upload-${response.status}` };
   }
 }

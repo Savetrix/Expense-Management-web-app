@@ -13,9 +13,10 @@ import { formatAliasAddress, mintAliasForCompany } from "@/lib/inboundEmail/alia
 import { readAliasConfig } from "@/lib/inboundEmail/config";
 import { normalizeEmailAddress } from "@/lib/inboundEmail/address";
 import { authorizeAliasRequest, publicAlias, storeFailure } from "@/lib/inboundEmail/apiAuth";
-import { RefreshTokenAuthority } from "@/lib/inboundEmail/ingest";
-import { resolveInboundIdentity } from "@/lib/inboundEmail/identity";
-import { sealSecret } from "@/lib/inboundEmail/secretBox";
+import {
+  ensureServiceMembership,
+  getServiceAccessToken,
+} from "@/lib/inboundEmail/serviceAccount";
 import {
   addAliasToUser,
   createAlias,
@@ -136,9 +137,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       case "reconnect":
         return await reconnect(
           owned.alias,
-          owned.userId,
-          config.tokenEncryptionKey,
-          payload.refreshToken,
+          owned.accessToken,
+          config.serviceEmail,
+          config.servicePassword,
         );
       default:
         return Response.json(
@@ -166,31 +167,9 @@ async function regenerate(
   userId: string,
   domain: string,
 ): Promise<Response> {
-  if (!alias.sealedRefreshToken) {
-    return Response.json(
-      { error: "Reconnect email forwarding for this company before regenerating its address." },
-      { status: 409 },
-    );
-  }
-
-  // Re-sealing needs the plaintext, so open it under the CURRENT alias's AAD.
-  const config = readAliasConfig();
-  if (!config.ok) {
-    return Response.json({ error: "not_configured", missing: config.missing }, { status: 503 });
-  }
-  const { openSecret } = await import("@/lib/inboundEmail/secretBox");
-  const refreshToken = openSecret(
-    alias.sealedRefreshToken,
-    config.tokenEncryptionKey,
-    alias.tokenHash,
-  );
-  if (!refreshToken) {
-    return Response.json(
-      { error: "Stored session could not be read. Reconnect email forwarding for this company." },
-      { status: 409 },
-    );
-  }
-
+  // Nothing to carry across. Uploads are done by the service account, whose
+  // membership belongs to the COMPANY and is unaffected by the address changing,
+  // so regenerating is now purely a rename.
   for (let attempt = 0; attempt < MINT_ATTEMPTS; attempt += 1) {
     const minted = mintAliasForCompany(alias.companyName);
     const next: AliasRecord = {
@@ -201,7 +180,7 @@ async function regenerate(
       companySlug: minted.slug,
       active: true,
       rotationVersion: alias.rotationVersion + 1,
-      sealedRefreshToken: sealSecret(refreshToken, config.tokenEncryptionKey, minted.tokenHash),
+      sealedRefreshToken: null,
       createdAt: new Date().toISOString(),
       revokedAt: null,
       lastUsedAt: null,
@@ -277,38 +256,47 @@ async function updateSenders(alias: AliasRecord, raw: unknown): Promise<Response
  */
 async function reconnect(
   alias: AliasRecord,
-  userId: string,
-  encryptionKey: Buffer,
-  raw: unknown,
+  ownerAccessToken: string,
+  serviceEmail: string,
+  servicePassword: string,
 ): Promise<Response> {
-  const refreshToken = typeof raw === "string" ? raw.trim() : "";
-  if (!refreshToken) {
+  // "Reconnect" used to mean re-delegating the user's session, which is exactly
+  // what could not be made to work. It now re-establishes the service account's
+  // membership of the company — the only thing that can actually go missing
+  // (someone removed it from the team, or an earlier setup half-failed).
+  const serviceToken = await getServiceAccessToken({
+    email: serviceEmail,
+    password: servicePassword,
+  });
+  if (!serviceToken.ok) {
+    console.log(`[inbound] service login failed: ${serviceToken.reason}/${serviceToken.detail}`);
     return Response.json(
-      { error: "Your session could not be delegated. Sign out, sign in again, and retry." },
-      { status: 400 },
+      {
+        error:
+          serviceToken.reason === "unauthorized"
+            ? "Email forwarding is misconfigured on this deployment. Please contact support."
+            : "Couldn't reconnect right now. Please try again.",
+      },
+      { status: serviceToken.reason === "unauthorized" ? 500 : 503 },
     );
   }
 
-  const authority = new RefreshTokenAuthority(encryptionKey);
-  const probe = await authority.mintAccessToken(
-    sealSecret(refreshToken, encryptionKey, "probe"),
-    "probe",
+  const membership = await ensureServiceMembership(
+    ownerAccessToken,
+    serviceToken.accessToken,
+    alias.qbConnectionId,
+    serviceEmail,
   );
-  if (!probe.ok) {
-    if (probe.reason === "credential_expired") {
-      return Response.json(
-        { error: "Your session could not be delegated. Sign out, sign in again, and retry." },
-        { status: 400 },
-      );
-    }
-    return Response.json({ error: "Couldn't verify your session. Please try again." }, { status: 503 });
-  }
-
-  const delegated = await resolveInboundIdentity(probe.accessToken);
-  if (delegated.kind !== "authenticated" || delegated.userId !== userId) {
+  if (!membership.ok) {
     return Response.json(
-      { error: "That session does not match your account. Sign in again and retry." },
-      { status: 403 },
+      {
+        error:
+          membership.reason === "not-authorized-to-invite"
+            ? "Only an owner or admin of this company can reconnect email forwarding."
+            : "Couldn't reconnect email forwarding. Please try again.",
+        reason: membership.reason,
+      },
+      { status: membership.reason === "not-authorized-to-invite" ? 403 : 503 },
     );
   }
 
@@ -316,22 +304,6 @@ async function reconnect(
     ...current,
     active: true,
     revokedAt: null,
-    // Refresh the owner email only when the backend actually told us one. On a
-    // backend that cannot (see identity.ts), keep whatever the alias already
-    // holds rather than blanking a working allow-list on a reconnect.
-    ...(delegated.email
-      ? { ownerEmail: delegated.email, ownerEmailVerified: true }
-      : {}),
-    // Store what the PROBE left us holding, not what the browser sent. This
-    // backend rotates refresh tokens on exchange (verified against the live
-    // API), so the token that arrived here was spent a few lines above and
-    // sealing it would reconnect the alias to a dead credential — the exact
-    // failure this reconnect exists to repair.
-    sealedRefreshToken: sealSecret(
-      probe.rotatedRefreshToken ?? refreshToken,
-      encryptionKey,
-      current.tokenHash,
-    ),
   }));
   if (!updated) return notFound();
 

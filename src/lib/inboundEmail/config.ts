@@ -45,8 +45,24 @@ export interface InboundEmailConfig {
   requireEmailAuth: boolean;
   limits: AttachmentLimits;
   retentionDays: number;
-  /** AES-256-GCM key for refresh tokens at rest. 32 bytes, base64 or hex. */
+  /** AES-256-GCM key for secrets at rest. 32 bytes, base64 or hex. */
   tokenEncryptionKey: Buffer;
+  /**
+   * The dedicated Scantrix account that performs every inbound upload.
+   *
+   * WHY A SERVICE ACCOUNT AND NOT THE USER'S OWN SESSION. This backend allows
+   * exactly ONE live session per account — a second login invalidates the
+   * first's refresh token (verified against the live API). Storing a user's
+   * session therefore meant the delegation died every time that person signed
+   * in anywhere, and using it logged them out. The two competed for one slot.
+   *
+   * A dedicated account that no human ever signs into has no such competition.
+   * It is invited as a **Contributor** to each forwarding-enabled company —
+   * the role the product itself defines as "can upload and edit invoices only"
+   * — so it holds exactly the authority this feature needs and nothing more.
+   */
+  serviceEmail: string;
+  servicePassword: string;
 }
 
 export type ConfigOutcome =
@@ -108,6 +124,11 @@ export function readInboundConfig(): ConfigOutcome {
   const tokenEncryptionKey = parseEncryptionKey(process.env.INBOUND_TOKEN_ENCRYPTION_KEY);
   if (!tokenEncryptionKey) missing.push("INBOUND_TOKEN_ENCRYPTION_KEY");
 
+  const serviceEmail = process.env.INBOUND_SERVICE_EMAIL?.trim();
+  if (!serviceEmail) missing.push("INBOUND_SERVICE_EMAIL");
+  const servicePassword = process.env.INBOUND_SERVICE_PASSWORD;
+  if (!servicePassword) missing.push("INBOUND_SERVICE_PASSWORD");
+
   const provider = (process.env.INBOUND_EMAIL_PROVIDER?.trim().toLowerCase() || "resend") as string;
   if (provider !== "resend") {
     return {
@@ -136,6 +157,8 @@ export function readInboundConfig(): ConfigOutcome {
       },
       retentionDays: intFromEnv("INBOUND_RETENTION_DAYS", 30),
       tokenEncryptionKey: tokenEncryptionKey as Buffer,
+      serviceEmail: serviceEmail as string,
+      servicePassword: servicePassword as string,
     },
   };
 }
@@ -147,7 +170,15 @@ export function readInboundConfig(): ConfigOutcome {
  * settings screen does not 503 on a half-finished provider setup.
  */
 export type AliasConfigOutcome =
-  | { ok: true; domain: string; tokenEncryptionKey: Buffer; enabled: boolean }
+  | {
+      ok: true;
+      domain: string;
+      tokenEncryptionKey: Buffer;
+      enabled: boolean;
+      /** Needed at enable time, to invite this account to the company. */
+      serviceEmail: string;
+      servicePassword: string;
+    }
   | { ok: false; missing: string[] };
 
 export function readAliasConfig(): AliasConfigOutcome {
@@ -156,6 +187,10 @@ export function readAliasConfig(): AliasConfigOutcome {
   if (!domain) missing.push("INBOUND_EMAIL_DOMAIN");
   const tokenEncryptionKey = parseEncryptionKey(process.env.INBOUND_TOKEN_ENCRYPTION_KEY);
   if (!tokenEncryptionKey) missing.push("INBOUND_TOKEN_ENCRYPTION_KEY");
+  const serviceEmail = process.env.INBOUND_SERVICE_EMAIL?.trim();
+  if (!serviceEmail) missing.push("INBOUND_SERVICE_EMAIL");
+  const servicePassword = process.env.INBOUND_SERVICE_PASSWORD;
+  if (!servicePassword) missing.push("INBOUND_SERVICE_PASSWORD");
 
   if (missing.length > 0) return { ok: false, missing };
   return {
@@ -163,5 +198,7 @@ export function readAliasConfig(): AliasConfigOutcome {
     domain: domain as string,
     tokenEncryptionKey: tokenEncryptionKey as Buffer,
     enabled: boolFromEnv("INBOUND_EMAIL_ENABLED", false),
+    serviceEmail: serviceEmail as string,
+    servicePassword: servicePassword as string,
   };
 }
