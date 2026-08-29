@@ -42,15 +42,17 @@ export async function authorizeAliasRequest(request: Request): Promise<AliasAuth
   }
 
   if (outcome.kind === "unavailable") {
-    // Fail closed. `no-email` is called out separately because it is the one
-    // case a user can act on: the owner email is the sender allow-list, so
-    // without it we cannot decide whose mail may create invoices.
+    // Fail closed on a genuinely unknown caller. A missing EMAIL no longer
+    // lands here — identity.ts returns it as null and the create route falls
+    // back to a client-supplied address (see that file's ABOUT THE EMAIL note).
     console.log("[inbound] identity unavailable:", outcome.reason);
-    const message =
-      outcome.reason === "no-email"
-        ? "We couldn't read your account email, which is required to set up email forwarding."
-        : "Email forwarding settings are temporarily unavailable.";
-    return { ok: false, response: Response.json({ error: message }, { status: 503 }) };
+    return {
+      ok: false,
+      response: Response.json(
+        { error: "Email forwarding settings are temporarily unavailable." },
+        { status: 503 },
+      ),
+    };
   }
 
   return { ok: true, identity: outcome, accessToken };

@@ -106,6 +106,16 @@ export interface AliasRecord {
    */
   ownerEmail: string;
   /**
+   * Did `ownerEmail` come from the backend, or from the browser?
+   *
+   * This backend exposes no /users/me and its tokens carry no email claim, so in
+   * practice it is usually the browser — accepted deliberately (see
+   * identity.ts's ABOUT THE EMAIL note). Recorded rather than assumed so the
+   * distinction stays visible in audit, and so a later backend that CAN answer
+   * lets us tell the two populations apart.
+   */
+  ownerEmailVerified?: boolean;
+  /**
    * Extra addresses allowed to forward here — a colleague, or the owner's second
    * mailbox. Opt-in per alias and settable only by the owner.
    */

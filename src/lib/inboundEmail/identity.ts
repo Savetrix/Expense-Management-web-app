@@ -13,13 +13,27 @@
 // Decoding a JWT payload without checking its signature is safe ONLY because of
 // step 1. Never reorder them.
 //
-// WHY THE EMAIL MATTERS SO MUCH HERE. The alias's `ownerEmail` is the sender
-// allow-list — it decides whose forwarded mail can create invoices in this
-// company. If the browser could supply it, any signed-in user could nominate an
-// arbitrary address (including an attacker's) as an authorized sender for their
-// own books, and worse, the value would be trusted forever afterwards. So it is
-// read here, server-side, from the backend's own view of the account, and the
-// route refuses to create an alias when it cannot be established.
+// ABOUT THE EMAIL. The alias's `ownerEmail` is the sender allow-list, so we
+// prefer to learn it from the backend rather than from the browser, and we try
+// three server-side sources in order: /users/me, the token's own claims, and
+// /users/{id}.
+//
+// But a null result is NOT fatal, and an earlier version of this file was wrong
+// to make it so. This backend has no /users/me (the ported client only ever
+// calls PATCH /users/:id) and its tokens carry no email claim, so EVERY alias
+// creation failed with "we couldn't read your account email".
+//
+// The strictness was also inconsistent with the rest of the feature: the owner
+// can already add arbitrary `additionalSenders` through the settings panel, so
+// letting them state their own address is the same power they already have. It
+// is not a privilege escalation — an owner who nominates an address they do not
+// control has only widened access to their OWN books. The boundaries that
+// actually matter are all still enforced server-side and unchanged:
+//   * who the caller is (vouched by the backend, never from the request body),
+//   * that they own the QuickBooks company (connections.ts),
+//   * that the delegated refresh token is genuinely theirs (the create route).
+// So the route accepts a client-supplied address only as a LAST resort, and
+// records whether it was server-verified.
 import { createHash } from "node:crypto";
 
 import { SAVETRIX_API_BASE_URL } from "./config";
@@ -41,9 +55,13 @@ const IDENTITY_CACHE_TTL_MS = 60_000;
 const IDENTITY_CACHE_MAX_ENTRIES = 500;
 
 export type InboundIdentity =
-  | { kind: "authenticated"; userId: string; email: string }
+  /**
+   * `email` is null when the backend would not tell us. That is NOT fatal — see
+   * ABOUT THE EMAIL above. The caller decides what to do about it.
+   */
+  | { kind: "authenticated"; userId: string; email: string | null }
   | { kind: "unauthenticated" }
-  /** Fail closed: never fall back to a guessed id or a browser-supplied email. */
+  /** Fail closed: never fall back to a guessed id. */
   | { kind: "unavailable"; reason: string };
 
 function pickString(source: unknown, keys: readonly string[]): string | null {
@@ -219,10 +237,18 @@ async function resolveUncached(accessToken: string): Promise<InboundIdentity> {
   const fromToken = readIdAndEmail(claims);
 
   const userId = fromToken.userId ?? reportedUserId;
-  const email = fromToken.email ?? reportedEmail;
+  let email = fromToken.email ?? reportedEmail;
 
   if (!userId) return { kind: "unavailable", reason: "no-subject" };
-  if (!email) return { kind: "unavailable", reason: "no-email" };
 
-  return { kind: "authenticated", userId, email };
+  // Last server-side source: the by-id profile. The ported client only ever
+  // PATCHes this path, so a GET may well 404 — best-effort, never fatal.
+  if (!email) {
+    const response = await callUpstream(`/users/${encodeURIComponent(userId)}`, accessToken);
+    if (response?.ok) {
+      email = readIdAndEmail(await response.json().catch(() => null)).email;
+    }
+  }
+
+  return { kind: "authenticated", userId, email: email ?? null };
 }

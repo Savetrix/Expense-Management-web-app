@@ -316,9 +316,12 @@ async function reconnect(
     ...current,
     active: true,
     revokedAt: null,
-    // Refresh the owner email too: it is the sender allow-list, and the account
-    // address may have changed since the alias was first created.
-    ownerEmail: delegated.email,
+    // Refresh the owner email only when the backend actually told us one. On a
+    // backend that cannot (see identity.ts), keep whatever the alias already
+    // holds rather than blanking a working allow-list on a reconnect.
+    ...(delegated.email
+      ? { ownerEmail: delegated.email, ownerEmailVerified: true }
+      : {}),
     sealedRefreshToken: sealSecret(refreshToken, encryptionKey, current.tokenHash),
   }));
   if (!updated) return notFound();

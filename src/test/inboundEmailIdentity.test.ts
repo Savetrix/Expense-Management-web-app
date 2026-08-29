@@ -110,15 +110,50 @@ describe("resolveInboundIdentity", () => {
     assert.deepEqual(calls.map((c) => c.path), ["/users/me", "/qb-connections"]);
   });
 
-  it("FAILS CLOSED when no email can be established", async () => {
-    // The email is the sender allow-list. Guessing one, or accepting one from
-    // the client, would let a user authorize an arbitrary address.
-    stubUpstream({ "/users/me": { status: 200, body: { data: { user: { _id: "u1" } } } } });
+  it("still identifies the caller when no email can be established", async () => {
+    // A missing email is NOT fatal: this backend has no /users/me and its
+    // tokens carry no email claim, and treating that as fatal made every alias
+    // creation fail. The id is what must never be guessed; the address falls
+    // back to a client-supplied one at the route (see identity.ts).
+    stubUpstream({
+      "/users/me": { status: 200, body: { data: { user: { _id: "u1" } } } },
+      "/users/u1": { status: 404 },
+    });
 
     const outcome = await resolveInboundIdentity(jwtWith({ sub: "u1" }));
 
+    assert.equal(outcome.kind, "authenticated");
+    if (outcome.kind !== "authenticated") return;
+    assert.equal(outcome.userId, "u1");
+    assert.equal(outcome.email, null);
+  });
+
+  it("falls back to /users/{id} for the email before giving up", async () => {
+    const calls = stubUpstream({
+      "/users/me": { status: 404 },
+      "/qb-connections": { status: 200, body: { data: { connections: [] } } },
+      "/users/u1": { status: 200, body: { data: { user: { _id: "u1", email: "u1@corp.com" } } } },
+    });
+
+    const outcome = await resolveInboundIdentity(jwtWith({ sub: "u1" }));
+
+    assert.equal(outcome.kind, "authenticated");
+    if (outcome.kind !== "authenticated") return;
+    assert.equal(outcome.email, "u1@corp.com");
+    assert.ok(calls.some((c) => c.path === "/users/u1"));
+  });
+
+  it("never guesses a user id — that stays fatal", async () => {
+    stubUpstream({
+      "/users/me": { status: 404 },
+      "/qb-connections": { status: 200, body: { data: { connections: [] } } },
+    });
+
+    // Opaque (non-JWT) token, so no subject can be read from it.
+    const outcome = await resolveInboundIdentity("opaque-token-with-no-claims");
+
     assert.equal(outcome.kind, "unavailable");
-    if (outcome.kind === "unavailable") assert.equal(outcome.reason, "no-email");
+    if (outcome.kind === "unavailable") assert.equal(outcome.reason, "no-subject");
   });
 
   it("fails closed when upstream is unreachable", async () => {

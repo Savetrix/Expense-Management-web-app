@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 // token exchange) plus two blob writes.
 export const maxDuration = 60;
 
+import { normalizeEmailAddress } from "@/lib/inboundEmail/address";
 import { formatAliasAddress, mintAliasForCompany } from "@/lib/inboundEmail/alias";
 import { readAliasConfig } from "@/lib/inboundEmail/config";
 import { findOwnedConnection } from "@/lib/inboundEmail/connections";
@@ -150,6 +151,29 @@ export async function POST(request: Request) {
     );
   }
 
+  // ── Whose mail may create invoices here ─────────────────────────────────
+  // Server-side sources first (identity.ts tries /users/me, the token claims,
+  // then /users/{id}). This backend exposes none of them, so in practice the
+  // client-supplied address is what we get — accepted deliberately, and only
+  // as a fallback. See identity.ts's ABOUT THE EMAIL note for why that is not
+  // a privilege escalation: the owner can already add arbitrary additional
+  // senders, and every boundary that matters is still verified above.
+  const serverEmail = normalizeEmailAddress(delegated.email ?? auth.identity.email);
+  const claimedEmail = normalizeEmailAddress(
+    typeof payload.ownerEmail === "string" ? payload.ownerEmail : null,
+  );
+  const ownerEmail = serverEmail ?? claimedEmail;
+
+  if (!ownerEmail) {
+    return Response.json(
+      {
+        error:
+          "We couldn't determine your account email, which is needed to decide whose forwarded mail is accepted. Sign out and sign in again, then retry.",
+      },
+      { status: 400 },
+    );
+  }
+
   // ── Mint the address ────────────────────────────────────────────────────
   try {
     const existing = await listUserAliases(auth.identity.userId);
@@ -171,8 +195,9 @@ export async function POST(request: Request) {
         localPart: minta.localPart,
         receivingAddress: formatAliasAddress(minta.localPart, config.domain),
         userId: auth.identity.userId,
-        // From the backend's view of the account, never from the request body.
-        ownerEmail: delegated.email,
+        ownerEmail,
+        /** False when the address came from the client, not the backend. */
+        ownerEmailVerified: serverEmail !== null,
         additionalSenders: [],
         qbConnectionId,
         companyName: lookup.connection.name,

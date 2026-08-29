@@ -103,6 +103,20 @@ function requireRefreshToken(state: RootState): string {
   return refreshToken;
 }
 
+/**
+ * The signed-in account's email, as the login response reported it
+ * (`user.data.user.email` — the same path AppShell and ProfileContent read).
+ *
+ * Sent as a FALLBACK for the sender allow-list. The server prefers its own
+ * sources and only falls back to this when the backend will not name the
+ * account — which, on this backend, is always. See
+ * src/lib/inboundEmail/identity.ts for why that is safe.
+ */
+function accountEmail(state: RootState): string | null {
+  const email: unknown = state.auth.user?.data?.user?.email;
+  return typeof email === "string" && email.trim() ? email.trim() : null;
+}
+
 async function inboundFetch(state: RootState, path: string, init?: RequestInit): Promise<Response> {
   const accessToken = requireAccessToken(state);
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -168,6 +182,8 @@ export const enableInboundForwarding = createAsyncThunk<
         qbConnectionId,
         // The delegation. Sent once, over HTTPS, to our own origin.
         refreshToken: requireRefreshToken(state),
+        // Fallback only — the server uses its own sources when it has any.
+        ownerEmail: accountEmail(state),
       }),
     });
     const body = (await response.json()) as { alias: InboundAlias };
