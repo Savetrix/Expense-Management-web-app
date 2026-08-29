@@ -288,8 +288,18 @@ export function EmailForwardingPanel({
 
   // Activity is stored per user across all companies, so scope it to this one.
   const activity = useMemo(
-    () => recentActivity.filter((entry) => entry.companyName === companyName).slice(0, 8),
-    [recentActivity, companyName],
+    () =>
+      recentActivity
+        .filter((entry) =>
+          // Match on the connection id. Entries written before that field
+          // existed carry only a name, so fall back for those rather than
+          // hiding a user's earlier history.
+          entry.qbConnectionId
+            ? entry.qbConnectionId === qbConnectionId
+            : entry.companyName === companyName,
+        )
+        .slice(0, 8),
+    [recentActivity, companyName, qbConnectionId],
   );
 
   const busy = busyAliasId === alias?.id;

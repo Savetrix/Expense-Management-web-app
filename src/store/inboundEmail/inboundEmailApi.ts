@@ -57,6 +57,7 @@ export interface InboundActivityEntry {
   detail: string | null;
   invoiceCount: number;
   companyName: string | null;
+  qbConnectionId?: string | null;
   authDiagnostics: InboundAuthDiagnostics | null;
 }
 

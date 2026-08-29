@@ -150,6 +150,16 @@ export interface ActivityEntry {
   detail: string | null;
   invoiceCount: number;
   companyName: string | null;
+  /**
+   * The company this message was filed under.
+   *
+   * Present because filtering activity by `companyName` was wrong: two clients
+   * can genuinely both be called "Acme Corp" — that collision is the entire
+   * reason alias addresses carry a random suffix — and they would have shown
+   * each other's history. A rename also orphaned a company from its own past
+   * activity. Optional so entries written before this stay readable.
+   */
+  qbConnectionId?: string | null;
   /** What the auth headers actually looked like — the whole point of the panel. */
   authDiagnostics: InboundAuthResultsDiagnostics | null;
 }

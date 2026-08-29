@@ -211,6 +211,7 @@ export async function processInboundEvent(
         detail,
         invoiceCount,
         companyName: alias?.companyName ?? null,
+        qbConnectionId: alias?.qbConnectionId ?? record.qbConnectionId ?? null,
         authDiagnostics: record.authDiagnostics,
       });
     }
