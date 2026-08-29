@@ -22,6 +22,7 @@ import {
   __setInboundBlobIoForTests,
   claimMessage,
   createAlias,
+  readAlias,
   InboundWriteConflictError,
   readMessage,
   saveMessage,
@@ -493,6 +494,7 @@ function event(overrides: Partial<NormalizedInboundEvent> = {}): NormalizedInbou
 }
 
 interface FakeOptions {
+  rotatedRefreshToken?: string;
   headers?: Record<string, string | string[]>;
   metas?: ResendAttachmentMeta[];
   bytes?: Record<string, Buffer>;
@@ -531,7 +533,11 @@ function fakes(options: FakeOptions = {}) {
       if (options.mintFails === "transient") {
         return { ok: false, reason: "transient", detail: "refresh-503" };
       }
-      return { ok: true, accessToken: "access-xyz" };
+      return {
+        ok: true,
+        accessToken: "access-xyz",
+        rotatedRefreshToken: options.rotatedRefreshToken ?? null,
+      };
     },
     async uploadInvoice(file, _token, qbConnectionId) {
       uploads.push({ filename: file.filename, qbId: qbConnectionId, bytes: file.bytes.length });
@@ -964,6 +970,37 @@ describe("inbound pipeline", () => {
     assert.equal(result.kind, "rejected");
     if (result.kind === "rejected") assert.equal(result.code, "too_many_attachments");
     assert.equal(uploads.length, 0);
+  });
+
+  it("PERSISTS a rotated refresh token, so the delegation survives past one email", async () => {
+    // The bug this guards against, seen live: the backend rotates refresh
+    // tokens on use, we kept storing the spent one, and the very next inbound
+    // email failed with credential_expired/refresh-401. Forwarding worked
+    // exactly zero times.
+    const { authority, provider } = fakes({ rotatedRefreshToken: "refresh-NEW" });
+    await processInboundEvent(event(), { config: config(), authority, provider });
+
+    const stored = await readAlias(ALIAS_HASH);
+    assert.ok(stored?.sealedRefreshToken);
+    assert.equal(openSecret(stored!.sealedRefreshToken!, KEY, ALIAS_HASH), "refresh-NEW");
+  });
+
+  it("keeps the existing token when the backend does not rotate", async () => {
+    const { authority, provider } = fakes();
+    await processInboundEvent(event(), { config: config(), authority, provider });
+
+    const stored = await readAlias(ALIAS_HASH);
+    assert.equal(openSecret(stored!.sealedRefreshToken!, KEY, ALIAS_HASH), "refresh-abc");
+  });
+
+  it("clears the dead credential so the panel says \"Needs reconnect\"", async () => {
+    // Otherwise the alias still reads Active and the owner only discovers the
+    // breakage by noticing invoices silently not arriving.
+    const { authority, provider } = fakes({ mintFails: "credential_expired" });
+    await processInboundEvent(event(), { config: config(), authority, provider });
+
+    const stored = await readAlias(ALIAS_HASH);
+    assert.equal(stored?.sealedRefreshToken, null);
   });
 
   it("treats a redelivery of completed work as a duplicate and uploads nothing", async () => {

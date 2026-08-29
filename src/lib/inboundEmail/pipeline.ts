@@ -40,6 +40,7 @@ import {
   listAttachments,
   type ResendAttachmentMeta,
 } from "./providers/resendClient";
+import { sealSecret } from "./secretBox";
 import {
   appendActivity,
   claimMessage,
@@ -47,6 +48,7 @@ import {
   recordEmailInvoiceIds,
   saveMessage,
   touchAliasUsed,
+  updateAlias,
   type AliasRecord,
   type MessageAttachmentRecord,
   type MessageRecord,
@@ -336,12 +338,35 @@ export async function processInboundEvent(
   const minted = await authority.mintAccessToken(alias.sealedRefreshToken, alias.tokenHash);
   if (!minted.ok) {
     if (minted.reason === "credential_expired") {
+      // Clear the dead credential so the settings panel switches to "Needs
+      // reconnect". Without this the alias still looks Active and the owner has
+      // no idea their forwarding has stopped — they would only find out by
+      // noticing invoices silently not arriving.
+      await updateAlias(alias.tokenHash, (current) => ({
+        ...current,
+        sealedRefreshToken: null,
+      })).catch(() => undefined);
       await finish("rejected", "credential_expired", minted.detail, alias);
       return { kind: "rejected", code: "credential_expired", correlationId };
     }
     record = { ...record, detail: minted.detail };
     await saveMessage(record);
     return { kind: "retry", correlationId, detail: minted.detail };
+  }
+
+  // Persist a rotated refresh token IMMEDIATELY, before any upload. If the
+  // backend rotates on use, the token we just spent is now dead, and crashing
+  // between here and the end of the message would strand the delegation with a
+  // spent credential — turning one bad email into permanently broken forwarding.
+  if (minted.rotatedRefreshToken) {
+    await updateAlias(alias.tokenHash, (current) => ({
+      ...current,
+      sealedRefreshToken: sealSecret(
+        minted.rotatedRefreshToken as string,
+        config.tokenEncryptionKey,
+        current.tokenHash,
+      ),
+    })).catch(() => undefined);
   }
 
   // ── 10. Per attachment: download, validate, ingest ────────────────────────

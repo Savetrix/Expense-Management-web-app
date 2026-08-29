@@ -35,7 +35,24 @@ const REFRESH_TIMEOUT_MS = 15_000;
 const UPLOAD_TIMEOUT_MS = 60_000;
 
 export type MintOutcome =
-  | { ok: true; accessToken: string }
+  | {
+      ok: true;
+      accessToken: string;
+      /**
+       * A REPLACEMENT refresh token, when the backend rotates on use.
+       *
+       * This is not optional politeness — it is load-bearing. If the backend
+       * issues a new refresh token on every exchange and we keep storing the
+       * old one, the delegation works exactly once and then 401s forever. That
+       * is precisely what happened on the first live test: the create route's
+       * validation probe consumed the token, the replacement was discarded, and
+       * the next inbound email failed with credential_expired/refresh-401.
+       *
+       * Null when the backend does not rotate, in which case the caller keeps
+       * what it already has.
+       */
+      rotatedRefreshToken: string | null;
+    }
   /**
    * The delegation is dead. A human must re-enable forwarding.
    *
@@ -177,7 +194,15 @@ export class RefreshTokenAuthority implements IngestAuthority {
       // not burn the delegation over it.
       return { ok: false, reason: "transient", detail: "refresh-no-token" };
     }
-    return { ok: true, accessToken };
+
+    // Capture a rotated refresh token if one came back. Probed in both shapes
+    // for the same reason as the access token: the API wraps some payloads and
+    // not others.
+    const rotatedRefreshToken =
+      pickString(record, ["refreshToken"]) ??
+      pickString(record?.data as Record<string, unknown> | undefined, ["refreshToken"]);
+
+    return { ok: true, accessToken, rotatedRefreshToken };
   }
 
   /**

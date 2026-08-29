@@ -221,7 +221,16 @@ export async function POST(request: Request) {
         rotationVersion: 1,
         // Bound to this alias's token hash as AAD, so the sealed credential
         // cannot be moved to another alias (secretBox.ts).
-        sealedRefreshToken: sealSecret(refreshToken, config.tokenEncryptionKey, minta.tokenHash),
+        //
+        // Store whatever the PROBE left us holding. If the backend rotates
+        // refresh tokens, the probe above already consumed the one the browser
+        // sent, and sealing that spent token would produce an address that
+        // works zero times.
+        sealedRefreshToken: sealSecret(
+          minted.rotatedRefreshToken ?? refreshToken,
+          config.tokenEncryptionKey,
+          minta.tokenHash,
+        ),
         createdAt: new Date().toISOString(),
         revokedAt: null,
         lastUsedAt: null,

@@ -120,6 +120,18 @@ api.interceptors.response.use(
 
         writeLocalStorage("accessToken", newAccessToken);
 
+        // If the backend ROTATES refresh tokens, the one we just spent is now
+        // dead and this response carries its replacement. Failing to store it
+        // means the next refresh presents a spent token, gets a 401, and signs
+        // the user out — the session then survives exactly one refresh. Proven
+        // against the live API: an inbound-email delegation died this way after
+        // a single use.
+        const rotatedRefreshToken =
+          response.data?.data?.refreshToken ?? response.data?.refreshToken;
+        if (rotatedRefreshToken && rotatedRefreshToken !== refreshToken) {
+          writeLocalStorage("refreshToken", rotatedRefreshToken);
+        }
+
         // Session is healthy again — but for a write, surface the original
         // error and let the caller decide whether to retry, rather than
         // repeating an operation the backend may already have committed.
