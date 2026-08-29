@@ -114,6 +114,15 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
+    if (lookup.reason === "not_connected") {
+      return Response.json(
+        {
+          error:
+            "Reconnect this company to QuickBooks first — invoices can't be filed into it until you do.",
+        },
+        { status: 409 },
+      );
+    }
     return Response.json({ error: "Couldn't reach QuickBooks. Please try again." }, { status: 503 });
   }
 

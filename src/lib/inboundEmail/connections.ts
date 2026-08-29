@@ -23,7 +23,7 @@ export interface OwnedConnection {
 
 export type ConnectionLookup =
   | { ok: true; connection: OwnedConnection }
-  | { ok: false; reason: "not_found" | "unauthenticated" | "unavailable" };
+  | { ok: false; reason: "not_found" | "not_connected" | "unauthenticated" | "unavailable" };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -79,9 +79,16 @@ export async function findOwnedConnection(
   const connections = readConnections(await response.json().catch(() => null));
   const match = connections.find((connection) => connection.id === qbConnectionId);
   if (!match) return { ok: false, reason: "not_found" };
-  // A disconnected company cannot accept invoices, so offering a working
-  // receiving address for it would be a lie.
-  if (match.status === "disconnected") return { ok: false, reason: "not_found" };
+  // A company whose QuickBooks link is broken cannot accept invoices, so
+  // offering a working receiving address for it would be a lie — the address
+  // would mint fine and then fail on the accountant's first real invoice.
+  //
+  // `reconnect_required` counts as broken. The settings panel already greys
+  // both states out; the API refused only `disconnected`, so the two disagreed
+  // and a direct call could create an address that was doomed on arrival.
+  if (match.status === "disconnected" || match.status === "reconnect_required") {
+    return { ok: false, reason: "not_connected" };
+  }
 
   return { ok: true, connection: match };
 }

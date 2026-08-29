@@ -30,6 +30,7 @@ import {
   validateAttachment,
 } from "./attachment";
 import { deriveAuthResults } from "./authResults";
+import { evaluateScan, readScanVerdicts } from "./scanVerdict";
 import { authorizeInboundSender, isAutomatedMessage, type SenderFacts } from "./authorization";
 import type { InboundEmailConfig } from "./config";
 import type { IngestAuthority } from "./ingest";
@@ -257,6 +258,29 @@ export async function processInboundEvent(
   if (isAutomatedMessage(headers)) {
     await finish("rejected", "automated_message", "auto-submitted or bounce", alias);
     return { kind: "rejected", code: "automated_message", correlationId };
+  }
+
+  // ── 5b. The provider's own malware scan ──────────────────────────────────
+  // Resend runs on Amazon SES, which scans every message and stamps the result
+  // on these headers. Checked HERE, before authorization and long before any
+  // attachment is fetched, so hostile bytes are never downloaded at all.
+  const scan = evaluateScan(readScanVerdicts(fetched.headers), {
+    rejectSpam: process.env.INBOUND_REJECT_SPAM === "true",
+    requireVirusVerdict: process.env.INBOUND_REQUIRE_VIRUS_VERDICT === "true",
+  });
+  if (!scan.accept) {
+    await finish(
+      "rejected",
+      scan.reason === "malware_detected" ? "malware_detected" : "no_supported_attachments",
+      scan.detail,
+      alias,
+    );
+    return {
+      kind: "rejected",
+      code: scan.reason === "malware_detected" ? "malware_detected" : "no_supported_attachments",
+      correlationId,
+      detail: scan.detail,
+    };
   }
 
   // ── 6. Authentication verdicts, reconstructed from headers ────────────────

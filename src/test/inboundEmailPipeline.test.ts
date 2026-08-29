@@ -18,6 +18,7 @@ import { extractInvoiceId, type IngestAuthority } from "../lib/inboundEmail/inge
 import { processInboundEvent } from "../lib/inboundEmail/pipeline";
 import { checkDownloadUrl, type ResendAttachmentMeta } from "../lib/inboundEmail/providers/resendClient";
 import { openSecret, sealSecret, secretsEqual } from "../lib/inboundEmail/secretBox";
+import { evaluateScan, parseVerdict, readScanVerdicts } from "../lib/inboundEmail/scanVerdict";
 import {
   __setInboundBlobIoForTests,
   claimMessage,
@@ -272,6 +273,58 @@ describe("authentication verdicts reconstructed from headers", () => {
   it("reads headers case-insensitively", () => {
     const derived = deriveAuthResults({ "AUTHENTICATION-RESULTS": "mx; dmarc=pass" });
     assert.equal(derived.results.dmarc, "pass");
+  });
+});
+
+// ==============================
+// PROVIDER MALWARE SCAN
+// ==============================
+
+describe("provider scan verdicts", () => {
+  it("reads the SES headers Resend actually sends", () => {
+    // These header names are taken from a real forwarded invoice, not a guess.
+    const v = readScanVerdicts({
+      "X-SES-Virus-Verdict": "PASS",
+      "X-SES-Spam-Verdict": "GRAY",
+    });
+    assert.deepEqual(v, { virus: "pass", spam: "gray" });
+  });
+
+  it("reads them case-insensitively", () => {
+    assert.equal(readScanVerdicts({ "x-ses-virus-verdict": "FAIL" }).virus, "fail");
+  });
+
+  it("REFUSES a message the provider flagged as a virus", () => {
+    const decision = evaluateScan({ virus: "fail", spam: "pass" });
+    assert.equal(decision.accept, false);
+    if (!decision.accept) assert.equal(decision.reason, "malware_detected");
+  });
+
+  it("accepts when no verdict is present, by default", () => {
+    // Deliberate. Defaulting to reject would break every message the moment a
+    // provider stopped sending the header — the same mistake the design's
+    // email-auth default made, which had to be reversed after it broke the
+    // first live test.
+    assert.equal(evaluateScan({ virus: "unknown", spam: "unknown" }).accept, true);
+  });
+
+  it("can be made strict where a deployment wants that", () => {
+    const decision = evaluateScan({ virus: "unknown", spam: "pass" }, { requireVirusVerdict: true });
+    assert.equal(decision.accept, false);
+  });
+
+  it("does NOT reject spam by default", () => {
+    // An invoice forwarded from a noisy mailbox trips spam heuristics easily,
+    // and silently discarding a real invoice is worse than importing a junk one
+    // a human rejects at review.
+    assert.equal(evaluateScan({ virus: "pass", spam: "fail" }).accept, true);
+    assert.equal(evaluateScan({ virus: "pass", spam: "fail" }, { rejectSpam: true }).accept, false);
+  });
+
+  it("never guesses an unrecognised verdict either way", () => {
+    assert.equal(parseVerdict("something-new"), "unknown");
+    assert.equal(parseVerdict(null), "unknown");
+    assert.equal(parseVerdict("PROCESSING"), "processing");
   });
 });
 
@@ -926,6 +979,31 @@ describe("inbound pipeline", () => {
     });
     assert.equal(second.kind, "done");
     assert.equal(uploads.length, 1);
+  });
+
+  it("refuses a virus-flagged message WITHOUT downloading the attachment", async () => {
+    const { authority, provider, uploads } = fakes({
+      headers: {
+        "Return-Path": "<nikhil@savetrix.com>",
+        "X-SES-Virus-Verdict": "FAIL",
+      },
+    });
+    const result = await processInboundEvent(event(), { config: config(), authority, provider });
+    assert.equal(result.kind, "rejected");
+    if (result.kind === "rejected") assert.equal(result.code, "malware_detected");
+    assert.equal(uploads.length, 0);
+  });
+
+  it("proceeds normally when the provider scan passes", async () => {
+    const { authority, provider } = fakes({
+      headers: {
+        "Return-Path": "<nikhil@savetrix.com>",
+        "X-SES-Virus-Verdict": "PASS",
+        "X-SES-Spam-Verdict": "PASS",
+      },
+    });
+    const result = await processInboundEvent(event(), { config: config(), authority, provider });
+    assert.equal(result.kind, "done");
   });
 
   it("rejects an email whose only attachment is not a supported type", async () => {
