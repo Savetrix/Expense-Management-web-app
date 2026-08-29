@@ -82,6 +82,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (!owned.ok) return owned.response;
 
   const purge = new URL(request.url).searchParams.get("purge") === "true";
+  const config = readAliasConfig();
+  const domain = config.ok ? config.domain : undefined;
 
   try {
     if (purge) {
@@ -94,7 +96,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     const revoked = await revokeAlias(owned.alias.tokenHash);
     if (!revoked) return notFound();
     console.log("[inbound] alias revoked");
-    return Response.json({ alias: publicAlias(revoked), status: "revoked" });
+    return Response.json({ alias: publicAlias(revoked, domain), status: "revoked" });
   } catch (error) {
     return storeFailure(error, "revoke");
   }
@@ -133,13 +135,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       case "regenerate":
         return await regenerate(owned.alias, owned.userId, config.domain);
       case "senders":
-        return await updateSenders(owned.alias, payload.additionalSenders);
+        return await updateSenders(owned.alias, payload.additionalSenders, config.domain);
       case "reconnect":
         return await reconnect(
           owned.alias,
           owned.accessToken,
           config.serviceEmail,
           config.servicePassword,
+          config.domain,
         );
       default:
         return Response.json(
@@ -199,7 +202,7 @@ async function regenerate(
     await deleteAlias(alias.tokenHash);
     await removeAliasFromUser(userId, alias.tokenHash);
     console.log(`[inbound] alias regenerated rotation=${next.rotationVersion}`);
-    return Response.json({ alias: publicAlias(next), status: "regenerated" });
+    return Response.json({ alias: publicAlias(next, domain), status: "regenerated" });
   }
 
   return Response.json({ error: "Couldn't allocate an address. Please try again." }, { status: 503 });
@@ -214,7 +217,11 @@ async function regenerate(
  * the offending value echoed, because a silently dropped sender would look like
  * it had been added.
  */
-async function updateSenders(alias: AliasRecord, raw: unknown): Promise<Response> {
+async function updateSenders(
+  alias: AliasRecord,
+  raw: unknown,
+  domain: string,
+): Promise<Response> {
   if (!Array.isArray(raw)) {
     return Response.json({ error: "additionalSenders must be an array." }, { status: 400 });
   }
@@ -243,7 +250,7 @@ async function updateSenders(alias: AliasRecord, raw: unknown): Promise<Response
     additionalSenders: normalized,
   }));
   if (!updated) return notFound();
-  return Response.json({ alias: publicAlias(updated), status: "updated" });
+  return Response.json({ alias: publicAlias(updated, domain), status: "updated" });
 }
 
 /**
@@ -259,6 +266,7 @@ async function reconnect(
   ownerAccessToken: string,
   serviceEmail: string,
   servicePassword: string,
+  domain: string,
 ): Promise<Response> {
   // "Reconnect" used to mean re-delegating the user's session, which is exactly
   // what could not be made to work. It now re-establishes the service account's
@@ -308,5 +316,5 @@ async function reconnect(
   if (!updated) return notFound();
 
   console.log("[inbound] alias reconnected");
-  return Response.json({ alias: publicAlias(updated), status: "reconnected" });
+  return Response.json({ alias: publicAlias(updated, domain), status: "reconnected" });
 }

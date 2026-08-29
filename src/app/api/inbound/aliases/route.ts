@@ -61,7 +61,7 @@ export async function GET(request: Request) {
       {
         enabled: config.enabled,
         domain: config.domain,
-        aliases: aliases.map(publicAlias),
+        aliases: aliases.map((a) => publicAlias(a, config.domain)),
         recentActivity: record.recentActivity,
       },
       { headers: { "Cache-Control": "private, no-store" } },
@@ -209,7 +209,7 @@ export async function POST(request: Request) {
       // Idempotent: enabling twice returns the existing address rather than
       // minting a second one, so a double-click cannot leave a company with two
       // live addresses.
-      return Response.json({ alias: publicAlias(already), created: false }, { status: 200 });
+      return Response.json({ alias: publicAlias(already, config.domain), created: false }, { status: 200 });
     }
 
     for (let attempt = 0; attempt < MINT_ATTEMPTS; attempt += 1) {
@@ -241,7 +241,7 @@ export async function POST(request: Request) {
         await createAlias(record);
         await addAliasToUser(auth.identity.userId, record.tokenHash);
         console.log(`[inbound] alias created rotation=1 company=${lookup.connection.id}`);
-        return Response.json({ alias: publicAlias(record), created: true }, { status: 201 });
+        return Response.json({ alias: publicAlias(record, config.domain), created: true }, { status: 201 });
       } catch (error) {
         // A create-only conflict means this suffix is taken. Re-mint with a
         // fresh one rather than overwriting somebody else's address — the

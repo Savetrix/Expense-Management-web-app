@@ -3,6 +3,7 @@
 // Deliberately mirrors src/lib/chatHistory/apiAuth.ts: every route calls this
 // first and uses nothing but its output, so the authorization rule lives in one
 // place — no verified user id, no response.
+import { formatAliasAddress } from "./alias";
 import { resolveInboundIdentity, type InboundIdentity } from "./identity";
 import { InboundStoreError, type AliasRecord } from "./store";
 
@@ -88,10 +89,24 @@ export interface PublicAlias {
   revokedAt: string | null;
 }
 
-export function publicAlias(alias: AliasRecord): PublicAlias {
+/**
+ * `domain` composes the address from the CURRENT receiving domain rather than
+ * echoing the one stored at mint time.
+ *
+ * Alias lookup keys off a hash of the LOCAL PART alone, so an address minted
+ * under one domain keeps working verbatim after a domain change — only the
+ * stored display string goes stale. Deriving it here means switching
+ * INBOUND_EMAIL_DOMAIN corrects every address everywhere, with no migration and
+ * without invalidating a contact anybody has already saved.
+ *
+ * Omit `domain` to fall back to the stored value.
+ */
+export function publicAlias(alias: AliasRecord, domain?: string): PublicAlias {
   return {
     id: alias.tokenHash,
-    receivingAddress: alias.receivingAddress,
+    receivingAddress: domain
+      ? formatAliasAddress(alias.localPart, domain)
+      : alias.receivingAddress,
     companyName: alias.companyName,
     qbConnectionId: alias.qbConnectionId,
     active: alias.active,
