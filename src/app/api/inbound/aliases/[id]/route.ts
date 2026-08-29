@@ -322,7 +322,16 @@ async function reconnect(
     ...(delegated.email
       ? { ownerEmail: delegated.email, ownerEmailVerified: true }
       : {}),
-    sealedRefreshToken: sealSecret(refreshToken, encryptionKey, current.tokenHash),
+    // Store what the PROBE left us holding, not what the browser sent. This
+    // backend rotates refresh tokens on exchange (verified against the live
+    // API), so the token that arrived here was spent a few lines above and
+    // sealing it would reconnect the alias to a dead credential — the exact
+    // failure this reconnect exists to repair.
+    sealedRefreshToken: sealSecret(
+      probe.rotatedRefreshToken ?? refreshToken,
+      encryptionKey,
+      current.tokenHash,
+    ),
   }));
   if (!updated) return notFound();
 
