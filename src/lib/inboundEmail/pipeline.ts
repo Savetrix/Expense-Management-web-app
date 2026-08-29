@@ -336,7 +336,7 @@ export async function processInboundEvent(
   const minted = await authority.mintAccessToken(alias.sealedRefreshToken, alias.tokenHash);
   if (!minted.ok) {
     if (minted.reason === "credential_expired") {
-      await finish("rejected", "credential_expired", "refresh token rejected", alias);
+      await finish("rejected", "credential_expired", minted.detail, alias);
       return { kind: "rejected", code: "credential_expired", correlationId };
     }
     record = { ...record, detail: minted.detail };

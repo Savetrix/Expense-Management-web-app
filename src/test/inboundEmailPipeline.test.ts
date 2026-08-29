@@ -526,7 +526,7 @@ function fakes(options: FakeOptions = {}) {
   const authority: IngestAuthority = {
     async mintAccessToken() {
       if (options.mintFails === "credential_expired") {
-        return { ok: false, reason: "credential_expired" };
+        return { ok: false, reason: "credential_expired", detail: "refresh-401" };
       }
       if (options.mintFails === "transient") {
         return { ok: false, reason: "transient", detail: "refresh-503" };

@@ -134,13 +134,28 @@ export async function POST(request: Request) {
   const probeSeal = sealSecret(refreshToken, config.tokenEncryptionKey, "probe");
   const minted = await authority.mintAccessToken(probeSeal, "probe");
   if (!minted.ok) {
+    // Structural only — a status code, never the token or the response body.
+    console.log(`[inbound] delegation probe failed: ${minted.reason}/${minted.detail}`);
     if (minted.reason === "credential_expired") {
+      // The detail is echoed because this is the authenticated owner asking
+      // about their own session, and "refresh-404" (wrong path) versus
+      // "refresh-401" (refused token) are opposite problems — one is a
+      // deployment bug, the other is genuinely "sign in again".
       return Response.json(
-        { error: "Your session could not be delegated. Sign out, sign in again, and retry." },
+        {
+          error:
+            minted.detail === "refresh-404" || minted.detail === "refresh-405"
+              ? "The sign-in service didn't recognise the refresh endpoint. This is a configuration problem, not your account."
+              : "Your session could not be delegated. Sign out, sign in again, and retry.",
+          reason: minted.detail,
+        },
         { status: 400 },
       );
     }
-    return Response.json({ error: "Couldn't verify your session. Please try again." }, { status: 503 });
+    return Response.json(
+      { error: "Couldn't verify your session. Please try again.", reason: minted.detail },
+      { status: 503 },
+    );
   }
 
   const delegated = await resolveInboundIdentity(minted.accessToken);

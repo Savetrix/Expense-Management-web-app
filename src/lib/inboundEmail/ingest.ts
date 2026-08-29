@@ -36,8 +36,15 @@ const UPLOAD_TIMEOUT_MS = 60_000;
 
 export type MintOutcome =
   | { ok: true; accessToken: string }
-  /** The delegation is dead. A human must re-enable forwarding. */
-  | { ok: false; reason: "credential_expired" }
+  /**
+   * The delegation is dead. A human must re-enable forwarding.
+   *
+   * `detail` is a short structural code (never a token or a response body) —
+   * "unsealable", "refresh-401", "refresh-400", … It exists because collapsing
+   * every cause into one message made a setup failure undiagnosable: a refused
+   * token, a wrong endpoint, and a corrupt stored blob all read identically.
+   */
+  | { ok: false; reason: "credential_expired"; detail: string }
   /** Upstream problem. Worth another delivery attempt. */
   | { ok: false; reason: "transient"; detail: string };
 
@@ -124,14 +131,18 @@ export class RefreshTokenAuthority implements IngestAuthority {
   async mintAccessToken(sealedRefreshToken: string, aliasTokenHash: string): Promise<MintOutcome> {
     const refreshToken = openSecret(sealedRefreshToken, this.encryptionKey, aliasTokenHash);
     if (!refreshToken) {
-      // Wrong key, tampered record, or a blob moved between aliases. Not
-      // retryable, and never explained further — see secretBox.openSecret.
-      return { ok: false, reason: "credential_expired" };
+      // Wrong key, tampered record, or a blob moved between aliases.
+      return { ok: false, reason: "credential_expired", detail: "unsealable" };
     }
 
     let response: Response;
     try {
-      response = await fetch(`${SAVETRIX_API_BASE_URL}/auth/refresh-token`, {
+      // `/auth/refresh`, NOT `/auth/refresh-token`. The latter is what
+      // src/lib/api.ts's interceptor has always called, and it 404s ("Route not
+      // found") — verified against the live API. `/auth/refresh` answers
+      // 401 "Invalid or expired refresh token" for a junk token, i.e. it exists
+      // and reads the same {refreshToken} body.
+      response = await fetch(`${SAVETRIX_API_BASE_URL}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ refreshToken }),
@@ -143,14 +154,16 @@ export class RefreshTokenAuthority implements IngestAuthority {
     }
 
     if (response.status === 401 || response.status === 403) {
-      return { ok: false, reason: "credential_expired" };
+      return { ok: false, reason: "credential_expired", detail: `refresh-${response.status}` };
     }
     if (!response.ok) {
       if (classifyHttpFailure(response.status) === "retryable") {
         return { ok: false, reason: "transient", detail: `refresh-${response.status}` };
       }
-      // A 400 from the refresh endpoint means it did not like the token itself.
-      return { ok: false, reason: "credential_expired" };
+      // A 400/404 from the refresh endpoint means it did not like the request.
+      // 404 in particular means the PATH is wrong, not the token — worth
+      // distinguishing, because no amount of signing out will fix that.
+      return { ok: false, reason: "credential_expired", detail: `refresh-${response.status}` };
     }
 
     const payload = await response.json().catch(() => null);
