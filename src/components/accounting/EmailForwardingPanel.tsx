@@ -60,6 +60,7 @@ const REJECTION_COPY: Record<string, string> = {
   duplicate_attachment: "The same file appeared twice.",
   credential_expired: "Your session expired — reconnect below to resume forwarding.",
   ingestion_failed: "The invoice couldn't be processed.",
+  attachment_download_failed: "We couldn't retrieve the attachment from the mail provider.",
   invalid_payload: "The email couldn't be read.",
   usage_limit_exceeded: "Your plan's invoice limit was reached.",
 };

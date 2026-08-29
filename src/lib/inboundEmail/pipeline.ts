@@ -413,7 +413,12 @@ export async function processInboundEvent(
 
     const downloadUrl = downloadUrlById.get(attachment.providerAttachmentId) ?? null;
     if (!downloadUrl) {
-      results.push({ ...base, status: "failed", detail: "no download url" });
+      results.push({
+        ...base,
+        status: "rejected",
+        rejectionCode: "attachment_download_failed",
+        detail: "no download url",
+      });
       transientSeen = transientSeen ?? "missing-download-url";
       continue;
     }
@@ -424,10 +429,16 @@ export async function processInboundEvent(
         results.push({ ...base, status: "pending", detail: downloaded.reason });
         transientSeen = transientSeen ?? downloaded.reason;
       } else {
+        // Only a size refusal is genuinely about the file. Everything else
+        // here is a retrieval problem on our side or the provider's, and
+        // calling it "unsupported file type" blames the sender's PDF for our
+        // own allow-list.
         results.push({
           ...base,
           status: "rejected",
-          rejectionCode: downloaded.reason.startsWith("too-large") ? "file_too_large" : "unsupported_file_type",
+          rejectionCode: downloaded.reason.startsWith("too-large")
+            ? "file_too_large"
+            : "attachment_download_failed",
           detail: downloaded.reason,
         });
       }

@@ -57,6 +57,8 @@ const PERMANENT_CODES: ReadonlySet<RejectionCode> = new Set<RejectionCode>([
   // Reached only after classifyHttpFailure already ruled the backend's refusal
   // permanent; a retryable upload failure never becomes this code.
   "ingestion_failed",
+  // A refused host or a redirect will be refused identically next time.
+  "attachment_download_failed",
 ]);
 
 /**

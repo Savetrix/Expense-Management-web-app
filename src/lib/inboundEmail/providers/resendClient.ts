@@ -29,7 +29,19 @@ const DOWNLOAD_TIMEOUT_MS = 45_000;
  * defence in depth costs nothing, and it catches a provider that ever starts
  * handing out URLs pointing somewhere unexpected.
  */
-const DEFAULT_ALLOWED_DOWNLOAD_HOSTS = ["inbound-cdn.resend.com", "api.resend.com"];
+/**
+ * `cdn.resend.app` is what the API ACTUALLY returns — verified against a live
+ * attachment. Resend's own API reference example shows
+ * `inbound-cdn.resend.com`, which is what this list was originally built from,
+ * and the mismatch meant every real attachment was refused by the allow-list.
+ * Both are kept: the documented host may still be served to some accounts, and
+ * an allow-list that is too narrow fails closed on legitimate invoices.
+ */
+const DEFAULT_ALLOWED_DOWNLOAD_HOSTS = [
+  "cdn.resend.app",
+  "inbound-cdn.resend.com",
+  "api.resend.com",
+];
 
 function allowedDownloadHosts(): string[] {
   const configured = process.env.INBOUND_DOWNLOAD_HOST_ALLOWLIST?.trim();

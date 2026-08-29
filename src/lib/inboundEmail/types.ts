@@ -71,7 +71,17 @@ export type RejectionCode =
    */
   | "credential_expired"
   /** The invoice backend refused the upload for a reason that will not change. */
-  | "ingestion_failed";
+  | "ingestion_failed"
+  /**
+   * The attachment bytes could not be retrieved at all — a refused host, a
+   * redirect, a malformed URL.
+   *
+   * Distinct from `unsupported_file_type` because the two say opposite things
+   * about who is at fault. Folding a download failure into "unsupported file
+   * type" told an accountant their perfectly good PDF was the wrong format,
+   * while the real cause was our own allow-list refusing the provider's CDN.
+   */
+  | "attachment_download_failed";
 
 /** Provider-reported authentication verdicts. Only ever provider-validated (§9). */
 export type AuthVerdict = "pass" | "fail" | "neutral" | "none";
