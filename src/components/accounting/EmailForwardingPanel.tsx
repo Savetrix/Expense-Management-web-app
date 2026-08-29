@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { clearInboundEmailError } from "@/store/inboundEmail/inboundEmailSlice";
 import {
   enableInboundForwarding,
   fetchInboundOverview,
@@ -380,18 +381,29 @@ export function EmailForwardingPanel({
     );
   }
 
-  if (error && !alias) {
-    return (
-      <Section>
-        <p className="text-caption text-error">{error}</p>
-      </Section>
-    );
-  }
-
   // ── Not enabled for this company ────────────────────────────────────────
   if (!alias) {
     return (
       <Section>
+        {/* An earlier version returned EARLY here whenever `error` was set,
+            which removed the button below — so a single failed attempt trapped
+            the user in an error state with no way to retry short of reloading
+            the page. The error now sits ABOVE a still-usable button. */}
+        {error && (
+          <div className="flex flex-col gap-[var(--space-xs)] rounded-md bg-error/10 p-[var(--space-sm)]">
+            <p className="text-caption text-error">{error}</p>
+            <button
+              type="button"
+              onClick={() => {
+                dispatch(clearInboundEmailError());
+                dispatch(fetchInboundOverview());
+              }}
+              className="w-fit cursor-pointer text-caption font-bold text-text-primary underline"
+            >
+              Dismiss and refresh
+            </button>
+          </div>
+        )}
         <p className="text-body-sm text-text-secondary">
           Give this company its own address, then forward supplier invoices straight to it — no
           downloading and re-uploading. They land in the same review queue as an upload.
