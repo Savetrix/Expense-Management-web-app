@@ -392,6 +392,14 @@ export function EmailForwardingPanel({
     );
   }
 
+  // ── Feature is off server-side ──────────────────────────────────────────
+  // Hide it entirely rather than offering a button that mints an address no
+  // mail can reach. This is what makes INBOUND_EMAIL_ENABLED a usable rollout
+  // switch: off means the feature does not exist as far as the user is
+  // concerned. An alias that ALREADY exists still renders below, so turning the
+  // flag off never hides an address somebody has already saved and shared.
+  if (!enabled && !alias) return null;
+
   // ── Not enabled for this company ────────────────────────────────────────
   if (!alias) {
     return (
@@ -419,13 +427,6 @@ export function EmailForwardingPanel({
           Give this company its own address, then forward supplier invoices straight to it — no
           downloading and re-uploading. They land in the same review queue as an upload.
         </p>
-        {!enabled && (
-          <p className="flex items-start gap-[var(--space-xs)] text-caption text-warning">
-            <AlertTriangle size={14} className="mt-[2px] shrink-0" />
-            Forwarding is switched off server-side right now. You can create the address, but nothing
-            will be imported until it&apos;s enabled.
-          </p>
-        )}
         <button
           type="button"
           onClick={handleEnable}
@@ -451,6 +452,14 @@ export function EmailForwardingPanel({
       </div>
 
       <CopyableAddress address={alias.receivingAddress} />
+
+      {!enabled && (
+        <p className="flex items-start gap-[var(--space-xs)] text-caption text-warning">
+          <AlertTriangle size={14} className="mt-[2px] shrink-0" />
+          Forwarding is paused right now. Mail to this address is recorded and will be imported once
+          it&apos;s switched back on — nothing is lost.
+        </p>
+      )}
 
       <p className="text-caption text-text-secondary">
         Invoices sent here are filed under <span className="font-semibold">{companyName}</span>.
