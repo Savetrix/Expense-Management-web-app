@@ -373,16 +373,15 @@ export function EmailForwardingPanel({
   }, [alias, dispatch]);
 
   // ── Deployment isn't configured for this yet ────────────────────────────
-  if (missingConfig.length > 0) {
-    return (
-      <Section>
-        <p className="text-caption text-text-secondary">
-          Email forwarding isn&apos;t set up on this deployment yet. Missing configuration:{" "}
-          <span className="font-mono">{missingConfig.join(", ")}</span>
-        </p>
-      </Section>
-    );
-  }
+  // Deployment isn't configured for this feature — show NOTHING.
+  //
+  // An earlier version rendered the list of missing environment variable names
+  // here. That is a deployment diagnostic, not customer-facing copy: between
+  // merging this feature and setting the production variables, every accountant
+  // opening a company would have been shown INBOUND_PROVIDER_API_KEY and
+  // friends. The server already logs `[inbound] misconfigured: …` where an
+  // operator will actually see it.
+  if (missingConfig.length > 0) return null;
 
   if (loading && !loaded) {
     return (
