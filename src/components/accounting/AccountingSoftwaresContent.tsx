@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Receipt, X } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import { EmailForwardingPanel } from "@/components/accounting/EmailForwardingPanel";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
 import { useAppDispatch } from "@/store/hooks";
@@ -566,6 +567,17 @@ export function AccountingSoftwaresContent() {
                   </button>
                 )}
               </div>
+
+              {/* A receiving address belongs to ONE QuickBooks company, so it
+                  lives in that company's detail panel rather than in a global
+                  settings screen. That placement is also the answer to managing
+                  several clients: each company has its own address, and the
+                  address itself decides where an invoice is filed. */}
+              <EmailForwardingPanel
+                qbConnectionId={selectedConnection._id}
+                companyName={selectedConnection.name}
+                disabled={isSelectedDisconnected || isSelectedReconnectRequired}
+              />
             </DetailPanelShell>
           )}
 

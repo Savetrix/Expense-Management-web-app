@@ -98,13 +98,39 @@ api.interceptors.response.use(
           return Promise.reject(error);
         }
 
-        const response = await axios.post(`${BASE_URL}/auth/refresh-token`, {
+        // `/auth/refresh`, NOT `/auth/refresh-token`. The latter returns
+        // 404 "Route not found" on the live API — verified directly — which
+        // meant this whole branch could only ever throw, so every expired
+        // access token fell through to the catch below and signed the user out
+        // instead of silently refreshing.
+        const response = await axios.post(`${BASE_URL}/auth/refresh`, {
           refreshToken,
         });
 
-        const newAccessToken = response.data.accessToken;
+        // The API wraps payloads as {success, message, data}, but this endpoint
+        // was previously read as a bare {accessToken}. Probe both rather than
+        // betting on one — an undefined token here would be written to storage
+        // and break every subsequent request.
+        const newAccessToken =
+          response.data?.data?.accessToken ?? response.data?.accessToken;
+
+        if (!newAccessToken) {
+          throw new Error("refresh returned no access token");
+        }
 
         writeLocalStorage("accessToken", newAccessToken);
+
+        // If the backend ROTATES refresh tokens, the one we just spent is now
+        // dead and this response carries its replacement. Failing to store it
+        // means the next refresh presents a spent token, gets a 401, and signs
+        // the user out — the session then survives exactly one refresh. Proven
+        // against the live API: an inbound-email delegation died this way after
+        // a single use.
+        const rotatedRefreshToken =
+          response.data?.data?.refreshToken ?? response.data?.refreshToken;
+        if (rotatedRefreshToken && rotatedRefreshToken !== refreshToken) {
+          writeLocalStorage("refreshToken", rotatedRefreshToken);
+        }
 
         // Session is healthy again — but for a write, surface the original
         // error and let the caller decide whether to retry, rather than
