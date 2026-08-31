@@ -214,6 +214,15 @@ export interface MessageRecord {
   rejectionCode: RejectionCode | null;
   detail: string | null;
   attempts: number;
+  /**
+   * True while an execution is actively working this delivery.
+   *
+   * Cleared explicitly when we stop, so a provider retry that arrives seconds
+   * later is not made to wait out the whole lease. The lease timestamp remains
+   * the fallback for the case this flag cannot cover: a process that died
+   * without ever clearing it.
+   */
+  inFlight?: boolean;
   attachments: MessageAttachmentRecord[];
   authDiagnostics: InboundAuthResultsDiagnostics | null;
   createdAt: string;
@@ -620,11 +629,31 @@ export async function clearServiceSession(): Promise<void> {
   await blobIo().remove(SERVICE_SESSION_PATH);
 }
 
+/**
+ * How long a claim is presumed live.
+ *
+ * The pipeline re-saves the record as it works (once per attachment), so an
+ * execution that is genuinely running keeps refreshing this. A record older
+ * than the lease belonged to an attempt that died, and is safe to resume.
+ */
+const CLAIM_LEASE_MS = 3 * 60 * 1000;
+
 export type ClaimOutcome =
-  /** We are the first to see this event, or resuming an unfinished attempt. */
+  /** We are the first to see this event, or resuming a DEAD attempt. */
   | { kind: "claimed"; record: MessageRecord }
   /** Already finished. The webhook answers 200 and does no work. */
-  | { kind: "duplicate"; record: MessageRecord };
+  | { kind: "duplicate"; record: MessageRecord }
+  /**
+   * Another execution is working on this delivery right now. The caller must
+   * answer 503 and do nothing — NOT resume it.
+   *
+   * This exists because the provider retries a webhook it considers timed out,
+   * and a slow message (ten large attachments) can outlast that timeout while
+   * still succeeding. Resuming in parallel would upload the same attachments
+   * twice and put duplicate bills in QuickBooks — the one failure that costs
+   * real money.
+   */
+  | { kind: "in_progress"; record: MessageRecord };
 
 /**
  * Atomically claim a webhook event.
@@ -636,9 +665,10 @@ export type ClaimOutcome =
  */
 export async function claimMessage(seed: MessageRecord): Promise<ClaimOutcome> {
   const path = messagePath(seed.providerEventId);
+  const claimedSeed: MessageRecord = { ...seed, inFlight: true };
   try {
-    await blobIo().write(path, JSON.stringify(seed), { kind: "create" });
-    return { kind: "claimed", record: seed };
+    await blobIo().write(path, JSON.stringify(claimedSeed), { kind: "create" });
+    return { kind: "claimed", record: claimedSeed };
   } catch (error) {
     if (!(error instanceof InboundWriteConflictError)) throw error;
   }
@@ -648,13 +678,26 @@ export async function claimMessage(seed: MessageRecord): Promise<ClaimOutcome> {
   if (!record) {
     // Present but unreadable. Treat as claimable rather than stranding the
     // message: overwriting an unparseable record loses nothing of value.
-    await blobIo().write(path, JSON.stringify(seed), { kind: "none" });
-    return { kind: "claimed", record: seed };
+    await blobIo().write(path, JSON.stringify(claimedSeed), { kind: "none" });
+    return { kind: "claimed", record: claimedSeed };
   }
 
   if (isTerminalStatus(record.status)) return { kind: "duplicate", record };
 
-  const resumed: MessageRecord = { ...record, attempts: record.attempts + 1, updatedAt: nowIso() };
+  // Someone else is mid-flight. Back off rather than racing them — but only
+  // while they are BOTH marked in-flight and recently alive.
+  const touchedAt = Date.parse(record.updatedAt);
+  const recentlyAlive = Number.isFinite(touchedAt) && Date.now() - touchedAt < CLAIM_LEASE_MS;
+  if (record.inFlight && recentlyAlive) {
+    return { kind: "in_progress", record };
+  }
+
+  const resumed: MessageRecord = {
+    ...record,
+    attempts: record.attempts + 1,
+    inFlight: true,
+    updatedAt: nowIso(),
+  };
   await blobIo().write(path, JSON.stringify(resumed), { kind: "none" });
   return { kind: "claimed", record: resumed };
 }
@@ -676,6 +719,21 @@ export async function saveMessage(record: MessageRecord): Promise<void> {
     JSON.stringify({ ...record, updatedAt: nowIso() }),
     { kind: "none" },
   );
+}
+
+/**
+ * Mark this delivery as no longer being worked on.
+ *
+ * Called when we stop without settling — so the provider's next retry (which
+ * can arrive within seconds) is free to pick it up immediately instead of
+ * waiting out the lease.
+ */
+export async function releaseClaim(record: MessageRecord): Promise<void> {
+  try {
+    await saveMessage({ ...record, inFlight: false });
+  } catch {
+    // Best-effort: the lease timestamp still expires on its own.
+  }
 }
 
 /**

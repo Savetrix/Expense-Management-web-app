@@ -46,6 +46,7 @@ import {
   claimMessage,
   readAlias,
   recordEmailInvoiceIds,
+  releaseClaim,
   saveMessage,
   touchAliasUsed,
   type AliasRecord,
@@ -164,6 +165,11 @@ export async function processInboundEvent(
   // ── 1. Claim the delivery ─────────────────────────────────────────────────
   const claim = await claimMessage(seedRecord(event, correlationId));
   if (claim.kind === "duplicate") return { kind: "duplicate", correlationId };
+  if (claim.kind === "in_progress") {
+    // Another execution holds this delivery. Ask the provider to come back
+    // later rather than processing the same attachments alongside it.
+    return { kind: "retry", correlationId, detail: "already-in-progress" };
+  }
   let record = claim.record;
 
   // ── 2. Global kill switch ─────────────────────────────────────────────────
@@ -174,6 +180,12 @@ export async function processInboundEvent(
     await saveMessage(record);
     return { kind: "deferred", correlationId };
   }
+
+  /** Stop without settling: hand the delivery back so a retry can resume it. */
+  const retry = async (detail: string): Promise<PipelineResult> => {
+    await releaseClaim(record);
+    return { kind: "retry", correlationId, detail };
+  };
 
   const finish = async (
     status: InboundMessageStatus,
@@ -243,8 +255,7 @@ export async function processInboundEvent(
     // Transient by classification inside the client. Do NOT mark terminal —
     // returning 503 lets the provider redeliver into a resumable record.
     record = { ...record, status: "fetching", detail: "provider fetch failed" };
-    await saveMessage(record);
-    return { kind: "retry", correlationId, detail: "provider-fetch-failed" };
+    return retry("provider-fetch-failed");
   }
   if (!fetched) {
     await finish("rejected", "invalid_payload", "message not retrievable", alias);
@@ -331,8 +342,7 @@ export async function processInboundEvent(
     );
   } catch {
     record = { ...record, status: "fetching", detail: "attachment listing failed" };
-    await saveMessage(record);
-    return { kind: "retry", correlationId, detail: "attachment-list-failed" };
+    return retry("attachment-list-failed");
   }
 
   // Fall back to the webhook's thinner list if the API returned nothing but the
@@ -363,8 +373,7 @@ export async function processInboundEvent(
       return { kind: "rejected", code: "credential_expired", correlationId };
     }
     record = { ...record, detail: acquired.detail };
-    await saveMessage(record);
-    return { kind: "retry", correlationId, detail: acquired.detail };
+    return retry(acquired.detail);
   }
   const accessToken = acquired.accessToken;
 
@@ -458,9 +467,16 @@ export async function processInboundEvent(
     // Now that the real bytes and size are known, re-apply the inline-asset
     // heuristic: the webhook's metadata reported size 0, so a signature logo
     // could not be recognised until here.
+    // Re-judge with the REAL size and the DETECTED type. Passing the detected
+    // type in matters: the heuristic only applies to images, and a file whose
+    // reported type was octet-stream must be judged on what it actually is.
     if (
-      isLikelyInlineAsset({ ...attachment, sizeBytes: validated.value.sizeBytes }) &&
-      validated.value.detectedMimeType !== "application/pdf"
+      validated.value.detectedMimeType !== "application/pdf" &&
+      isLikelyInlineAsset({
+        ...attachment,
+        reportedMimeType: validated.value.detectedMimeType,
+        sizeBytes: validated.value.sizeBytes,
+      })
     ) {
       results.push({
         ...base,
@@ -537,16 +553,14 @@ export async function processInboundEvent(
   if (stillPending && completed === 0) {
     // Nothing landed and something is retryable — ask for redelivery.
     record = { ...record, status: "processing", detail: transientSeen };
-    await saveMessage(record);
-    return { kind: "retry", correlationId, detail: transientSeen ?? "attachment-retry" };
+    return retry(transientSeen ?? "attachment-retry");
   }
 
   if (stillPending) {
     // Some invoices exist, some files still need another attempt. Retrying is
     // safe: completed attachments are skipped by the loop above.
     record = { ...record, status: "processing", detail: transientSeen };
-    await saveMessage(record);
-    return { kind: "retry", correlationId, detail: transientSeen ?? "partial-retry" };
+    return retry(transientSeen ?? "partial-retry");
   }
 
   if (completed === 0) {
@@ -579,14 +593,26 @@ async function resolveSenderFacts(
   envelopeSender: string | null,
   fromAddress: string | null,
 ): Promise<SenderFacts | null> {
-  // MUST mirror authorizeInboundSender's own expression exactly. It computes
-  // `normalize(envelopeSender) ?? normalize(from)`, so a non-null but
-  // unparseable Return-Path makes it fall through to From — and if we resolved a
-  // different address here than it compares there, the two would disagree and
-  // the match below would be meaningless.
-  const normalizedClaimed =
-    normalizeEmailAddress(envelopeSender) ?? normalizeEmailAddress(fromAddress);
-  if (!normalizedClaimed) return null;
+  // EITHER address may satisfy the allow-list.
+  //
+  // This used to take Return-Path and fall back to From only when Return-Path
+  // was unparseable. That quietly rejected legitimate senders: corporate mail
+  // gateways, relays and mailing lists routinely rewrite Return-Path to a
+  // bounce-handling address, so we were comparing something like
+  // `bounces+123@gateway.example` against the allow-list and refusing an
+  // accountant whose From was perfectly correct.
+  //
+  // Accepting a From match is sound here because it is not the only gate: the
+  // message must ALSO pass the email-authentication policy below, and with
+  // INBOUND_REQUIRE_EMAIL_AUTH on (production) that means DMARC verified the
+  // From domain. Sender identity and sender authenticity stay separate checks;
+  // both still have to pass.
+  const envelopeCandidate = normalizeEmailAddress(envelopeSender);
+  const fromCandidate = normalizeEmailAddress(fromAddress);
+  const candidates = [envelopeCandidate, fromCandidate].filter(
+    (value): value is string => value !== null,
+  );
+  if (candidates.length === 0) return null;
 
   const authorized = aliasAuthorizedSenders(alias);
   if (authorized.length === 0) return null;
@@ -596,10 +622,12 @@ async function resolveSenderFacts(
   // real mailboxes at providers that all treat local-parts case-insensitively,
   // and mail clients rewrite case freely — so `Nikhil@corp.com` must match a
   // stored `nikhil@corp.com` rather than being refused.
-  const target = normalizedClaimed.toLowerCase();
-  const matches = authorized.some(
-    (candidate) => normalizeEmailAddress(candidate)?.toLowerCase() === target,
+  const allowed = new Set(
+    authorized
+      .map((candidate) => normalizeEmailAddress(candidate)?.toLowerCase())
+      .filter((value): value is string => Boolean(value)),
   );
+  const matches = candidates.some((candidate) => allowed.has(candidate.toLowerCase()));
   if (!matches) {
     // Deliberately the same answer an unknown address gets: never reveal whether
     // the sender has a Scantrix account.
@@ -608,11 +636,13 @@ async function resolveSenderFacts(
 
   return {
     userId: alias.userId,
-    // The identity match is decided above, where the allow-list lives; this hands
-    // authorizeInboundSender the address in the exact form it will compare, so
-    // its remaining checks (alias active, account state, email-auth policy,
+    // BOTH candidates are handed over, because authorizeInboundSender picks one
+    // by its own rule (`normalize(envelopeSender) ?? normalize(from)`). Passing
+    // both guarantees whichever it picks is present, so the two cannot disagree
+    // — while the actual allow-list decision stays here, where the list lives.
+    // Its remaining checks (alias active, account state, email-auth policy,
     // quota) all still run and still gate the outcome.
-    verifiedEmails: [normalizedClaimed],
+    verifiedEmails: candidates,
     active: true,
     uploadableWorkspaceIds: [alias.qbConnectionId],
   };

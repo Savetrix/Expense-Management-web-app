@@ -20,12 +20,14 @@ import { checkDownloadUrl, type ResendAttachmentMeta } from "../lib/inboundEmail
 import { openSecret, sealSecret, secretsEqual } from "../lib/inboundEmail/secretBox";
 import { evaluateScan, parseVerdict, readScanVerdicts } from "../lib/inboundEmail/scanVerdict";
 import {
+  __paths,
   __setInboundBlobIoForTests,
   claimMessage,
   createAlias,
   readAlias,
   InboundWriteConflictError,
   readMessage,
+  releaseClaim,
   saveMessage,
   type AliasRecord,
   type InboundBlobIo,
@@ -70,6 +72,17 @@ function memoryIo(): InboundBlobIo & { dump: () => Map<string, string> } {
     },
     dump: () => new Map([...files].map(([key, value]) => [key, value.text])),
   };
+}
+
+
+/** A record as it would look after an attempt that died `agoMs` ago. */
+async function plantStaleRecord(
+  io: InboundBlobIo,
+  record: MessageRecord,
+  agoMs = 10 * 60 * 1000,
+): Promise<void> {
+  const stale = { ...record, updatedAt: new Date(Date.now() - agoMs).toISOString() };
+  await io.write(__paths.messagePath(record.providerEventId), JSON.stringify(stale), { kind: "none" });
 }
 
 const KEY = randomBytes(32);
@@ -429,8 +442,10 @@ const seedMessage = (overrides: Partial<MessageRecord> = {}): MessageRecord => (
 });
 
 describe("claiming a webhook delivery", () => {
+  let io: InboundBlobIo;
   beforeEach(() => {
-    __setInboundBlobIoForTests(memoryIo());
+    io = memoryIo();
+    __setInboundBlobIoForTests(io);
   });
 
   it("claims an unseen delivery", async () => {
@@ -445,27 +460,55 @@ describe("claiming a webhook delivery", () => {
     assert.equal(again.kind, "duplicate");
   });
 
-  it("RESUMES a redelivery of unfinished work instead of calling it a duplicate", async () => {
-    // The bug this guards against: treating "a record exists" as "already done"
-    // would silently drop every invoice whose first attempt died half-way —
-    // exactly the case the provider's 8 retries exist to recover.
+  it("RESUMES a redelivery whose previous attempt DIED", async () => {
+    // Treating "a record exists" as "already done" would silently drop every
+    // invoice whose first attempt died half-way — exactly the case the
+    // provider's 8 retries exist to recover.
     await claimMessage(seedMessage());
-    await saveMessage(seedMessage({ status: "processing" }));
+    await plantStaleRecord(io, seedMessage({ status: "processing", attempts: 1 }));
     const again = await claimMessage(seedMessage());
     assert.equal(again.kind, "claimed");
     if (again.kind === "claimed") assert.equal(again.record.attempts, 2);
   });
 
-  it("counts attempts across redeliveries", async () => {
+  it("counts attempts across successive dead attempts", async () => {
     await claimMessage(seedMessage());
-    for (let i = 0; i < 3; i += 1) await claimMessage(seedMessage());
+    for (let i = 0; i < 3; i += 1) {
+      const current = await readMessage("msg_1");
+      await plantStaleRecord(io, current!);
+      await claimMessage(seedMessage());
+    }
     const record = await readMessage("msg_1");
     assert.equal(record?.attempts, 4);
   });
 
+  it("REFUSES to resume a delivery another execution is working on", async () => {
+    // The duplicate-bill scenario: our processing outlasts the provider's
+    // webhook timeout, it retries, and two executions upload the same
+    // attachments in parallel. The second must back off, not resume.
+    await claimMessage(seedMessage());
+    // A live execution: marked in-flight and recently alive.
+    await saveMessage(seedMessage({ status: "processing", inFlight: true }));
+
+    const again = await claimMessage(seedMessage());
+    assert.equal(again.kind, "in_progress");
+  });
+
+  it("lets the next retry straight in once we have stopped working", async () => {
+    // We return 503 the moment we stop, and the provider can retry within
+    // seconds. Making it wait out the whole lease would waste retries, so
+    // stopping releases the claim explicitly.
+    await claimMessage(seedMessage());
+    await releaseClaim(seedMessage({ status: "processing", inFlight: true }));
+
+    const again = await claimMessage(seedMessage());
+    assert.equal(again.kind, "claimed");
+  });
+
   it("treats every terminal status as settled", async () => {
     for (const status of ["completed", "partially_completed", "rejected", "dead_lettered"] as const) {
-      __setInboundBlobIoForTests(memoryIo());
+      io = memoryIo();
+      __setInboundBlobIoForTests(io);
       await claimMessage(seedMessage());
       await saveMessage(seedMessage({ status }));
       const again = await claimMessage(seedMessage());
@@ -549,6 +592,8 @@ function event(overrides: Partial<NormalizedInboundEvent> = {}): NormalizedInbou
 }
 
 interface FakeOptions {
+  /** What the FETCHED message reports as From. Defaults to the authorized owner. */
+  fetchedFrom?: string;
   headers?: Record<string, string | string[]>;
   metas?: ResendAttachmentMeta[];
   bytes?: Record<string, Buffer>;
@@ -605,7 +650,7 @@ function fakes(options: FakeOptions = {}) {
       if (options.fetchThrows) throw new Error("boom");
       return {
         id: "em_1",
-        from: "nikhil@savetrix.com",
+        from: options.fetchedFrom ?? "nikhil@savetrix.com",
         to: [],
         cc: [],
         receivedFor: [`${ALIAS_LOCAL}@invoice.scantrix.ai`],
@@ -635,8 +680,10 @@ function fakes(options: FakeOptions = {}) {
 }
 
 describe("inbound pipeline", () => {
+  let io: InboundBlobIo;
   beforeEach(async () => {
-    __setInboundBlobIoForTests(memoryIo());
+    io = memoryIo();
+    __setInboundBlobIoForTests(io);
     await createAlias(aliasRecord());
   });
 
@@ -701,6 +748,7 @@ describe("inbound pipeline", () => {
   it("rejects a sender who is not on the alias's allow-list", async () => {
     const { authority, provider, uploads } = fakes({
       headers: { "Return-Path": "<attacker@evil.com>" },
+      fetchedFrom: "attacker@evil.com",
     });
     const result = await processInboundEvent(event({ from: "attacker@evil.com" }), {
       config: config(),
@@ -715,12 +763,45 @@ describe("inbound pipeline", () => {
   it("is not fooled by a display name that impersonates the owner", async () => {
     const { authority, provider, uploads } = fakes({
       headers: { "Return-Path": '"nikhil@savetrix.com" <attacker@evil.com>' },
+      fetchedFrom: '"Nikhil Savetrix" <attacker@evil.com>',
     });
     const result = await processInboundEvent(
       event({ from: '"Nikhil Savetrix" <attacker@evil.com>' }),
       { config: config(), authority, provider },
     );
     assert.equal(result.kind, "rejected");
+    assert.equal(uploads.length, 0);
+  });
+
+  it("accepts an authorized From when Return-Path was rewritten by a gateway", async () => {
+    // Corporate gateways, relays and mailing lists routinely rewrite
+    // Return-Path to a bounce handler. Taking Return-Path in preference to From
+    // meant comparing `bounces+123@gateway.example` against the allow-list and
+    // refusing an accountant whose From was perfectly correct.
+    const { authority, provider, uploads } = fakes({
+      headers: {
+        "Return-Path": "<bounces+7f3a2@mail-gateway.example>",
+        "Authentication-Results": "amazonses.com; dmarc=pass; dkim=pass; spf=pass",
+      },
+      fetchedFrom: "nikhil@savetrix.com",
+    });
+    const result = await processInboundEvent(event(), { config: config(), authority, provider });
+    assert.equal(result.kind, "done");
+    assert.equal(uploads.length, 1);
+  });
+
+  it("still rejects when NEITHER Return-Path nor From is authorized", async () => {
+    const { authority, provider, uploads } = fakes({
+      headers: { "Return-Path": "<bounces@gateway.example>" },
+      fetchedFrom: "attacker@evil.com",
+    });
+    const result = await processInboundEvent(event({ from: "attacker@evil.com" }), {
+      config: config(),
+      authority,
+      provider,
+    });
+    assert.equal(result.kind, "rejected");
+    if (result.kind === "rejected") assert.equal(result.code, "sender_not_registered");
     assert.equal(uploads.length, 0);
   });
 
@@ -805,6 +886,7 @@ describe("inbound pipeline", () => {
     // must pick it up rather than skipping it as a duplicate.
     const record = await readMessage("msg_1");
     assert.equal(record?.status, "received");
+    await plantStaleRecord(io, record!);
     const again = await claimMessage(seedMessage());
     assert.equal(again.kind, "claimed");
   });
@@ -910,7 +992,8 @@ describe("inbound pipeline", () => {
     // (connection, vendor, invoice number). Same policy as lib/api.ts: never
     // re-send a write whose outcome is unknown.
     await claimMessage(seedMessage());
-    await saveMessage(
+    await plantStaleRecord(
+      io,
       seedMessage({
         status: "processing",
         attachments: [
@@ -939,7 +1022,8 @@ describe("inbound pipeline", () => {
 
   it("does not re-upload a file that already completed on an earlier attempt", async () => {
     await claimMessage(seedMessage());
-    await saveMessage(
+    await plantStaleRecord(
+      io,
       seedMessage({
         status: "processing",
         attachments: [

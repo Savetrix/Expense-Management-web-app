@@ -804,6 +804,81 @@ describe("Resend payload normalization", () => {
 });
 
 // ── idempotency and retries ────────────────────────────────────────────────
+// ── what real mail clients actually send ───────────────────────────────────
+//
+// Every case here is a genuine invoice that an earlier version of this code
+// discarded. They are grouped because they share one root cause: trusting what
+// the SENDER claims about a file over what the file actually is.
+describe("real-world attachment shapes", () => {
+  const PDF = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(4000, 0x20)]);
+
+  const att = (over: Partial<NormalizedAttachment> = {}): NormalizedAttachment => ({
+    providerAttachmentId: "a1",
+    filename: "invoice.pdf",
+    reportedMimeType: "application/pdf",
+    sizeBytes: PDF.length,
+    disposition: "attachment",
+    contentId: null,
+    ...over,
+  });
+
+  it("accepts a PDF labelled application/octet-stream", () => {
+    // Outlook, many scanners and several forwarding paths label ordinary PDFs
+    // this way. It previously passed candidate selection, got downloaded, then
+    // was rejected as content_type_mismatch — telling the accountant their
+    // invoice's contents did not match its file type when nothing was wrong.
+    const r = validateAttachment(att({ reportedMimeType: "application/octet-stream" }), PDF);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.value.detectedMimeType, "application/pdf");
+  });
+
+  it("accepts a PDF with no content-type at all", () => {
+    const r = validateAttachment(att({ reportedMimeType: "" }), PDF);
+    assert.equal(r.ok, true);
+  });
+
+  it("accepts non-standard PDF spellings from older clients", () => {
+    for (const mime of ["application/x-pdf", "application/acrobat", "text/pdf"]) {
+      assert.equal(validateAttachment(att({ reportedMimeType: mime }), PDF).ok, true, mime);
+    }
+  });
+
+  it("STILL rejects a genuine lie about the content", () => {
+    // The cross-check must keep working where a real claim is made: a file
+    // labelled PDF whose bytes are a ZIP is exactly the case it exists for.
+    const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(4000, 0)]);
+    const r = validateAttachment(att({ reportedMimeType: "application/pdf" }), zip);
+    assert.equal(r.ok, false);
+  });
+
+  it("accepts a PDF whose header is not at byte zero", () => {
+    // Some generators emit a BOM or stray whitespace first. Every reader
+    // tolerates it; requiring offset 0 rejected the file outright.
+    const shifted = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf, 0x0a]), PDF]);
+    assert.equal(detectMimeType(shifted), "application/pdf");
+  });
+
+  it("lets an unlabelled file through candidate selection", () => {
+    // A missing content-type is not evidence of anything; the magic bytes
+    // decide later. Discarding it here would never even download the invoice.
+    assert.equal(selectCandidateAttachments([att({ reportedMimeType: "" })]).length, 1);
+    assert.equal(
+      selectCandidateAttachments([att({ reportedMimeType: "application/octet-stream" })]).length,
+      1,
+    );
+  });
+
+  it("still discards something clearly not an invoice", () => {
+    assert.equal(selectCandidateAttachments([att({ reportedMimeType: "text/calendar" })]).length, 0);
+  });
+
+  it("accepts a large multi-page scan up to 25 MB", () => {
+    // The old 15 MB cap silently refused scans that manual upload accepts.
+    const big = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(20 * 1024 * 1024, 0x20)]);
+    assert.equal(validateAttachment(att({ sizeBytes: big.length }), big).ok, true);
+  });
+});
+
 // ── inline vs. real content ────────────────────────────────────────────────
 describe("dragged-in images are content, not decoration", () => {
   const image = (over: Partial<NormalizedAttachment> = {}): NormalizedAttachment => ({

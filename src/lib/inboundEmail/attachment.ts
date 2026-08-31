@@ -32,14 +32,27 @@ export interface AttachmentLimits {
  * otherwise, and the sender chooses the payload.
  */
 export const DEFAULT_LIMITS: AttachmentLimits = {
+  // Matches manual upload's MAX_UPLOAD_FILES (DashboardContent.tsx:43), so an
+  // accountant is not told a batch is fine in one channel and too big in another.
   maxAttachments: 10,
-  maxFileBytes: 15 * 1024 * 1024,
+  // 25 MB, raised from 15 MB. A multi-page scan of a supplier invoice routinely
+  // exceeds 15 MB, and manual upload imposes no such per-file limit — so the
+  // lower cap silently refused documents that the Upload button would accept.
+  maxFileBytes: 25 * 1024 * 1024,
   maxTotalBytes: 40 * 1024 * 1024,
 };
 
 /** Leading-byte signatures. Order matters only in that the first hit wins. */
 const MAGIC: ReadonlyArray<{ mime: string; test: (b: Buffer) => boolean }> = [
-  { mime: "application/pdf", test: (b) => b.subarray(0, 5).toString("latin1") === "%PDF-" },
+  {
+    // `%PDF-` SHOULD be at byte 0, but real files disagree: some generators
+    // and scanners emit a BOM or stray whitespace first, and every PDF reader
+    // tolerates the header appearing a little later. Requiring offset 0 exactly
+    // rejected such files as "unsupported_file_type" — blaming a perfectly
+    // readable invoice. Scan a bounded window instead, matching what readers do.
+    mime: "application/pdf",
+    test: (b) => b.subarray(0, 1024).indexOf("%PDF-", 0, "latin1") !== -1,
+  },
   { mime: "image/jpeg", test: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   {
     mime: "image/png",
@@ -160,7 +173,18 @@ export function isLikelyInlineAsset(
   attachment: NormalizedAttachment,
   dimensions?: { width: number; height: number } | null,
 ): boolean {
-  if (attachment.reportedMimeType === "application/pdf") return false;
+  // THIS HEURISTIC IS ABOUT IMAGES, SO ONLY IMAGES ARE SUBJECT TO IT.
+  //
+  // Signature logos and tracking pixels are images. Anything not positively
+  // reported as an image — a PDF, an octet-stream, a file with no content-type
+  // at all — is left alone here and judged on its magic bytes after download.
+  //
+  // The old test was `reportedMimeType === "application/pdf"`, an exact string
+  // match, which meant a SMALL PDF labelled `application/octet-stream` (the
+  // label Outlook and many scanners use) fell through to the size rule and was
+  // discarded as decoration. Plenty of real invoices are under 25 KB.
+  const reported = normalizeMime(attachment.reportedMimeType);
+  if (reported === null || !reported.startsWith("image/")) return false;
 
   // SIZE IS THE SIGNAL, NOT DISPOSITION.
   //
@@ -245,8 +269,39 @@ function normalizeMime(value: string | null | undefined): string | null {
 }
 
 /** heic/heif share a container, and jpg aliases are common in the wild. */
+/**
+ * Types that assert nothing about the content.
+ *
+ * A sender saying "application/octet-stream" is saying "I don't know what this
+ * is" — that is not a claim, so there is nothing for the magic bytes to
+ * contradict. Treating it as a mismatch was a real bug: Outlook, many scanners
+ * and several forwarding paths label perfectly ordinary PDFs this way, and
+ * selectCandidateAttachments deliberately lets them through, only for
+ * validateAttachment to reject them as `content_type_mismatch` — telling the
+ * accountant their invoice's "contents didn't match its file type" when nothing
+ * was wrong with it.
+ */
+/** Non-standard PDF labels seen from older clients and scanners. */
+const PDF_SPELLINGS: ReadonlySet<string> = new Set([
+  "application/x-pdf",
+  "application/acrobat",
+  "applications/vnd.pdf",
+  "text/pdf",
+]);
+
+const UNINFORMATIVE_MIMES: ReadonlySet<string> = new Set([
+  "application/octet-stream",
+  "binary/octet-stream",
+  "application/binary",
+  "application/download",
+  "application/force-download",
+  "application/unknown",
+]);
+
 function mimeAgrees(reported: string, detected: string): boolean {
   if (reported === detected) return true;
+  // Nothing was claimed, so nothing can disagree. The magic bytes decide.
+  if (UNINFORMATIVE_MIMES.has(reported)) return true;
   const equivalent: Record<string, readonly string[]> = {
     "image/heic": ["image/heif"],
     "image/heif": ["image/heic"],
@@ -254,6 +309,13 @@ function mimeAgrees(reported: string, detected: string): boolean {
     "image/jpeg": ["image/jpg"],
     "image/tif": ["image/tiff"],
     "image/tiff": ["image/tif"],
+    // PDF spellings seen in the wild from older clients and scanners.
+    "application/x-pdf": ["application/pdf"],
+    "application/acrobat": ["application/pdf"],
+    "applications/vnd.pdf": ["application/pdf"],
+    "text/pdf": ["application/pdf"],
+    "image/pjpeg": ["image/jpeg"],
+    "image/x-png": ["image/png"],
   };
   return (equivalent[reported] ?? []).includes(detected);
 }
@@ -283,11 +345,14 @@ export function selectCandidateAttachments(
 ): NormalizedAttachment[] {
   return attachments.filter((a) => {
     const mime = normalizeMime(a.reportedMimeType);
+    // A missing content-type is not a reason to discard a file — plenty of
+    // clients omit it. Only an explicit, clearly-wrong type disqualifies.
     const plausible =
-      mime !== null &&
-      (mime === "application/pdf" ||
-        mime.startsWith("image/") ||
-        mime === "application/octet-stream");
+      mime === null ||
+      mime.startsWith("image/") ||
+      mime === "application/pdf" ||
+      UNINFORMATIVE_MIMES.has(mime) ||
+      PDF_SPELLINGS.has(mime);
     if (!plausible) return false;
     return !isLikelyInlineAsset(a);
   });
