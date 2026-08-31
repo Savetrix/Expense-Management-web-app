@@ -804,6 +804,55 @@ describe("Resend payload normalization", () => {
 });
 
 // ── idempotency and retries ────────────────────────────────────────────────
+// ── inline vs. real content ────────────────────────────────────────────────
+describe("dragged-in images are content, not decoration", () => {
+  const image = (over: Partial<NormalizedAttachment> = {}): NormalizedAttachment => ({
+    providerAttachmentId: "a1",
+    filename: "receipt.jpg",
+    reportedMimeType: "image/jpeg",
+    sizeBytes: 1_611_610,
+    disposition: "inline",
+    contentId: "<ii_mtgzllya0>",
+    ...over,
+  });
+
+  it("KEEPS a large photo dragged into the message body", () => {
+    // The regression: Gmail marks a dragged-in image inline WITH a content-id,
+    // exactly like a signature logo. A real 1.6 MB receipt was rejected as
+    // "only inline assets" because disposition alone decided it.
+    assert.equal(isLikelyInlineAsset(image()), false);
+    assert.equal(selectCandidateAttachments([image()]).length, 1);
+  });
+
+  it("still discards a small signature logo", () => {
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 8 * 1024 })), true);
+  });
+
+  it("still discards a mid-sized inline logo", () => {
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 60 * 1024 })), true);
+  });
+
+  it("keeps a mid-sized image that was properly ATTACHED", () => {
+    // Same bytes, but the sender attached it rather than embedding it — so the
+    // inline ceiling must not apply.
+    assert.equal(
+      isLikelyInlineAsset(image({ sizeBytes: 60 * 1024, disposition: "attachment", contentId: null })),
+      false,
+    );
+  });
+
+  it("discards a tracking pixel by dimensions", () => {
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 300_000 }), { width: 1, height: 1 }), true);
+  });
+
+  it("never discards a PDF, whatever its disposition", () => {
+    assert.equal(
+      isLikelyInlineAsset(image({ reportedMimeType: "application/pdf", sizeBytes: 2_000 })),
+      false,
+    );
+  });
+});
+
 describe("idempotency and retry classification", () => {
   it("derives stable keys from stable inputs", () => {
     assert.equal(messageIdempotencyKey("em_1"), "inbound:em_1");

@@ -151,15 +151,39 @@ export function sha256(bytes: Buffer): string {
  * which the sender controls. PDFs are exempt: a small PDF is still an invoice, and
  * wrongly skipping one is worse than processing a stray graphic.
  */
+/** A signature logo or tracking pixel is small. A receipt photo is not. */
+const DEFINITELY_DECORATIVE_BYTES = 25 * 1024;
+/** Inline images below this are treated as decorative; above it, as content. */
+const INLINE_DECORATIVE_CEILING = 150 * 1024;
+
 export function isLikelyInlineAsset(
   attachment: NormalizedAttachment,
   dimensions?: { width: number; height: number } | null,
 ): boolean {
   if (attachment.reportedMimeType === "application/pdf") return false;
 
+  // SIZE IS THE SIGNAL, NOT DISPOSITION.
+  //
+  // This previously discarded anything marked `inline` with a content-id, on
+  // the theory that only signature logos are referenced from the body. That is
+  // no longer how mail clients behave: dragging a photo into a Gmail message
+  // produces exactly that shape, and it is one of the most natural ways to
+  // send a receipt — especially from a phone. A real 1.6 MB receipt photo was
+  // silently rejected as "only inline assets" because of it.
+  //
+  // Failure directions are asymmetric, so the rule is deliberately biased:
+  // wrongly DROPPING an invoice loses a document silently, while wrongly
+  // ACCEPTING a logo costs one click at review. Size separates the two cases
+  // far better than disposition does.
+  const size = attachment.sizeBytes;
+
+  if (size > 0 && size < DEFINITELY_DECORATIVE_BYTES) return true;
+
+  // Being inline-and-referenced still counts for something — it just needs the
+  // image to be plausibly decorative in size too, rather than on its own.
   const inlineReferenced = attachment.disposition === "inline" && Boolean(attachment.contentId);
-  if (inlineReferenced) return true;
-  if (attachment.sizeBytes > 0 && attachment.sizeBytes < 25 * 1024) return true;
+  if (inlineReferenced && size > 0 && size < INLINE_DECORATIVE_CEILING) return true;
+
   if (dimensions) {
     if (dimensions.width <= 1 || dimensions.height <= 1) return true;
     if (dimensions.width < 200 || dimensions.height < 200) return true;
