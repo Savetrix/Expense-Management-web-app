@@ -73,6 +73,16 @@ export type RejectionCode =
   /** The invoice backend refused the upload for a reason that will not change. */
   | "ingestion_failed"
   /**
+   * The message was forwarded AS AN ATTACHMENT (`message/rfc822`) rather than
+   * inline, so the invoice is nested inside another email we do not unwrap.
+   *
+   * Distinct from `no_supported_attachments` because the two need opposite
+   * advice. "No invoice attachment found" tells someone to check they attached
+   * something — but they did, and the fix is to forward normally instead.
+   * Outlook's "Forward as attachment" produces this shape by default.
+   */
+  | "forwarded_as_attachment"
+  /**
    * The attachment bytes could not be retrieved at all — a refused host, a
    * redirect, a malformed URL.
    *

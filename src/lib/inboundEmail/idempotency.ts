@@ -59,6 +59,8 @@ const PERMANENT_CODES: ReadonlySet<RejectionCode> = new Set<RejectionCode>([
   "ingestion_failed",
   // A refused host or a redirect will be refused identically next time.
   "attachment_download_failed",
+  // Retrying cannot unwrap a nested message; the sender has to resend.
+  "forwarded_as_attachment",
 ]);
 
 /**

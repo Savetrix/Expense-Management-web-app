@@ -1090,6 +1090,30 @@ describe("inbound pipeline", () => {
     assert.equal(result.kind, "done");
   });
 
+  it("says so plainly when the email was forwarded AS AN ATTACHMENT", async () => {
+    // Outlook's "Forward as attachment" nests the original message. Reporting
+    // that as "no invoice attachment found" sends the accountant hunting for a
+    // file they did attach; the actual fix is to forward normally.
+    const metas: ResendAttachmentMeta[] = [
+      {
+        id: "att_nested",
+        filename: "Fwd: Invoice.eml",
+        contentType: "message/rfc822",
+        contentDisposition: "attachment",
+        contentId: null,
+        sizeBytes: 90_000,
+        downloadUrl: "https://cdn.resend.app/em_1/attachments/att_nested?sig=a",
+        expiresAt: null,
+      },
+    ];
+    const { authority, provider, uploads } = fakes({ metas, bytes: {} });
+    const result = await processInboundEvent(event(), { config: config(), authority, provider });
+
+    assert.equal(result.kind, "rejected");
+    if (result.kind === "rejected") assert.equal(result.code, "forwarded_as_attachment");
+    assert.equal(uploads.length, 0);
+  });
+
   it("rejects an email whose only attachment is not a supported type", async () => {
     const metas: ResendAttachmentMeta[] = [
       {

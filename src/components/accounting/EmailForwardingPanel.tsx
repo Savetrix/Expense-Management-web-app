@@ -53,6 +53,8 @@ const REJECTION_COPY: Record<string, string> = {
   authentication_failed: "The email failed sender authentication checks.",
   automated_message: "Looked like an auto-reply or bounce, not an invoice.",
   no_supported_attachments: "No invoice attachment found — only images or inline logos.",
+  forwarded_as_attachment:
+    "This was forwarded as an attachment, so the invoice is nested inside another email. Forward it normally instead, or attach the invoice file directly.",
   unsupported_file_type: "Attachment wasn't a PDF or an image.",
   content_type_mismatch: "Attachment's contents didn't match its file type.",
   file_too_large: "Attachment was too large.",

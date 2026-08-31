@@ -358,7 +358,18 @@ export async function processInboundEvent(
 
   const candidates = selectCandidateAttachments(allAttachments);
   if (candidates.length === 0) {
-    await finish("rejected", "no_supported_attachments", "only inline assets", alias);
+    // Distinguish "you forwarded it as an attachment" from "there was nothing
+    // usable here". Reporting the first as the second sends the accountant
+    // looking for a missing file they actually did attach.
+    const nested = allAttachments.some((a) =>
+      (a.reportedMimeType || "").toLowerCase().startsWith("message/"),
+    );
+    if (nested) {
+      await finish("rejected", "forwarded_as_attachment", "message/rfc822", alias);
+      return { kind: "rejected", code: "forwarded_as_attachment", correlationId };
+    }
+    const detail = allAttachments.length === 0 ? "no attachments" : "nothing usable";
+    await finish("rejected", "no_supported_attachments", detail, alias);
     return { kind: "rejected", code: "no_supported_attachments", correlationId };
   }
 
