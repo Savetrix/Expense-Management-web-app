@@ -251,7 +251,9 @@ async function claimUsername(
             ? "Enter a username."
             : problem === "too_long"
               ? "That username is too long."
-              : "Use letters, numbers, dots, underscores, plus or hyphens, starting and ending with a letter or number.",
+              : problem === "reserved"
+                ? "That username is reserved. Please choose another."
+                : "Use letters, numbers, dots, underscores, plus or hyphens, starting and ending with a letter or number.",
         reason: problem,
       },
       { status: 400 },

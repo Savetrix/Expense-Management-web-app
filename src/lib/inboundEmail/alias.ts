@@ -196,8 +196,67 @@ export function aliasHashMatches(candidateHash: string, storedHash: string): boo
   return timingSafeEqual(a, b);
 }
 
+/**
+ * Names nobody may CLAIM.
+ *
+ * Deliberately kept short. Usernames are otherwise unrestricted — no house
+ * style, no minimum length — so anything here needs a concrete reason, not a
+ * vague sense of tidiness. Two reasons qualify:
+ *
+ *   OPERATIONAL. RFC 5321 requires `postmaster` to reach a person, and RFC 2142
+ *   expects the same of `abuse` and friends. If a customer held those, bounce
+ *   notices and abuse reports for the whole receiving domain would land in that
+ *   customer's invoice queue and nobody operating the service would ever see
+ *   them — a silent failure in exactly the channel used to report failures.
+ *
+ *   IMPERSONATION. `support@invoice.scantrix.ai` reads as Scantrix speaking.
+ *   Because the address is public-facing and quotable, holding one is a
+ *   ready-made way to collect invoices meant for the platform itself.
+ *
+ * Generic business words (accounts, billing, sales, info) are deliberately NOT
+ * reserved: an accounting firm has a legitimate claim to them, and they carry
+ * no implication of platform authority.
+ *
+ * This narrows what may be CLAIMED. It does not change what RESOLVES — an
+ * address that somehow exists must keep receiving mail, so resolveAliasHash
+ * never consults this list.
+ */
+const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
+  // Must reach an operator (RFC 5321 §4.5.1, RFC 2142).
+  "postmaster",
+  "abuse",
+  "hostmaster",
+  "webmaster",
+  "mailer-daemon",
+  "mailerdaemon",
+  // Speak with the platform's authority.
+  "admin",
+  "administrator",
+  "root",
+  "security",
+  "support",
+  "help",
+  "helpdesk",
+  "noreply",
+  "no-reply",
+  "donotreply",
+  "do-not-reply",
+  "notifications",
+  "system",
+  // The product's own identity, and the intake this domain exists for.
+  "scantrix",
+  "savetrix",
+  "invoice",
+  "invoices",
+]);
+
+/** Exported so tests and tooling can assert the policy rather than restate it. */
+export function isReservedUsername(raw: string | null | undefined): boolean {
+  return RESERVED_USERNAMES.has(normalizeUsername(raw));
+}
+
 /** Why a username cannot be used. Null means it is acceptable. */
-export type UsernameProblem = "empty" | "too_long" | "invalid_characters";
+export type UsernameProblem = "empty" | "too_long" | "invalid_characters" | "reserved";
 
 export const MAX_USERNAME_LENGTH = MAX_LOCAL_PART_LENGTH;
 
@@ -217,6 +276,9 @@ export function checkUsernameShape(raw: string | null | undefined): UsernameProb
   if (value.length === 0) return "empty";
   if (value.length > MAX_USERNAME_LENGTH) return "too_long";
   if (!LOCAL_PART_SHAPE.test(value) || value.includes("..")) return "invalid_characters";
+  // Checked LAST, so a malformed reserved word still reports the shape problem
+  // — the more actionable of the two.
+  if (RESERVED_USERNAMES.has(value)) return "reserved";
   return null;
 }
 

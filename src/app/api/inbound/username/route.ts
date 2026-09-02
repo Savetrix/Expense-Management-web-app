@@ -38,6 +38,7 @@ const SHAPE_MESSAGE: Record<string, string> = {
   too_long: `Usernames can be at most ${MAX_USERNAME_LENGTH} characters.`,
   invalid_characters:
     "Use letters, numbers, dots, underscores, plus or hyphens. It must start and end with a letter or number.",
+  reserved: "That username is reserved. Please choose another.",
 };
 
 export async function GET(request: Request) {

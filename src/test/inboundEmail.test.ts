@@ -19,6 +19,7 @@ import {
 import {
   aliasHashMatches,
   checkUsernameShape,
+  isReservedUsername,
   mintAliasForUsername,
   normalizeUsername,
   formatAliasAddress,
@@ -903,6 +904,50 @@ describe("custom forwarding usernames", () => {
     for (const bad of ["has space", "has@at", "a..b", ".lead", "trail."]) {
       assert.equal(checkUsernameShape(bad), "invalid_characters", bad);
     }
+  });
+
+  it("reserves names that must reach an operator", () => {
+    // RFC 5321 requires postmaster to reach a person; RFC 2142 expects the same
+    // of abuse. If a customer held them, bounce and abuse reports for the whole
+    // domain would land in that customer's invoice queue and no operator would
+    // ever see them.
+    for (const name of ["postmaster", "abuse", "hostmaster", "webmaster", "mailer-daemon"]) {
+      assert.equal(checkUsernameShape(name), "reserved", name);
+    }
+  });
+
+  it("reserves names that would speak with the platform's authority", () => {
+    for (const name of ["support", "admin", "security", "noreply", "scantrix", "invoices"]) {
+      assert.equal(checkUsernameShape(name), "reserved", name);
+    }
+  });
+
+  it("does NOT reserve ordinary business words", () => {
+    // An accounting firm has a legitimate claim to these, and they imply no
+    // platform authority. Over-reserving would contradict the whole point of
+    // letting people choose their own name.
+    for (const name of ["accounts", "billing", "sales", "info", "finance", "team"]) {
+      assert.equal(checkUsernameShape(name), null, name);
+    }
+  });
+
+  it("reserves case-insensitively", () => {
+    assert.equal(checkUsernameShape("PostMaster"), "reserved");
+    assert.equal(isReservedUsername("  SUPPORT "), true);
+  });
+
+  it("reports the SHAPE problem first when a reserved word is also malformed", () => {
+    // "support " is fine once trimmed, but ".support" cannot be delivered to at
+    // all — the shape problem is the more actionable thing to say.
+    assert.equal(checkUsernameShape(".support"), "invalid_characters");
+  });
+
+  it("still RESOLVES a reserved name, because reserving only limits claiming", () => {
+    // If such an address somehow exists, mail to it must still arrive. Reserved
+    // is a claim-time policy, not a delivery rule — conflating the two would
+    // silently black-hole a live address.
+    assert.notEqual(resolveAliasHash("postmaster"), null);
+    assert.notEqual(resolveAliasHash("support"), null);
   });
 
   it("is case-insensitive, like the handles it is modelled on", () => {
