@@ -43,6 +43,16 @@ export interface InboundEmailConfig {
    * header is present — see the deploy runbook.
    */
   requireEmailAuth: boolean;
+  /**
+   * The provider's `authserv-id`, pinned so only ITS Authentication-Results
+   * header is believed. Null means verdicts stay "advisory".
+   *
+   * Read here rather than from process.env at the point of use: every other
+   * setting arrives through this object, and the one that did not made the
+   * pipeline's behaviour depend on ambient environment — which silently changed
+   * test outcomes the moment a real value appeared in .env.local.
+   */
+  expectedAuthservId: string | null;
   limits: AttachmentLimits;
   retentionDays: number;
   /** AES-256-GCM key for secrets at rest. 32 bytes, base64 or hex. */
@@ -150,6 +160,7 @@ export function readInboundConfig(): ConfigOutcome {
       webhookSigningSecret: webhookSigningSecret as string,
       toleranceSeconds: intFromEnv("INBOUND_WEBHOOK_TOLERANCE_SECONDS", 300),
       requireEmailAuth: boolFromEnv("INBOUND_REQUIRE_EMAIL_AUTH", false),
+      expectedAuthservId: process.env.INBOUND_EXPECTED_AUTHSERV_ID?.trim() || null,
       limits: {
         maxAttachments: intFromEnv("INBOUND_MAX_ATTACHMENTS", DEFAULT_LIMITS.maxAttachments),
         maxFileBytes: intFromEnv("INBOUND_MAX_FILE_BYTES", DEFAULT_LIMITS.maxFileBytes),

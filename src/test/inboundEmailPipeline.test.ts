@@ -561,6 +561,8 @@ function config(overrides: Partial<InboundEmailConfig> = {}): InboundEmailConfig
     webhookSigningSecret: "whsec_test",
     toleranceSeconds: 300,
     requireEmailAuth: false,
+    // Explicit, so the suite does not inherit whatever .env.local happens to say.
+    expectedAuthservId: null,
     limits: { maxAttachments: 10, maxFileBytes: 15 * 1024 * 1024, maxTotalBytes: 40 * 1024 * 1024 },
     retentionDays: 30,
     tokenEncryptionKey: KEY,

@@ -213,7 +213,15 @@ export async function POST(request: Request) {
     }
 
     for (let attempt = 0; attempt < MINT_ATTEMPTS; attempt += 1) {
-      const minta = mintAliasForCompany(lookup.connection.name);
+      // First attempt takes the bare company slug — `acme-corp@…` rather than
+      // `acme-corp-7k2m9x@…`. Only a genuine collision (another customer with
+      // the same company name, anywhere on the deployment) falls back to a
+      // random suffix, which is exactly the case the suffix exists for.
+      //
+      // Users can rename this to anything they like afterwards; this is only
+      // the starting address, chosen so forwarding works the moment it is
+      // switched on rather than blocking on someone picking a name.
+      const minta = mintAliasForCompany(lookup.connection.name, { plain: attempt === 0 });
       const record: AliasRecord = {
         version: 1,
         tokenHash: minta.tokenHash,

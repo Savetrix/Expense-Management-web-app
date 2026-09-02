@@ -18,6 +18,9 @@ import {
 } from "../lib/inboundEmail/address";
 import {
   aliasHashMatches,
+  checkUsernameShape,
+  mintAliasForUsername,
+  normalizeUsername,
   formatAliasAddress,
   hashAliasLocalPart,
   mintAliasForCompany,
@@ -182,22 +185,25 @@ describe("inbound alias addresses", () => {
     assert.equal(hashAliasLocalPart(a.localPart), a.tokenHash);
   });
 
-  it("refuses local-parts that were never issued as addresses", () => {
-    for (const bad of [
-      "support",            // a bare word carries no suffix
-      "postmaster",
-      "acme corp-7k2m9x",   // space
-      "acme_corp-7k2m9x",   // underscore
-      "-acme-7k2m9x",       // leading separator
-      "acme--7k2m9x",       // empty label
-      "ab",                 // too short
-      "a".repeat(70),       // too long
-      "acme-corp-7k2m9x@x", // a full address, not a local-part
-      null,
-      undefined,
-    ]) {
-      assert.equal(resolveAliasHash(bad as string), null, `should reject ${JSON.stringify(bad)}`);
+  it("refuses local-parts that could never be delivered to", () => {
+    // Only deliverability disqualifies a local part now. Usernames are chosen
+    // by users, so there is no house style to enforce — but an address a mail
+    // server would refuse must still be refused, or a user would claim a name
+    // and then silently lose every invoice sent to it.
+    for (const bad of ["", "   ", "a b", "a@b", "a..b", ".lead", "trail.", "x".repeat(65)]) {
+      assert.equal(resolveAliasHash(bad), null, `should reject ${JSON.stringify(bad)}`);
     }
+  });
+
+  it("accepts a bare username with no company suffix", () => {
+    // The old rule required a hyphen, on the assumption every address carried a
+    // random suffix. Once users can pick their own name that is wrong, and it
+    // would have made `mrkalpasi@…` unresolvable while the UI called it claimed.
+    assert.notEqual(resolveAliasHash("mrkalpasi"), null);
+    assert.notEqual(resolveAliasHash("mrkalpasi.mrkalpasi1"), null);
+    assert.notEqual(resolveAliasHash("acme_corp+2"), null);
+    // And case still does not matter.
+    assert.equal(resolveAliasHash("MrKalpasi"), resolveAliasHash("mrkalpasi"));
   });
 
   it("compares hashes without leaking via length or early exit", () => {
@@ -876,6 +882,64 @@ describe("real-world attachment shapes", () => {
     // The old 15 MB cap silently refused scans that manual upload accepts.
     const big = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(20 * 1024 * 1024, 0x20)]);
     assert.equal(validateAttachment(att({ sizeBytes: big.length }), big).ok, true);
+  });
+});
+
+// ── custom usernames ───────────────────────────────────────────────────────
+describe("custom forwarding usernames", () => {
+  it("accepts the shapes a user would actually type", () => {
+    for (const ok of ["mrkalpasi", "mrkalpasi.mrkalpasi1", "acme_corp", "a1", "x".repeat(64)]) {
+      assert.equal(checkUsernameShape(ok), null, ok);
+    }
+  });
+
+  it("refuses only what cannot be delivered to", () => {
+    // No house style, no reserved words, no minimum length — the product
+    // decision is that usernames are unrestricted. These fail because a mail
+    // server would refuse them, not because we disapprove.
+    assert.equal(checkUsernameShape(""), "empty");
+    assert.equal(checkUsernameShape("   "), "empty");
+    assert.equal(checkUsernameShape("x".repeat(65)), "too_long");
+    for (const bad of ["has space", "has@at", "a..b", ".lead", "trail."]) {
+      assert.equal(checkUsernameShape(bad), "invalid_characters", bad);
+    }
+  });
+
+  it("is case-insensitive, like the handles it is modelled on", () => {
+    assert.equal(normalizeUsername("  MrKalpasi "), "mrkalpasi");
+    assert.equal(
+      mintAliasForUsername("MrKalpasi").tokenHash,
+      mintAliasForUsername("mrkalpasi").tokenHash,
+    );
+  });
+
+  it("CLAIMABLE implies DELIVERABLE — the invariant that matters", () => {
+    // If claiming were more permissive than resolving, a user could be told a
+    // username is theirs and then silently lose every invoice sent to it.
+    for (const name of ["mrkalpasi", "mrkalpasi.mrkalpasi1", "acme_corp+2", "a1"]) {
+      assert.equal(checkUsernameShape(name), null, name);
+      assert.notEqual(resolveAliasHash(name), null, name);
+      assert.equal(mintAliasForUsername(name).tokenHash, resolveAliasHash(name), name);
+    }
+  });
+
+  it("puts two different usernames in different places, globally", () => {
+    // Uniqueness comes from the storage path being a hash of the local part,
+    // so the namespace spans every company and every account by construction.
+    assert.notEqual(
+      mintAliasForUsername("mrkalpasi").tokenHash,
+      mintAliasForUsername("mrkalpasi1").tokenHash,
+    );
+  });
+
+  it("prefers a clean company slug, with the suffix only as a fallback", () => {
+    const plain = mintAliasForCompany("Acme Corp", { plain: true });
+    assert.equal(plain.localPart, "acme-corp");
+    const suffixed = mintAliasForCompany("Acme Corp");
+    assert.match(suffixed.localPart, /^acme-corp-[a-z0-9]{6}$/);
+    // Both must resolve, since both get issued as real addresses.
+    assert.notEqual(resolveAliasHash(plain.localPart), null);
+    assert.notEqual(resolveAliasHash(suffixed.localPart), null);
   });
 });
 

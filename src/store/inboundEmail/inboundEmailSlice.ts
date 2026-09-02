@@ -8,6 +8,7 @@
 import { createSlice } from "@reduxjs/toolkit";
 
 import {
+  claimInboundUsername,
   enableInboundForwarding,
   fetchEmailInvoiceIds,
   fetchInboundOverview,
@@ -139,6 +140,25 @@ const inboundEmailSlice = createSlice({
     builder.addCase(regenerateInboundAddress.rejected, (state, action) => {
       state.busyAliasId = null;
       state.error = action.payload?.message ?? "Couldn't generate a new address.";
+    });
+
+    // ── USERNAME ────────────────────────────────────────────────────────────
+    builder.addCase(claimInboundUsername.pending, (state, action) => {
+      state.busyAliasId = action.meta.arg.id;
+      state.error = null;
+    });
+    builder.addCase(claimInboundUsername.fulfilled, (state, action) => {
+      state.busyAliasId = null;
+      // The old local part is purged server-side, so drop it here too rather
+      // than leaving a dead address on screen beside the new one.
+      state.aliases = upsertAlias(
+        state.aliases.filter((alias) => alias.id !== action.payload.previousId),
+        action.payload.alias,
+      );
+    });
+    builder.addCase(claimInboundUsername.rejected, (state, action) => {
+      state.busyAliasId = null;
+      state.error = action.payload?.message ?? "Couldn't set that username.";
     });
 
     // ── RECONNECT / SENDERS ─────────────────────────────────────────────────

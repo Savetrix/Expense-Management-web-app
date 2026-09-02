@@ -9,7 +9,13 @@
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-import { formatAliasAddress, mintAliasForCompany } from "@/lib/inboundEmail/alias";
+import {
+  checkUsernameShape,
+  formatAliasAddress,
+  mintAliasForCompany,
+  mintAliasForUsername,
+  normalizeUsername,
+} from "@/lib/inboundEmail/alias";
 import { readAliasConfig } from "@/lib/inboundEmail/config";
 import { normalizeEmailAddress } from "@/lib/inboundEmail/address";
 import { authorizeAliasRequest, publicAlias, storeFailure } from "@/lib/inboundEmail/apiAuth";
@@ -134,6 +140,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     switch (action) {
       case "regenerate":
         return await regenerate(owned.alias, owned.userId, config.domain);
+      case "username":
+        return await claimUsername(owned.alias, owned.userId, payload.username, config.domain);
       case "senders":
         return await updateSenders(owned.alias, payload.additionalSenders, config.domain);
       case "reconnect":
@@ -146,7 +154,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         );
       default:
         return Response.json(
-          { error: "Unknown action. Expected regenerate, senders, or reconnect." },
+          { error: "Unknown action. Expected username, regenerate, senders, or reconnect." },
           { status: 400 },
         );
     }
@@ -206,6 +214,92 @@ async function regenerate(
   }
 
   return Response.json({ error: "Couldn't allocate an address. Please try again." }, { status: 503 });
+}
+
+/**
+ * Point this company's forwarding address at a username the user chose.
+ *
+ * The address is REPLACED, not aliased: the old local part is purged, so mail
+ * to it stops arriving immediately. That is what the client asked for, and it
+ * is also the safer behaviour — leaving the previous address alive would keep a
+ * second door open that nobody is watching.
+ *
+ * Any team member may do this for THEIR OWN address. Roles are not consulted:
+ * each person's alias is their own record (loadOwned already refuses someone
+ * else's), so an Owner, Contributor and Accountant on one company each hold a
+ * separate address and can name their own. Nothing here can rename anybody
+ * else's.
+ *
+ * Uniqueness is global and is enforced by the create-only write below — never
+ * by the availability check, which is only ever a hint. Between checking and
+ * confirming, someone else may take the name; that race resolves here, and the
+ * user is told plainly rather than silently overwriting a stranger's address.
+ */
+async function claimUsername(
+  alias: AliasRecord,
+  userId: string,
+  raw: unknown,
+  domain: string,
+): Promise<Response> {
+  const username = normalizeUsername(typeof raw === "string" ? raw : "");
+  const problem = checkUsernameShape(username);
+  if (problem) {
+    return Response.json(
+      {
+        error:
+          problem === "empty"
+            ? "Enter a username."
+            : problem === "too_long"
+              ? "That username is too long."
+              : "Use letters, numbers, dots, underscores, plus or hyphens, starting and ending with a letter or number.",
+        reason: problem,
+      },
+      { status: 400 },
+    );
+  }
+
+  const minted = mintAliasForUsername(username);
+
+  // Already ours, for this same company: nothing to do. Treated as success so a
+  // double-click cannot report a confusing "taken" against the user's own name.
+  if (minted.tokenHash === alias.tokenHash) {
+    return Response.json({ alias: publicAlias(alias, domain), status: "unchanged" });
+  }
+
+  const next: AliasRecord = {
+    ...alias,
+    tokenHash: minted.tokenHash,
+    localPart: minted.localPart,
+    receivingAddress: formatAliasAddress(minted.localPart, domain),
+    companySlug: minted.slug,
+    active: true,
+    rotationVersion: alias.rotationVersion + 1,
+    createdAt: new Date().toISOString(),
+    revokedAt: null,
+    lastUsedAt: null,
+  };
+
+  try {
+    await createAlias(next);
+  } catch (error) {
+    if (error instanceof InboundWriteConflictError) {
+      // Somebody holds it — possibly claimed in the seconds since the check.
+      return Response.json(
+        { error: "That username was just taken. Try another.", reason: "taken" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
+
+  // New address is live BEFORE the old one goes away, so the company is never
+  // without a working address even for an instant.
+  await addAliasToUser(userId, next.tokenHash);
+  await deleteAlias(alias.tokenHash);
+  await removeAliasFromUser(userId, alias.tokenHash);
+
+  console.log(`[inbound] username claimed rotation=${next.rotationVersion}`);
+  return Response.json({ alias: publicAlias(next, domain), status: "updated" });
 }
 
 /**

@@ -178,6 +178,60 @@ export const enableInboundForwarding = createAsyncThunk<
 });
 
 // ================================
+// USERNAME: CHECK AVAILABILITY
+// ================================
+
+export interface UsernameCheck {
+  username: string;
+  address?: string;
+  available: boolean;
+  reason: string | null;
+  message: string;
+}
+
+/**
+ * Availability is only ever a HINT. The claim below re-checks atomically, so a
+ * name taken between checking and confirming is caught there rather than
+ * overwriting somebody else's address.
+ */
+export const checkInboundUsername = createAsyncThunk<
+  UsernameCheck,
+  { username: string },
+  { state: RootState; rejectValue: RejectionValue }
+>("inboundEmail/checkUsername", async ({ username }, thunkAPI) => {
+  try {
+    const response = await inboundFetch(
+      thunkAPI.getState(),
+      `/username?username=${encodeURIComponent(username)}`,
+    );
+    return (await response.json()) as UsernameCheck;
+  } catch (error) {
+    return thunkAPI.rejectWithValue(reject(error, "Couldn't check that username."));
+  }
+});
+
+// ================================
+// USERNAME: CLAIM IT
+// ================================
+
+export const claimInboundUsername = createAsyncThunk<
+  { previousId: string; alias: InboundAlias },
+  { id: string; username: string },
+  { state: RootState; rejectValue: RejectionValue }
+>("inboundEmail/claimUsername", async ({ id, username }, thunkAPI) => {
+  try {
+    const response = await inboundFetch(thunkAPI.getState(), `/aliases/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "username", username }),
+    });
+    const body = (await response.json()) as { alias: InboundAlias };
+    return { previousId: id, alias: body.alias };
+  } catch (error) {
+    return thunkAPI.rejectWithValue(reject(error, "Couldn't set that username."));
+  }
+});
+
+// ================================
 // REVOKE
 // ================================
 

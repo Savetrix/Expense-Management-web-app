@@ -91,8 +91,26 @@ export interface MintedAlias {
  * `attempt` exists for the (very unlikely) unique-index collision: the caller
  * retries with attempt+1 to get a fresh suffix rather than failing the request.
  */
-export function mintAliasForCompany(companyName: string | null | undefined): MintedAlias {
+export function mintAliasForCompany(
+  companyName: string | null | undefined,
+  options: { plain?: boolean } = {},
+): MintedAlias {
   const slug = slugifyCompanyName(companyName);
+
+  // FIRST CHOICE: the bare company slug, no random noise —
+  // `acme-corp@invoice.scantrix.ai` rather than `acme-corp-7k2m9x@…`.
+  //
+  // The suffix was never decoration: company names are not unique across
+  // customers, so two clients both called "Acme Corp" would collide on one
+  // address. That is still true — which is why the caller retries with
+  // `plain: false` on a collision rather than this function guessing. The
+  // global namespace is enforced by a create-only write, so a collision is
+  // detected against every address that exists, not just this account's.
+  if (options.plain) {
+    const localPart = slug.slice(0, MAX_LOCAL_PART_LENGTH).replace(/-+$/, "") || "company";
+    return { localPart, tokenHash: hashAliasLocalPart(localPart), slug, suffix: "" };
+  }
+
   const suffix = randomSuffix();
   let localPart = `${slug}-${suffix}`;
 
@@ -101,6 +119,17 @@ export function mintAliasForCompany(companyName: string | null | undefined): Min
     localPart = `${slug.slice(0, room).replace(/-$/, "")}-${suffix}`;
   }
   return { localPart, tokenHash: hashAliasLocalPart(localPart), slug, suffix };
+}
+
+/**
+ * An alias record for a username the user chose themselves.
+ *
+ * Shape is validated by the caller via checkUsernameShape; uniqueness is
+ * enforced where it belongs — the create-only write in the store.
+ */
+export function mintAliasForUsername(username: string): MintedAlias {
+  const localPart = normalizeUsername(username);
+  return { localPart, tokenHash: hashAliasLocalPart(localPart), slug: localPart, suffix: "" };
 }
 
 /**
@@ -116,8 +145,29 @@ export function hashAliasLocalPart(localPart: string): string {
     .digest("hex");
 }
 
-/** Shape a local-part must have before it is worth a database round trip. */
-const LOCAL_PART_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/**
+ * The ONE rule that decides both what a user may claim and what we will resolve.
+ *
+ * Deliberately a single constant. If claiming were more permissive than
+ * resolving, a user could take a username, be told it is theirs, and then have
+ * every invoice sent to it silently rejected as `unknown_alias` — the worst
+ * possible outcome, because nothing looks broken until invoices go missing.
+ *
+ * The product decision is that usernames are NOT format-restricted: no minimum
+ * length, no reserved words, no house style. What remains is only what email
+ * delivery physically requires, because an address that cannot be delivered to
+ * is not a username, it is a dead end:
+ *
+ *   - lower-case letters, digits, dot, underscore, plus, hyphen
+ *   - must start and end alphanumeric (a leading or trailing dot is rejected by
+ *     real mail servers)
+ *   - no consecutive dots (address parsing rejects them — see address.ts)
+ *   - at most 64 characters, the RFC 5321 local-part limit
+ *
+ * Anything outside this cannot be delivered to by ANY mail server, so refusing
+ * it up front is the honest behaviour rather than a restriction we invented.
+ */
+const LOCAL_PART_SHAPE = /^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?$/;
 
 /**
  * Normalize and hash an incoming local-part, or null when it cannot be one of ours.
@@ -128,10 +178,13 @@ const LOCAL_PART_SHAPE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export function resolveAliasHash(localPart: string | null | undefined): string | null {
   if (typeof localPart !== "string") return null;
   const value = localPart.trim().toLowerCase();
-  if (value.length < 3 || value.length > MAX_LOCAL_PART_LENGTH) return null;
+  // NOTE: no lower length bound and NO hyphen requirement. Both used to exist —
+  // the hyphen rule assumed every address carried a random suffix, which stopped
+  // being true once users could choose their own username. It would have made
+  // `mrkalpasi@…` unresolvable while the UI happily reported it as claimed.
+  if (value.length === 0 || value.length > MAX_LOCAL_PART_LENGTH) return null;
   if (!LOCAL_PART_SHAPE.test(value)) return null;
-  // Must carry a suffix; a bare company slug was never issued as an address.
-  if (!value.includes("-")) return null;
+  if (value.includes("..")) return null;
   return hashAliasLocalPart(value);
 }
 
@@ -141,6 +194,30 @@ export function aliasHashMatches(candidateHash: string, storedHash: string): boo
   const b = Buffer.from(storedHash, "utf8");
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+/** Why a username cannot be used. Null means it is acceptable. */
+export type UsernameProblem = "empty" | "too_long" | "invalid_characters";
+
+export const MAX_USERNAME_LENGTH = MAX_LOCAL_PART_LENGTH;
+
+/** Usernames are case-insensitive, like the handles they are modelled on. */
+export function normalizeUsername(raw: string | null | undefined): string {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
+/**
+ * Judge a username on deliverability alone.
+ *
+ * Uses the SAME regex `resolveAliasHash` uses, so "you may have this" and "mail
+ * to this will arrive" can never disagree.
+ */
+export function checkUsernameShape(raw: string | null | undefined): UsernameProblem | null {
+  const value = normalizeUsername(raw);
+  if (value.length === 0) return "empty";
+  if (value.length > MAX_USERNAME_LENGTH) return "too_long";
+  if (!LOCAL_PART_SHAPE.test(value) || value.includes("..")) return "invalid_characters";
+  return null;
 }
 
 export function formatAliasAddress(localPart: string, inboundDomain: string): string {

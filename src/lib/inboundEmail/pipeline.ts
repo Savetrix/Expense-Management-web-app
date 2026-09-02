@@ -296,7 +296,7 @@ export async function processInboundEvent(
 
   // ── 6. Authentication verdicts, reconstructed from headers ────────────────
   const derived = deriveAuthResults(fetched.headers, {
-    expectedAuthservId: process.env.INBOUND_EXPECTED_AUTHSERV_ID ?? null,
+    expectedAuthservId: config.expectedAuthservId,
   });
   const authDiagnostics: InboundAuthResultsDiagnostics = derived.diagnostics;
   record = { ...record, authDiagnostics };

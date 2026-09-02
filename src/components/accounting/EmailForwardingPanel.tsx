@@ -14,10 +14,13 @@ import { AlertTriangle, Check, Copy, Mail, RefreshCw, Trash2 } from "lucide-reac
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui";
+import type { UsernameCheck } from "@/store/inboundEmail/inboundEmailApi";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { clearInboundEmailError } from "@/store/inboundEmail/inboundEmailSlice";
 import {
+  checkInboundUsername,
+  claimInboundUsername,
   enableInboundForwarding,
   fetchInboundOverview,
   reconnectInboundForwarding,
@@ -181,6 +184,153 @@ function ActivityRow({ entry }: { entry: InboundActivityEntry }) {
   );
 }
 
+/**
+ * Pick a custom address for this company.
+ *
+ * Check-then-Confirm rather than confirming straight from typing: the namespace
+ * is global, so availability is a hint that can go stale between the two clicks.
+ * The server re-checks atomically when confirming, and this only ever reports
+ * what it says.
+ */
+function UsernameEditor({
+  alias,
+  domain,
+  busy,
+}: {
+  alias: InboundAlias;
+  domain: string;
+  busy: boolean;
+}) {
+  const dispatch = useAppDispatch();
+  const [draft, setDraft] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<UsernameCheck | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const current = alias.receivingAddress.split("@")[0] ?? "";
+
+  const runCheck = async () => {
+    const value = draft.trim();
+    if (!value || checking) return;
+    setChecking(true);
+    setResult(null);
+    const outcome = await dispatch(checkInboundUsername({ username: value }));
+    setChecking(false);
+    if (checkInboundUsername.fulfilled.match(outcome)) setResult(outcome.payload);
+    else showToast("Couldn't check that username. Please try again.", "error");
+  };
+
+  const confirm = async () => {
+    if (!result?.available) return;
+    const outcome = await dispatch(claimInboundUsername({ id: alias.id, username: result.username }));
+    if (claimInboundUsername.fulfilled.match(outcome)) {
+      showToast("Address updated.", "success");
+      setDraft("");
+      setResult(null);
+      setOpen(false);
+    } else {
+      // Covers the check-then-claim race: available a moment ago, taken now.
+      showToast(
+        typeof outcome.payload?.message === "string"
+          ? outcome.payload.message
+          : "Couldn't set that username.",
+        "error",
+      );
+      setResult(null);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-fit cursor-pointer text-caption font-bold text-primary-700 underline"
+      >
+        Choose a custom address
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-[var(--space-sm)] rounded-md border border-border p-[var(--space-sm)]">
+      <p className="text-caption text-text-secondary">
+        Pick the part before the @. It must be unique across all of{" "}
+        <span className="font-mono">{domain}</span>.
+      </p>
+
+      <div className="flex gap-[var(--space-sm)]">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setResult(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              runCheck();
+            }
+          }}
+          placeholder={current}
+          aria-label="Custom username"
+          className="h-10 min-w-0 flex-1 rounded-md border border-border px-[var(--space-sm)] font-mono text-body-sm text-text-primary"
+        />
+        <button
+          type="button"
+          onClick={runCheck}
+          disabled={checking || !draft.trim()}
+          className="h-10 shrink-0 cursor-pointer rounded-md border border-border px-[var(--space-md)] text-body-sm font-bold text-text-primary hover:bg-background-alt disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {checking ? "Checking…" : "Check"}
+        </button>
+      </div>
+
+      {result && (
+        <div className="flex flex-col gap-[var(--space-xs)]">
+          {result.available ? (
+            <>
+              <p className="text-caption font-semibold text-success">{result.message}</p>
+              <div className="rounded-md bg-background-alt p-[var(--space-sm)]">
+                <code className="break-all text-body-sm font-semibold text-text-primary">
+                  {result.address}
+                </code>
+              </div>
+              <p className="text-caption text-text-secondary">
+                Confirming replaces the current address. Mail to{" "}
+                <span className="font-mono">{alias.receivingAddress}</span> will stop arriving.
+              </p>
+              <button
+                type="button"
+                onClick={confirm}
+                disabled={busy}
+                className="h-10 w-full cursor-pointer rounded-md bg-primary font-bold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {busy ? "Saving…" : "Confirm"}
+              </button>
+            </>
+          ) : (
+            <p className="text-caption text-error">{result.message}</p>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(false);
+          setDraft("");
+          setResult(null);
+        }}
+        className="w-fit cursor-pointer text-caption text-text-secondary underline"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 function SenderEditor({ alias, busy }: { alias: InboundAlias; busy: boolean }) {
   const dispatch = useAppDispatch();
   const [draft, setDraft] = useState("");
@@ -275,7 +425,7 @@ export function EmailForwardingPanel({
   disabled = false,
 }: EmailForwardingPanelProps) {
   const dispatch = useAppDispatch();
-  const { loading, loaded, error, missingConfig, enabled, aliases, recentActivity, busyAliasId, enablingConnectionId } =
+  const { loading, loaded, error, missingConfig, enabled, domain, aliases, recentActivity, busyAliasId, enablingConnectionId } =
     useAppSelector((state) => state.inboundEmail);
 
   useEffect(() => {
@@ -461,6 +611,8 @@ export function EmailForwardingPanel({
           it&apos;s switched back on — nothing is lost.
         </p>
       )}
+
+      <UsernameEditor alias={alias} domain={domain} busy={busy} />
 
       <p className="text-caption text-text-secondary">
         Invoices sent here are filed under <span className="font-semibold">{companyName}</span>.
