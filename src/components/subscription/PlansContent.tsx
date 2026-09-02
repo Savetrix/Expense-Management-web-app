@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ChevronRight, Eye } from "lucide-react";
+import { Check, ChevronRight, Eye, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { showToast } from "@/lib/dialogManager";
 import { Spinner } from "@/components/ui/Spinner";
+import { CustomPlanEnquiryModal } from "@/components/subscription/CustomPlanEnquiryModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchPlans,
@@ -36,6 +37,30 @@ const PLAN_META: Record<string, { tagline: string; features: string[]; highlight
   },
 };
 
+// The Custom plan is NOT in PLAN_META and is NOT rendered from `plans`.
+//
+// That separation is deliberate. `plans` comes from GET /subscription/plans, the
+// backend's billing catalog — every entry there is something Stripe can charge
+// for. Custom has no price, no billing interval and no checkout; it is a
+// conversation. Adding a synthetic entry to the catalog array would put a
+// non-purchasable key in front of handleChoosePlan and the isCurrent/isPaid
+// logic, which is exactly the kind of quiet coupling that breaks the three
+// working plans later. It renders as its own card, after the map, sharing only
+// the visual language.
+const CUSTOM_PLAN = {
+  name: "Custom",
+  tagline: "For businesses that need more than the plans above",
+  price: "Let's talk",
+  suffix: "priced on your requirements",
+  features: [
+    "Invoice volumes sized to your throughput",
+    "Multiple companies and entities under one account",
+    "Large teams, with roles that match how you work",
+    "Custom integrations and approval workflows",
+    "Guided onboarding and priority support",
+  ],
+} as const;
+
 function priceLabel(planKey: string, prices: { monthly: number; yearly: number } | null, cycle: BillingCycle) {
   if (planKey === "trial" || !prices) return "Free";
   return `$${cycle === "monthly" ? prices.monthly : prices.yearly}`;
@@ -50,7 +75,9 @@ export function PlansContent() {
   const dispatch = useAppDispatch();
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [switchingKey, setSwitchingKey] = useState<string | null>(null);
+  const [enquiryOpen, setEnquiryOpen] = useState(false);
 
+  const user = useAppSelector((state) => state.auth.user);
   const plans = useAppSelector((state) => state.subscription.plans);
   const plansLoading = useAppSelector((state) => state.subscription.plansLoading);
   const subscription = useAppSelector((state) => state.subscription.subscription);
@@ -102,6 +129,14 @@ export function PlansContent() {
   };
 
   const currentPlanName = subscription?.planName ?? (subscriptionLoading ? "Loading…" : "—");
+
+  // Prefill from the signed-in account. Same `user?.data?.user` shape the
+  // profile screens read (src/components/profile/ProfileContent.tsx) — this
+  // page is behind AuthGate, so somebody is always signed in here. Purely a
+  // convenience: the server never trusts any of it.
+  const apiUser = user?.data?.user;
+  const enquiryName = [apiUser?.firstName, apiUser?.lastName].filter(Boolean).join(" ");
+  const enquiryEmail = typeof apiUser?.email === "string" ? apiUser.email : "";
 
   return (
     <div className="mx-auto max-w-2xl p-[var(--space-lg)]">
@@ -207,6 +242,48 @@ export function PlansContent() {
             );
           })}
 
+          {/*
+            Rendered outside the catalog map on purpose — see CUSTOM_PLAN above.
+            It also survives a failed fetchPlans: if the catalog never arrives,
+            `plans` is empty and this card is still here, so the route to a
+            human is never taken away by a backend outage.
+          */}
+          <div className="relative rounded-xl border border-dashed border-primary/60 bg-primary-50/40 p-[var(--space-md)]">
+            <div className="flex items-center gap-[var(--space-sm)]">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15">
+                <Sparkles size={16} strokeWidth={2.25} className="text-primary-700" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-h3 font-bold text-text-primary">{CUSTOM_PLAN.name}</p>
+                <p className="text-caption text-text-secondary">{CUSTOM_PLAN.tagline}</p>
+              </div>
+            </div>
+
+            <div className="mt-[var(--space-sm)] flex flex-wrap items-end gap-1">
+              <span className="text-h1 font-bold text-text-primary">{CUSTOM_PLAN.price}</span>
+              <span className="mb-1 text-body-sm text-text-secondary">{CUSTOM_PLAN.suffix}</span>
+            </div>
+
+            <div className="my-[var(--space-sm)] h-px bg-border" />
+
+            <div className="mb-[var(--space-md)] flex flex-col gap-[var(--space-xs)]">
+              {CUSTOM_PLAN.features.map((feature) => (
+                <div key={feature} className="flex items-start gap-[var(--space-sm)]">
+                  <Check size={16} strokeWidth={2.5} className="mt-0.5 shrink-0 text-success" />
+                  <span className="text-body-sm text-text-primary">{feature}</span>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setEnquiryOpen(true)}
+              className="w-full rounded-lg bg-trust-navy py-[var(--space-sm)] text-body-sm font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2"
+            >
+              Talk to Sales
+            </button>
+          </div>
+
           <Link
             href="/paywall"
             className="mt-[var(--space-xs)] flex items-center justify-center gap-[var(--space-xs)] py-[var(--space-sm)] text-caption font-semibold text-text-secondary"
@@ -215,6 +292,20 @@ export function PlansContent() {
             Preview blocked screen (demo)
           </Link>
         </div>
+      )}
+
+      {/*
+        Mounted only while open, so each opening starts from a clean form —
+        the modal holds no reset logic of its own. See CustomPlanEnquiryModal.
+      */}
+      {enquiryOpen && (
+        <CustomPlanEnquiryModal
+          onClose={() => setEnquiryOpen(false)}
+          surface="app"
+          defaultName={enquiryName}
+          defaultEmail={enquiryEmail}
+          userId={typeof apiUser?._id === "string" ? apiUser._id : null}
+        />
       )}
     </div>
   );

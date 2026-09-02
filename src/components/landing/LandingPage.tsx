@@ -12,14 +12,16 @@ import {
   ScanLine,
   Search,
   ShieldCheck,
+  Sparkles,
   Target,
   UserPlus,
   Users,
   X,
 } from "lucide-react";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import { CustomPlanEnquiryModal } from "@/components/subscription/CustomPlanEnquiryModal";
 import { LandingNav } from "./LandingNav";
 import {
   DashboardPreview,
@@ -525,7 +527,19 @@ function Differentiation() {
 
 // --- Pricing ---------------------------------------------------------------
 
-const PLANS = [
+// `href: null` marks the card whose CTA opens the enquiry modal instead of
+// navigating. Every other plan still links to /register exactly as before —
+// the three self-serve plans are untouched by the Custom addition.
+const PLANS: {
+  name: string;
+  tagline: string;
+  price: string;
+  suffix: string;
+  features: string[];
+  highlight: boolean;
+  cta: string;
+  href: string | null;
+}[] = [
   {
     name: "Trial",
     tagline: "Try Scantrix free for 14 days",
@@ -534,6 +548,7 @@ const PLANS = [
     features: ["Unlimited scans", "Unlimited team members", "1 QuickBooks company"],
     highlight: false,
     cta: "Start free trial",
+    href: "/register",
   },
   {
     name: "Standard",
@@ -543,6 +558,7 @@ const PLANS = [
     features: ["Unlimited scans", "Unlimited team members", "1 QuickBooks company"],
     highlight: false,
     cta: "Start free trial",
+    href: "/register",
   },
   {
     name: "Enterprise",
@@ -552,10 +568,29 @@ const PLANS = [
     features: ["Unlimited scans", "Unlimited team members", "3 QuickBooks companies"],
     highlight: true,
     cta: "Start free trial",
+    href: "/register",
+  },
+  {
+    name: "Custom",
+    tagline: "For businesses that outgrow the plans above",
+    price: "Let's talk",
+    suffix: "",
+    features: [
+      "Invoice volumes sized to your throughput",
+      "Multiple companies and entities",
+      "Large teams with roles that fit",
+      "Custom integrations and workflows",
+      "Guided onboarding and priority support",
+    ],
+    highlight: false,
+    cta: "Talk to Sales",
+    href: null,
   },
 ];
 
 function Pricing() {
+  const [enquiryOpen, setEnquiryOpen] = useState(false);
+
   return (
     <section id="pricing" className="scroll-mt-20 border-y border-border bg-[color:var(--lp-soft)]">
       <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
@@ -566,50 +601,94 @@ function Pricing() {
           </h2>
           <p className="mt-5 text-[16px] leading-relaxed text-text-secondary">
             Every plan begins with a 14-day free trial — no credit card. Plans differ
-            mainly by how many QuickBooks companies you connect.
+            mainly by how many QuickBooks companies you connect — and if none of them
+            fit, we&apos;ll build one that does.
           </p>
         </Reveal>
 
-        <div className="mt-12 grid gap-5 md:grid-cols-3">
-          {PLANS.map((plan, i) => (
-            <Reveal key={plan.name} delay={i * 90} className="h-full">
-              <div
-                className={`relative flex h-full flex-col rounded-2xl border bg-white p-7 ${
-                  plan.highlight ? "border-[color:var(--lp-teal)] shadow-lg" : "border-border shadow-sm"
-                }`}
-              >
-                {plan.highlight && (
-                  <span className="absolute -top-3 right-6 rounded-pill bg-[color:var(--lp-teal)] px-3 py-1 text-[10.5px] font-bold uppercase tracking-wide text-trust-navy">
-                    Most popular
-                  </span>
-                )}
-                <h3 className="text-[19px] font-bold text-trust-navy">{plan.name}</h3>
-                <p className="mt-1 text-[13px] text-text-secondary">{plan.tagline}</p>
-                <div className="mt-5 flex items-end gap-1.5">
-                  <span className="text-[26px] font-bold leading-none text-text-primary">{plan.price}</span>
-                  {plan.suffix && <span className="mb-0.5 text-[13px] text-text-secondary">{plan.suffix}</span>}
-                </div>
-                <div className="my-5 h-px bg-border" />
-                <ul className="flex flex-1 flex-col gap-3">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2.5 text-[14px] text-text-primary">
-                      <Check size={16} strokeWidth={2.75} className="shrink-0 text-[color:var(--lp-auto)]" /> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link
-                  href="/register"
-                  className={`mt-7 inline-flex h-11 items-center justify-center rounded-xl text-[14.5px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${
+        {/*
+          Four cards, so the breakpoints move: one column on phones, a 2x2 grid
+          from sm through lg, and a single row only at xl. Going four-across at
+          `lg` would leave each card about 177px of content inside max-w-6xl,
+          which wraps every feature line. Card padding drops 28px -> 24px for
+          the same reason.
+        */}
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          {PLANS.map((plan, i) => {
+            const isCustom = plan.href === null;
+            // Shared by the <Link> and the <button> so the two CTAs are
+            // pixel-identical — only the element differs.
+            const ctaClass = `mt-7 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-[14.5px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${
+              plan.highlight || isCustom
+                ? "bg-trust-navy text-white shadow-sm hover:-translate-y-0.5 hover:shadow-md"
+                : "border border-border bg-white text-trust-navy hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
+            }`;
+
+            return (
+              <Reveal key={plan.name} delay={i * 90} className="h-full">
+                <div
+                  className={`relative flex h-full flex-col rounded-2xl border bg-white p-6 ${
                     plan.highlight
-                      ? "bg-trust-navy text-white shadow-sm hover:-translate-y-0.5 hover:shadow-md"
-                      : "border border-border bg-white text-trust-navy hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
+                      ? "border-[color:var(--lp-teal)] shadow-lg"
+                      : isCustom
+                        ? "border-dashed border-[color:var(--lp-teal)]/60 shadow-sm"
+                        : "border-border shadow-sm"
                   }`}
                 >
-                  {plan.cta}
-                </Link>
-              </div>
-            </Reveal>
-          ))}
+                  {plan.highlight && (
+                    <span className="absolute -top-3 right-6 rounded-pill bg-[color:var(--lp-teal)] px-3 py-1 text-[10.5px] font-bold uppercase tracking-wide text-trust-navy">
+                      Most popular
+                    </span>
+                  )}
+                  <h3 className="flex items-center gap-2 text-[19px] font-bold text-trust-navy">
+                    {isCustom && (
+                      <Sparkles size={17} strokeWidth={2.25} className="shrink-0 text-[color:var(--lp-teal-700)]" />
+                    )}
+                    {plan.name}
+                  </h3>
+                  <p className="mt-1 text-[13px] text-text-secondary">{plan.tagline}</p>
+                  <div className="mt-5 flex items-end gap-1.5">
+                    {/*
+                      Steps down at xl only. That is the breakpoint where four
+                      cards share max-w-6xl (~225px of content each), and
+                      "Monthly / yearly" wraps to two lines at 26px — which
+                      pushed those two cards' dividers out of line with Trial's
+                      and Custom's. Cards are WIDER at lg (2-up) than at xl, so
+                      shrinking the type as the grid widens is the right way
+                      round.
+                    */}
+                    <span className="text-[26px] font-bold leading-none text-text-primary xl:text-[22px]">
+                      {plan.price}
+                    </span>
+                    {plan.suffix && <span className="mb-0.5 text-[13px] text-text-secondary">{plan.suffix}</span>}
+                  </div>
+                  <div className="my-5 h-px bg-border" />
+                  <ul className="flex flex-1 flex-col gap-3">
+                    {plan.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2.5 text-[14px] text-text-primary">
+                        <Check
+                          size={16}
+                          strokeWidth={2.75}
+                          className="mt-[3px] shrink-0 text-[color:var(--lp-auto)]"
+                        />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {isCustom ? (
+                    <button type="button" onClick={() => setEnquiryOpen(true)} className={ctaClass}>
+                      {plan.cta}
+                      <ArrowRight size={16} strokeWidth={2.25} />
+                    </button>
+                  ) : (
+                    <Link href={plan.href as string} className={ctaClass}>
+                      {plan.cta}
+                    </Link>
+                  )}
+                </div>
+              </Reveal>
+            );
+          })}
         </div>
         <Reveal className="mt-7 text-center">
           <p className="text-[12.5px] text-text-secondary">
@@ -617,6 +696,16 @@ function Pricing() {
           </p>
         </Reveal>
       </div>
+
+      {/*
+        Mounted OUTSIDE the <Reveal>-wrapped grid. `.lp-reveal` sets
+        `will-change: transform`, which would make it the containing block for
+        a fixed-position child — the modal portals to document.body anyway, but
+        keeping the trigger's sibling out here makes that independence explicit.
+      */}
+      {enquiryOpen && (
+        <CustomPlanEnquiryModal onClose={() => setEnquiryOpen(false)} surface="landing" />
+      )}
     </section>
   );
 }
