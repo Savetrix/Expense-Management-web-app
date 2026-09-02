@@ -1012,16 +1012,30 @@ describe("dragged-in images are content, not decoration", () => {
     assert.equal(isLikelyInlineAsset(image({ sizeBytes: 8 * 1024 })), true);
   });
 
-  it("still discards a mid-sized inline logo", () => {
-    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 60 * 1024 })), true);
+  it("KEEPS a mid-sized inline image — the 108 KB case that was lost", () => {
+    // A screenshot or an app-served image forwarded inline lands in the
+    // 30-150 KB band. An earlier ceiling treated that whole range as decoration
+    // and discarded a real invoice sitting at 108 KB.
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 110_358 })), false);
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 60 * 1024 })), false);
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 30 * 1024 })), false);
   });
 
-  it("keeps a mid-sized image that was properly ATTACHED", () => {
-    // Same bytes, but the sender attached it rather than embedding it — so the
-    // inline ceiling must not apply.
+  it("ignores disposition entirely — only size and dimensions decide", () => {
+    // Disposition was wrong twice about the same thing: people embed invoices,
+    // and senders attach logos. It is not evidence about what an image IS.
+    const inline = image({ sizeBytes: 400_000, disposition: "inline", contentId: "<x>" });
+    const attached = image({ sizeBytes: 400_000, disposition: "attachment", contentId: null });
+    assert.equal(isLikelyInlineAsset(inline), isLikelyInlineAsset(attached));
+    assert.equal(isLikelyInlineAsset(inline), false);
+  });
+
+  it("still discards a genuinely tiny logo", () => {
+    // The one thing size can actually tell us: below 25 KB it is decoration.
+    assert.equal(isLikelyInlineAsset(image({ sizeBytes: 8 * 1024 })), true);
     assert.equal(
-      isLikelyInlineAsset(image({ sizeBytes: 60 * 1024, disposition: "attachment", contentId: null })),
-      false,
+      isLikelyInlineAsset(image({ sizeBytes: 8 * 1024, disposition: "attachment", contentId: null })),
+      true,
     );
   });
 

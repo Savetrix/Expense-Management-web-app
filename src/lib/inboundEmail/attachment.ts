@@ -164,10 +164,21 @@ export function sha256(bytes: Buffer): string {
  * which the sender controls. PDFs are exempt: a small PDF is still an invoice, and
  * wrongly skipping one is worse than processing a stray graphic.
  */
-/** A signature logo or tracking pixel is small. A receipt photo is not. */
+/**
+ * A signature logo or tracking pixel is small. A document is not.
+ *
+ * This is now the ONLY size rule. There used to be a second, higher ceiling
+ * (150 KB) applied to inline images on the theory that an inline-and-referenced
+ * image was probably decorative unless it was large. That number was a guess,
+ * and it ate a real invoice: a 108 KB screenshot forwarded inline sat under it
+ * and was discarded as a logo.
+ *
+ * The guess was wrong about the world. Phone photos are megabytes, but
+ * screenshots, compressed scans and images re-served by an app land squarely in
+ * the 30–150 KB band — the exact range the ceiling claimed nobody would use for
+ * real content.
+ */
 const DEFINITELY_DECORATIVE_BYTES = 25 * 1024;
-/** Inline images below this are treated as decorative; above it, as content. */
-const INLINE_DECORATIVE_CEILING = 150 * 1024;
 
 export function isLikelyInlineAsset(
   attachment: NormalizedAttachment,
@@ -186,27 +197,22 @@ export function isLikelyInlineAsset(
   const reported = normalizeMime(attachment.reportedMimeType);
   if (reported === null || !reported.startsWith("image/")) return false;
 
-  // SIZE IS THE SIGNAL, NOT DISPOSITION.
+  // SIZE ALONE. DISPOSITION IS IGNORED ENTIRELY.
   //
-  // This previously discarded anything marked `inline` with a content-id, on
-  // the theory that only signature logos are referenced from the body. That is
-  // no longer how mail clients behave: dragging a photo into a Gmail message
-  // produces exactly that shape, and it is one of the most natural ways to
-  // send a receipt — especially from a phone. A real 1.6 MB receipt photo was
-  // silently rejected as "only inline assets" because of it.
+  // Disposition has now been wrong twice. First it discarded anything marked
+  // inline with a content-id, which is exactly what dragging a photo into Gmail
+  // produces — that lost a 1.6 MB receipt. Then it merely raised the size bar
+  // for such images to 150 KB, which lost a 108 KB one. Both times the same
+  // mistake: treating "the sender embedded this in the body" as evidence about
+  // what the image IS. It is not. People embed invoices; senders attach logos.
   //
-  // Failure directions are asymmetric, so the rule is deliberately biased:
-  // wrongly DROPPING an invoice loses a document silently, while wrongly
-  // ACCEPTING a logo costs one click at review. Size separates the two cases
-  // far better than disposition does.
+  // Failure directions are asymmetric, so the remaining rule is deliberately
+  // blunt and biased: wrongly DROPPING an invoice loses a document silently,
+  // and nobody notices until an accountant goes looking for it. Wrongly
+  // ACCEPTING a logo costs one click at review. When those are the choices,
+  // keep the file.
   const size = attachment.sizeBytes;
-
   if (size > 0 && size < DEFINITELY_DECORATIVE_BYTES) return true;
-
-  // Being inline-and-referenced still counts for something — it just needs the
-  // image to be plausibly decorative in size too, rather than on its own.
-  const inlineReferenced = attachment.disposition === "inline" && Boolean(attachment.contentId);
-  if (inlineReferenced && size > 0 && size < INLINE_DECORATIVE_CEILING) return true;
 
   if (dimensions) {
     if (dimensions.width <= 1 || dimensions.height <= 1) return true;
