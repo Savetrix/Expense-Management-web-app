@@ -110,6 +110,7 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
   const rawData = invoiceObject?.extractedData;
   const statusHistory = invoiceObject?.statusHistory ?? [];
   const lineItems = rawData?.lineItems ?? [];
+  const extraCharges = rawData?.extraCharges ?? [];
 
   const confidenceScore = Number.isFinite(Number(invoiceObject?.confidenceScore))
     ? Math.max(0, Math.min(100, Number(invoiceObject?.confidenceScore)))
@@ -360,6 +361,35 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
                     </div>
                     <span className="shrink-0 font-extrabold" style={{ color: theme.accentColor }}>
                       {formatDetailAmount(item.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Extra Charges — separate from Line Items since they can carry
+                their own tax treatment (see the review screen); read-only
+                here, same as everything else on a posted invoice. */}
+            {extraCharges.length > 0 && (
+              <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+                <SectionHeader title={`Extra Charges (${extraCharges.length})`} bg={theme.sectionHeaderBg} color={theme.accentColor} />
+                {extraCharges.map((charge, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)]"
+                    style={index < extraCharges.length - 1 ? { borderBottom: `1px solid ${theme.divider}` } : undefined}
+                  >
+                    <span
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-caption font-bold"
+                      style={{ backgroundColor: theme.pillBg, color: theme.accentColor }}
+                    >
+                      {index + 1}
+                    </span>
+                    <p className="min-w-0 flex-1 truncate text-body-sm font-semibold text-text-primary">
+                      {charge.description || "Extra charge"}
+                    </p>
+                    <span className="shrink-0 font-extrabold" style={{ color: theme.accentColor }}>
+                      {formatDetailAmount(charge.amount)}
                     </span>
                   </div>
                 ))}

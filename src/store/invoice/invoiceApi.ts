@@ -164,6 +164,14 @@ export interface LineItem {
   glAccountId?: string;
 }
 
+export interface ExtraCharge {
+  description: string;
+  amount: number;
+  /** Independent of the invoice-level taxCodeId — null/unset defaults to
+   * non-taxable ("NON") on the QuickBooks side. */
+  taxCodeId?: string | null;
+}
+
 export interface PostInvoiceExtractedData {
   vendorName: string;
   currency: string;
@@ -177,6 +185,7 @@ export interface PostInvoiceExtractedData {
   glAccountId?: string | null;
   taxCodeId?: string | null;
   lineItems: LineItem[];
+  extraCharges?: ExtraCharge[];
   description?: string | null;
   vendorAddress?: string | null;
   /** Matches API field name `bankingDetails` (not vendorBankDetails) */

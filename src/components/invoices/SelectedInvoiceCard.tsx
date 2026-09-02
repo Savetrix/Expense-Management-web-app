@@ -70,6 +70,7 @@ export function SelectedInvoiceCard({
   const confidence = invoice.confidenceScore != null ? `${Math.round(Number(invoice.confidenceScore))}%` : null;
   const statusHistory = invoice.statusHistory ?? [];
   const lineItems = data?.lineItems ?? [];
+  const extraCharges = data?.extraCharges ?? [];
 
   const resolvedGlAccount = glAccounts.find((account) => account.qbAccountId === String(data?.glAccountId ?? ""));
   const resolvedTaxCode = taxCodes.find((code) => taxCodeId(code) === String(data?.taxCodeId ?? ""));
@@ -159,6 +160,19 @@ export function SelectedInvoiceCard({
                   <span className="min-w-0 truncate text-caption text-text-primary">{item.description}</span>
                   <span className="shrink-0 text-caption font-semibold text-text-primary">
                     {formatDetailAmount(item.amount)}
+                  </span>
+                </div>
+              ))}
+            </DetailSection>
+          )}
+
+          {extraCharges.length > 0 && (
+            <DetailSection title={`Extra charges (${extraCharges.length})`}>
+              {extraCharges.map((charge, index) => (
+                <div key={index} className="flex items-center justify-between gap-[var(--space-sm)] py-[6px]">
+                  <span className="min-w-0 truncate text-caption text-text-primary">{charge.description || "Extra charge"}</span>
+                  <span className="shrink-0 text-caption font-semibold text-text-primary">
+                    {formatDetailAmount(charge.amount)}
                   </span>
                 </div>
               ))}

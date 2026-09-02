@@ -14,7 +14,7 @@ import {
   rejectInvoice,
   updateInvoiceExtractedData,
 } from "@/store/invoice/invoiceApi";
-import type { LineItem } from "@/store/invoice/invoiceSlice";
+import type { ExtraCharge, LineItem } from "@/store/invoice/invoiceSlice";
 import {
   fetchQuickBooksAccounts,
   fetchQuickBooksTaxCodes,
@@ -298,6 +298,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     getInitialFieldErrors(normalizeInvoiceData(rawData)),
   );
   const [lineItems, setLineItems] = useState<LineItem[]>(() => rawData.lineItems || []);
+  const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>(() => rawData.extraCharges || []);
   const [showConfidenceInfo, setShowConfidenceInfo] = useState(false);
 
   // Full reset — only when the underlying invoice itself changes (first
@@ -323,6 +324,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     setInvoice(normalized);
     setFieldErrors(getInitialFieldErrors(normalized));
     setLineItems(invoiceObject?.extractedData?.lineItems || []);
+    setExtraCharges(invoiceObject?.extractedData?.extraCharges || []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceObject]);
 
@@ -370,6 +372,55 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
 
   const removeLineItem = (index: number) => {
     setLineItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Extra charges started as extraction/reconciliation output only (see
+  // pipeline.service.js's applyExtraCharges) — description read-only, no
+  // add/remove — but the LLM doesn't always find everything (a genuinely
+  // unaccounted charge with an empty array, or one the user just wants to
+  // split out for its own tax code), so this now has the same full
+  // add/edit/remove affordance as line items. Total Amount is what actually
+  // posts to QuickBooks, so every mutation here recomputes it in the same
+  // handler (amountBeforeTax + tax + extraCharges) rather than via a
+  // background effect — what's on screen IS what would submit right now.
+  const recalculateTotalFromExtraCharges = (nextExtraCharges: ExtraCharge[]) => {
+    const extraSum = nextExtraCharges.reduce((s, c) => s + c.amount, 0);
+    const recalculatedTotal = parseFloat(
+      ((Number(invoice.amountBeforeTax) || 0) + (Number(invoice.taxAmount) || 0) + extraSum).toFixed(2),
+    );
+    setInvoice((prev) => ({ ...prev, totalAfterTax: String(recalculatedTotal) }));
+    setFieldErrors((prev) => {
+      if (!prev.totalAfterTax) return prev;
+      const updated = { ...prev };
+      delete updated.totalAfterTax;
+      return updated;
+    });
+  };
+
+  const updateExtraChargeDescription = (index: number, value: string) => {
+    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, description: value } : c)));
+  };
+
+  const updateExtraChargeTaxCode = (index: number, taxCodeId: string) => {
+    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, taxCodeId: taxCodeId || null } : c)));
+  };
+
+  const updateExtraChargeAmount = (index: number, value: string) => {
+    const nextExtraCharges = extraCharges.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c));
+    setExtraCharges(nextExtraCharges);
+    recalculateTotalFromExtraCharges(nextExtraCharges);
+  };
+
+  const addExtraCharge = () => {
+    const nextExtraCharges = [...extraCharges, { description: "", amount: 0, taxCodeId: null }];
+    setExtraCharges(nextExtraCharges);
+    recalculateTotalFromExtraCharges(nextExtraCharges);
+  };
+
+  const removeExtraCharge = (index: number) => {
+    const nextExtraCharges = extraCharges.filter((_, i) => i !== index);
+    setExtraCharges(nextExtraCharges);
+    recalculateTotalFromExtraCharges(nextExtraCharges);
   };
 
   const theme = useMemo(() => getReviewTheme(frozenConfidenceScore), [frozenConfidenceScore]);
@@ -484,6 +535,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
           taxAmount: Number(invoice.taxAmount) || 0,
           totalAmount: Number(invoice.totalAfterTax) || 0,
           lineItems,
+          extraCharges,
           description: cleanValue(invoice.itemDescriptionsText) || null,
           vendorAddress: cleanValue(invoice.vendorAddress) || null,
           bankingDetails: cleanValue(invoice.vendorBankDetails) || null,
@@ -618,6 +670,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
           taxAmount: Number(invoice.taxAmount) || 0,
           totalAmount: Number(invoice.totalAfterTax) || 0,
           lineItems,
+          extraCharges,
           description: cleanValue(invoice.itemDescriptionsText) || null,
           vendorAddress: cleanValue(invoice.vendorAddress) || null,
           bankingDetails: cleanValue(invoice.vendorBankDetails) || null,
@@ -973,7 +1026,17 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
               <SectionHeader title="Vendor Details" bg={theme.sectionHeaderBg} color={theme.headerBg} />
               <EditableRow id="field-vendor" label="Vendor" labelColor={theme.primaryText} dividerColor={theme.divider} error={fieldErrors.vendor}>
                 {isPendingReview ? (
-                  <select value={selectedVendor?._id || ""} onChange={handleVendorChange} className={INPUT_CLASS}>
+                  // Falls back to the backend's own auto-match (invoiceObject.vendor.vendorDbId)
+                  // when the user never went through the manual "Change vendor" flow —
+                  // selectedVendor only gets populated by that flow, but a pending invoice
+                  // can already have a resolved vendor from the extraction pipeline itself
+                  // (e.g. still pending for an unrelated reason like extra charges). Mirrors
+                  // the same fallback chain submitToQuickBooks already uses when posting.
+                  <select
+                    value={selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || ""}
+                    onChange={handleVendorChange}
+                    className={INPUT_CLASS}
+                  >
                     {/* A neutral placeholder, not an echo of the current
                         value: the select already renders its own selection, so
                         printing invoice.vendor here made the chosen vendor
@@ -1100,6 +1163,69 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                 >
                   <Plus size={14} strokeWidth={2.5} />
                   Add line item
+                </button>
+              </div>
+            </div>
+
+            {/* Extra Charges — usually pre-filled by extraction/reconciliation
+                (see pipeline.service.js's applyExtraCharges), but fully
+                editable like Line Items: the LLM doesn't always catch
+                everything, and the user may want to split one out for its
+                own tax code (delivery, service fee, ... can legally carry a
+                different tax treatment than the invoice's own line items). */}
+            <div className="overflow-hidden rounded-lg bg-white shadow-sm">
+              <SectionHeader title={`Extra Charges (${extraCharges.length})`} bg={theme.sectionHeaderBg} color={theme.headerBg} editable />
+              <div className="flex flex-col gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-md)]">
+                {extraCharges.map((charge, index) => (
+                  <div key={index} className="rounded-md border p-[var(--space-sm)]" style={{ borderColor: theme.divider }}>
+                    <div className="flex items-center gap-[var(--space-sm)]">
+                      <input
+                        value={charge.description}
+                        onChange={(e) => updateExtraChargeDescription(index, e.target.value)}
+                        placeholder="Charge description"
+                        className="min-w-0 flex-1 bg-transparent text-body-sm font-semibold text-text-primary focus:outline-none"
+                      />
+                      <input
+                        type="number"
+                        value={charge.amount}
+                        onChange={(e) => updateExtraChargeAmount(index, e.target.value)}
+                        className="w-24 shrink-0 rounded-md bg-background-soft px-[var(--space-xs)] py-[2px] text-right font-extrabold focus:outline-none"
+                        style={{ color: theme.headerBg }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeExtraCharge(index)}
+                        aria-label="Remove extra charge"
+                        className="shrink-0 text-text-secondary hover:text-error"
+                      >
+                        <Trash2 size={14} strokeWidth={2} />
+                      </button>
+                    </div>
+                    <label className="mt-[var(--space-xs)] flex items-center justify-between gap-[var(--space-sm)]">
+                      <span className="shrink-0 text-caption text-text-secondary">Tax code</span>
+                      <select
+                        value={charge.taxCodeId || ""}
+                        onChange={(e) => updateExtraChargeTaxCode(index, e.target.value)}
+                        className="min-w-0 max-w-[65%] rounded-md bg-background-soft px-[var(--space-xs)] py-[2px] text-right text-body-sm font-medium text-text-primary focus:outline-none"
+                      >
+                        <option value="">{taxCodesLoading ? "Loading…" : "Non-taxable (default)"}</option>
+                        {taxCodes.map((code) => (
+                          <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
+                            {getTaxCodeName(code)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addExtraCharge}
+                  className="flex items-center justify-center gap-[var(--space-xs)] rounded-md border border-dashed py-[var(--space-sm)] text-body-sm font-semibold"
+                  style={{ borderColor: theme.divider, color: theme.headerBg }}
+                >
+                  <Plus size={14} strokeWidth={2.5} />
+                  Add extra charge
                 </button>
               </div>
             </div>

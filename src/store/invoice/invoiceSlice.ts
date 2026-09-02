@@ -24,6 +24,15 @@ export interface LineItem {
   glAccountId?: string;
 }
 
+export interface ExtraCharge {
+  description: string;
+  amount: number;
+  /** Independent of the invoice-level taxCodeId — an extra charge (delivery,
+   * service fee, ...) can carry its own tax treatment. null/unset defaults
+   * to non-taxable on the QuickBooks side. */
+  taxCodeId?: string | null;
+}
+
 export interface ExtractedData {
   vendorName?: string;
   currency?: string;
@@ -36,6 +45,7 @@ export interface ExtractedData {
   glAccountId?: string | null;
   taxCodeId?: string | null;
   lineItems?: LineItem[];
+  extraCharges?: ExtraCharge[];
   description?: string | null;
   vendorAddress?: string | null;
   /** API field: bankingDetails (not vendorBankDetails) */
