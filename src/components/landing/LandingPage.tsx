@@ -32,10 +32,28 @@ import {
 } from "./mockups";
 import { LoadIn, Reveal, SectionLabel, Wordmark } from "./primitives";
 
+// --- Meta Pixel: signup-click tracking -------------------------------------
+// Fires the "Lead" event whenever a visitor clicks any CTA that navigates to
+// /register. Reporting only — the ad set's optimization goal stays on
+// Landing Page Views, this just gives visibility into signup-click volume.
+
+declare global {
+  interface Window {
+    fbq?: (...args: unknown[]) => void;
+  }
+}
+
+function trackSignupClick() {
+  if (typeof window !== "undefined" && typeof window.fbq === "function") {
+    window.fbq("track", "Lead");
+  }
+}
+
 function PrimaryCta({ href, children, className = "" }: { href: string; children: ReactNode; className?: string }) {
   return (
     <Link
       href={href}
+      onClick={trackSignupClick}
       className={`group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-trust-navy px-6 text-[15px] font-semibold text-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${className}`}
     >
       {children}
@@ -681,7 +699,7 @@ function Pricing() {
                       <ArrowRight size={16} strokeWidth={2.25} />
                     </button>
                   ) : (
-                    <Link href={plan.href as string} className={ctaClass}>
+                    <Link href={plan.href as string} onClick={trackSignupClick} className={ctaClass}>
                       {plan.cta}
                     </Link>
                   )}
@@ -797,6 +815,7 @@ function FinalCta() {
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/register"
+              onClick={trackSignupClick}
               className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-7 text-[15px] font-semibold text-trust-navy shadow-lg transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--lp-navy)]"
             >
               Start free — 14 days
@@ -834,7 +853,7 @@ function Footer() {
           <a href="#pricing" className="transition-colors hover:text-trust-navy">Pricing</a>
           <a href="#about" className="transition-colors hover:text-trust-navy">About</a>
           <Link href="/login" className="transition-colors hover:text-trust-navy">Log in</Link>
-          <Link href="/register" className="font-semibold text-trust-navy">Start free</Link>
+          <Link href="/register" onClick={trackSignupClick} className="font-semibold text-trust-navy">Start free</Link>
         </div>
       </div>
       <div className="border-t border-border">
