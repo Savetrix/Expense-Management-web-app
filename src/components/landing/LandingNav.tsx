@@ -5,6 +5,7 @@ import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Wordmark } from "./primitives";
+import { trackSignupClick } from "./pixel";
 
 const LINKS = [
   { href: "#how", label: "How it works" },
@@ -68,6 +69,7 @@ export function LandingNav() {
             </Link>
             <Link
               href="/register"
+              onClick={trackSignupClick}
               className="rounded-lg bg-trust-navy px-4 py-2 text-[14px] font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
               Start free
@@ -104,6 +106,7 @@ export function LandingNav() {
           <div className="mt-4 flex flex-col gap-2.5">
             <Link
               href="/register"
+              onClick={trackSignupClick}
               className="rounded-lg bg-trust-navy py-3 text-center text-[15px] font-semibold text-white"
             >
               Start free — 14 days
