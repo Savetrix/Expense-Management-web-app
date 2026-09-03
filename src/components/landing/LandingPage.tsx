@@ -31,23 +31,7 @@ import {
   ScanVisual,
 } from "./mockups";
 import { LoadIn, Reveal, SectionLabel, Wordmark } from "./primitives";
-
-// --- Meta Pixel: signup-click tracking -------------------------------------
-// Fires the "Lead" event whenever a visitor clicks any CTA that navigates to
-// /register. Reporting only — the ad set's optimization goal stays on
-// Landing Page Views, this just gives visibility into signup-click volume.
-
-declare global {
-  interface Window {
-    fbq?: (...args: unknown[]) => void;
-  }
-}
-
-function trackSignupClick() {
-  if (typeof window !== "undefined" && typeof window.fbq === "function") {
-    window.fbq("track", "Lead");
-  }
-}
+import { trackSignupClick } from "./pixel";
 
 function PrimaryCta({ href, children, className = "" }: { href: string; children: ReactNode; className?: string }) {
   return (
