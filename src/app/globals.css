@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 /*
+ * Tailwind v4 has no tailwind.config.ts — dark: is media-query-based by
+ * default. This repoints it at a `.dark` class instead (set by next-themes'
+ * attribute="class"), the same class-based strategy the "Ledger Navy & Teal"
+ * theme spec assumes.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
  * Design tokens ported verbatim from Scantrix_v2 (frontend-ui-v2)
  * src/theme/{colors,spacing,typography,radius}.ts.
  * Every screen in this app should reference these tokens rather than
@@ -10,12 +18,13 @@
  */
 @theme {
   /* colors.ts */
-  --color-primary: #1fb6aa;
-
   /* Teal scale added for the dashboard/sidebar design revamp — 500 is kept
-     identical to --color-primary above so existing bg-primary/text-primary
-     call sites and this scale read as the same brand teal, just with dark
-     (900) and light-tint (50-300) values available for depth. */
+     identical to the brand teal so existing bg-primary/text-primary call
+     sites and this scale read as the same brand teal, just with dark (900)
+     and light-tint (50-300) values available for depth. primary-50..900
+     tints are intentionally left as static hex — they're used for small
+     decorative highlights (dropdown row states) where a flat light tint is
+     an acceptable, lower-priority gap; migrate opportunistically. */
   --color-primary-50: #eafaf9;
   --color-primary-100: #d2f2ee;
   --color-primary-200: #a3e2da;
@@ -27,18 +36,82 @@
   --color-primary-800: #0a5551;
   --color-primary-900: #06332f;
 
-  --color-background: #ffffff;
-  --color-background-soft: #f8fafc;
-  --color-background-alt: #f7f8fa;
-  --color-trust-navy: #1f3a5f;
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-border: #e2e8f0;
-  --color-success: #16a34a;
-  --color-warning: #f59e0b;
-  --color-error: #dc2626;
+  /* These legacy tokens now resolve to the semantic RGB vars below instead
+     of a fixed hex, so every existing bg-background-alt / text-text-primary
+     / border-border / bg-primary / text-success call site (the whole app,
+     pre-dating this theme system) repaints correctly in dark mode without
+     being touched file-by-file. --color-primary keeps its name for existing
+     call sites but now IS the accent token. --color-trust-navy (headings)
+     rides along with content-primary since it has no dedicated dark value
+     of its own. */
+  --color-primary: rgb(var(--accent));
+  --color-background: rgb(var(--bg-surface));
+  --color-background-soft: rgb(var(--bg-page));
+  --color-background-alt: rgb(var(--bg-page));
+  --color-trust-navy: rgb(var(--text-primary));
+  --color-text-primary: rgb(var(--text-primary));
+  --color-text-secondary: rgb(var(--text-secondary));
+  --color-border: rgb(var(--border));
+  --color-success: rgb(var(--status-success-text));
+  --color-warning: rgb(var(--status-warning-text));
+  --color-error: rgb(var(--status-danger-text));
   --color-white: #ffffff;
   --color-black: #000000;
+
+  /* "Ledger Navy & Teal" semantic theme tokens — light/dark values live as
+     space-separated RGB triples in :root/.dark below (so bg-accent/80-style
+     opacity modifiers work, via Tailwind v4's automatic color-mix()); these
+     just wire the Tailwind utility names to them. New UI should reach for
+     these (bg-surface, text-content-primary, bg-nav-active, …) instead of
+     the legacy tokens above. */
+  --color-nav-bg: rgb(var(--nav-bg));
+  --color-nav-hover: rgb(var(--nav-bg-hover));
+  --color-nav-active: rgb(var(--nav-bg-active));
+  --color-nav-text: rgb(var(--nav-text));
+  --color-nav-muted: rgb(var(--nav-text-muted));
+  --color-nav-text-active: rgb(var(--nav-text-active));
+
+  --color-accent: rgb(var(--accent));
+  --color-accent-hover: rgb(var(--accent-hover));
+  --color-accent-bg: rgb(var(--accent-bg));
+  --color-accent-text-on-bg: rgb(var(--accent-text-on-bg));
+  /* Fixed dark foreground for content placed directly on a solid bg-accent
+     fill (icon glyphs, the bulk-select check). accent is bright teal in
+     BOTH themes, so this intentionally does NOT flip in dark mode the way
+     text-content-primary does — see DESIGN_ASSUMPTIONS.md D2.3. */
+  --color-accent-ink: #1a1a1a;
+
+  --color-page: rgb(var(--bg-page));
+  --color-surface: rgb(var(--bg-surface));
+  --color-surface-alt: rgb(var(--bg-surface-alt));
+
+  --color-border-strong: rgb(var(--border-strong));
+
+  --color-content-primary: rgb(var(--text-primary));
+  --color-content-secondary: rgb(var(--text-secondary));
+  --color-content-muted: rgb(var(--text-muted));
+  --color-content-disabled: rgb(var(--text-disabled));
+
+  --color-status-success-text: rgb(var(--status-success-text));
+  --color-status-success-bg: rgb(var(--status-success-bg));
+  --color-status-success-border: rgb(var(--status-success-border));
+
+  --color-status-warning-text: rgb(var(--status-warning-text));
+  --color-status-warning-bg: rgb(var(--status-warning-bg));
+  --color-status-warning-border: rgb(var(--status-warning-border));
+
+  --color-status-danger-text: rgb(var(--status-danger-text));
+  --color-status-danger-bg: rgb(var(--status-danger-bg));
+  --color-status-danger-border: rgb(var(--status-danger-border));
+
+  --color-status-info-text: rgb(var(--status-info-text));
+  --color-status-info-bg: rgb(var(--status-info-bg));
+  --color-status-info-border: rgb(var(--status-info-border));
+
+  --color-chart-1: rgb(var(--chart-1));
+  --color-chart-2: rgb(var(--chart-2));
+  --color-chart-3: rgb(var(--chart-3));
+  --color-chart-4: rgb(var(--chart-4));
 
   /* spacing.ts (px). Not a Tailwind --spacing-* scale by design — these
      are named design tokens, referenced as var(--space-*) or via
@@ -81,10 +154,138 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * "Ledger Navy & Teal" theme (true-black dark variant) — raw values as
+ * space-separated RGB triples (not hex, not full rgb()) so the rgb(var(--x))
+ * pattern above can apply Tailwind opacity modifiers (bg-accent/80, etc).
+ * Toggled by next-themes adding/removing the .dark class on <html>
+ * (attribute="class").
+ */
+@layer base {
+  :root {
+    /* Navigation (Sidebar) */
+    --nav-bg: 15 110 86;             /* #0F6E56 */
+    --nav-bg-hover: 26 77 64;        /* #1A4D40 */
+    --nav-bg-active: 29 107 92;      /* #1D6B5C */
+    --nav-text: 159 225 203;         /* #9FE1CB */
+    --nav-text-muted: 143 163 194;   /* #8FA3C2 */
+    --nav-text-active: 255 255 255;  /* #FFFFFF */
+
+    /* Accent */
+    --accent: 31 182 170;            /* #1FB6AA */
+    --accent-hover: 26 146 136;      /* #1A9288 */
+    --accent-bg: 225 245 238;        /* #E1F5EE */
+    --accent-text-on-bg: 15 110 86;  /* #0F6E56 */
+
+    /* Neutrals & Surfaces */
+    --bg-page: 248 250 252;          /* #F8FAFC */
+    --bg-surface: 234 250 249;       /* #EAFAF9 */
+    --bg-surface-alt: 225 245 238;   /* #E1F5EE */
+    --border: 220 234 227;           /* #DCEAE3 */
+    --border-strong: 192 216 208;    /* #C0D8D0 */
+
+    /* Text */
+    --text-primary: 26 26 26;        /* #1A1A1A */
+    --text-secondary: 136 135 128;   /* #888780 */
+    --text-muted: 166 176 168;       /* #A6B0A8 */
+    --text-disabled: 196 202 192;    /* #C4CAC0 */
+
+    /* Status - Success */
+    --status-success-text: 29 158 117;   /* #1D9E75 */
+    --status-success-bg: 225 245 238;    /* #E1F5EE */
+    --status-success-border: 197 235 217; /* #C5EBD9 */
+
+    /* Status - Warning */
+    --status-warning-text: 239 159 39;   /* #EF9F27 */
+    --status-warning-bg: 255 243 224;    /* #FFF3E0 */
+    --status-warning-border: 255 186 130; /* #FFBA82 */
+
+    /* Status - Danger */
+    --status-danger-text: 226 75 74;     /* #E24B4A */
+    --status-danger-bg: 252 235 235;     /* #FCEBEB */
+    --status-danger-border: 247 193 193; /* #F7C1C1 */
+
+    /* Status - Info */
+    --status-info-text: 31 182 170;      /* #1FB6AA */
+    --status-info-bg: 225 245 238;       /* #E1F5EE */
+    --status-info-border: 197 235 217;   /* #C5EBD9 */
+
+    /* Charts & Progress Bars */
+    --chart-1: 31 182 170;           /* #1FB6AA */
+    --chart-2: 159 225 203;          /* #9FE1CB */
+    --chart-3: 143 163 194;          /* #8FA3C2 */
+    --chart-4: 232 235 240;          /* #E8EBF0 */
+  }
+
+  /* True Black dark theme */
+  .dark {
+    /* Navigation (Sidebar) */
+    --nav-bg: 0 0 0;                 /* #000000 */
+    --nav-bg-hover: 15 23 20;        /* #0F1714 */
+    --nav-bg-active: 20 50 43;       /* #14322B */
+    --nav-text: 159 225 203;         /* #9FE1CB */
+    --nav-text-muted: 107 128 120;   /* #6B8078 */
+    --nav-text-active: 255 255 255;  /* #FFFFFF */
+
+    /* Accent */
+    --accent: 31 182 170;            /* #1FB6AA */
+    --accent-hover: 159 225 203;     /* #9FE1CB */
+    --accent-bg: 10 32 27;           /* #0A201B */
+    --accent-text-on-bg: 159 225 203; /* #9FE1CB */
+
+    /* Neutrals & Surfaces */
+    --bg-page: 0 0 0;                /* #000000 */
+    --bg-surface: 10 15 21;          /* #0A0F15 */
+    --bg-surface-alt: 18 26 36;      /* #121A24 */
+    --border: 26 38 35;              /* #1A2623 */
+    --border-strong: 40 58 53;       /* #283A35 */
+
+    /* Text */
+    --text-primary: 245 247 250;     /* #F5F7FA */
+    --text-secondary: 160 168 180;   /* #A0A8B4 */
+    --text-muted: 100 112 125;       /* #64707D */
+    --text-disabled: 60 70 80;       /* #3C4650 */
+
+    /* Status - Success */
+    --status-success-text: 62 207 142;  /* #3ECF8E */
+    --status-success-bg: 8 30 22;       /* #081E16 */
+    --status-success-border: 20 65 48;  /* #144130 */
+
+    /* Status - Warning */
+    --status-warning-text: 255 187 102; /* #FFBB66 */
+    --status-warning-bg: 35 25 10;      /* #23190A */
+    --status-warning-border: 80 58 20;  /* #503A14 */
+
+    /* Status - Danger */
+    --status-danger-text: 240 139 125;  /* #F08B7D */
+    --status-danger-bg: 32 14 12;       /* #200E0C */
+    --status-danger-border: 80 32 26;   /* #50201A */
+
+    /* Status - Info */
+    --status-info-text: 159 225 203;    /* #9FE1CB */
+    --status-info-bg: 8 28 30;          /* #081C1E */
+    --status-info-border: 20 52 48;     /* #143430 */
+
+    /* Charts & Progress Bars */
+    --chart-1: 31 182 170;           /* #1FB6AA */
+    --chart-2: 159 225 203;          /* #9FE1CB */
+    --chart-3: 100 112 125;          /* #64707D */
+    --chart-4: 26 38 35;             /* #1A2623 */
+  }
+}
+
 body {
-  background: var(--color-background-alt);
-  color: var(--color-text-primary);
+  background: rgb(var(--bg-page));
+  color: rgb(var(--text-primary));
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Soft accent ring used to draw attention to the entity switcher while it
+   needs a selection (paired with border-accent + bg-accent-bg + animate-pulse). */
+@layer utilities {
+  .ring-accent-soft {
+    --tw-ring-color: rgb(var(--accent) / 0.5);
+  }
 }
 
 /* ==========================================================================

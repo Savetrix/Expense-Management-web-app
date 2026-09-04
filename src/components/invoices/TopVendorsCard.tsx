@@ -27,8 +27,8 @@ export function TopVendorsCard({ invoices, className = "" }: { invoices: Invoice
                   {`${currency} ${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`.trim()}
                 </span>
               </div>
-              <div className="mt-[var(--space-xs)] h-2 rounded-pill bg-white">
-                <div className="h-2 rounded-pill bg-primary" style={{ width: `${pct}%` }} />
+              <div className="mt-[var(--space-xs)] h-2 rounded-pill bg-surface-alt">
+                <div className="h-2 rounded-pill bg-accent" style={{ width: `${pct}%` }} />
               </div>
             </div>
           );

@@ -13,22 +13,27 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 // Text colors are chosen for WCAG AA contrast (4.5:1) against each
 // variant's background, verified by direct calculation — not just visual
-// judgment — since the color palette itself is locked and can't be
-// adjusted to fix a bad pairing. White-on-primary (#1fb6aa) measures only
-// 2.52:1 and fails AA, so `primary` uses the existing --color-text-primary
-// token instead of white; every other variant's white/trust-navy pairing
-// already passes (4.83:1–11.48:1). See DESIGN_ASSUMPTIONS.md D2.3.
+// judgment. `accent` (bg-primary) is teal (#1FB6AA) in BOTH light and dark
+// mode — white text fails AA against it, so `primary` uses a fixed dark
+// foreground instead of a token that flips with the theme (text-text-primary
+// itself flips to near-white in dark mode, which would recreate the same
+// failure there). Same reasoning for `danger`: status-danger-text is a light
+// salmon in dark mode, so the button uses a fixed strong red rather than
+// that token as a fill. `secondary` uses trust-navy's LIGHT-mode value as a
+// fixed color — trust-navy itself now flips to near-white in dark mode
+// (correct for on-surface text, wrong for a solid button fill). See
+// DESIGN_ASSUMPTIONS.md D2.3.
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: "bg-primary text-text-primary hover:opacity-90",
-  secondary: "bg-trust-navy text-white hover:opacity-90",
-  outline: "bg-white text-trust-navy border border-border hover:bg-background-alt",
-  danger: "bg-error text-white hover:opacity-90",
+  primary: "bg-primary text-accent-ink hover:opacity-90",
+  secondary: "bg-[rgb(31,58,95)] text-white hover:opacity-90",
+  outline: "bg-surface text-content-primary border border-border hover:bg-surface-alt",
+  danger: "bg-red-600 text-white hover:bg-red-700",
 };
 
 const spinnerToneClasses: Record<ButtonVariant, string> = {
-  primary: "border-text-primary/30 border-t-text-primary",
+  primary: "border-black/20 border-t-black/70",
   secondary: "border-white/40 border-t-white",
-  outline: "border-trust-navy/30 border-t-trust-navy",
+  outline: "border-content-primary/30 border-t-content-primary",
   danger: "border-white/40 border-t-white",
 };
 

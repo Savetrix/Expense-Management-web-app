@@ -14,7 +14,7 @@ export function SkeletonListRows({ count = 3, className = "" }: { count?: number
   return (
     <div className={`flex flex-col gap-[var(--space-sm)] ${className}`} role="status" aria-label="Loading">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-border bg-white p-[var(--space-md)] shadow-sm">
+        <div key={i} className="rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm">
           <div className="flex items-center justify-between gap-[var(--space-sm)]">
             <Skeleton className="h-4 w-2/5" />
             <Skeleton className="h-4 w-16" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { PropsWithChildren, useRef } from "react";
+import { ThemeProvider } from "next-themes";
 import { Provider } from "react-redux";
 import { PersistGate } from "redux-persist/integration/react";
 import { Persistor, persistStore } from "redux-persist";
@@ -20,11 +21,18 @@ export function Providers({ children }: PropsWithChildren) {
   }
 
   return (
-    <Provider store={store}>
-      <PersistGate loading={null} persistor={persistorRef.current}>
-        {children}
-        <DialogHost />
-      </PersistGate>
-    </Provider>
+    // attribute="class" toggles the `.dark` class on <html> that globals.css's
+    // tokens key off; disableTransitionOnChange stops every color/background
+    // transition from firing at once on toggle. RootLayout already sets
+    // suppressHydrationWarning on <html>, which is required here since
+    // next-themes sets this class before hydration via an inline script.
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <Provider store={store}>
+        <PersistGate loading={null} persistor={persistorRef.current}>
+          {children}
+          <DialogHost />
+        </PersistGate>
+      </Provider>
+    </ThemeProvider>
   );
 }

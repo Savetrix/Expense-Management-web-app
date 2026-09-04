@@ -26,6 +26,7 @@ import { ChatWidget } from "@/components/chatbot/ChatWidget";
 import { ExpandTransitionOverlay } from "@/components/shell/ExpandTransitionOverlay";
 import { GlobalSearchBar } from "@/components/shell/GlobalSearchBar";
 import { NotificationBell } from "@/components/shell/NotificationBell";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -59,8 +60,11 @@ const NAV_ITEMS = [
 // widening the whole rail — keeps every other row untouched while you're
 // pointed at one of them. Only used while the sidebar isn't pinned open,
 // since a pinned sidebar already shows the label inline.
+// Fixed dark nav-bg rather than a token that flips with the theme (e.g.
+// trust-navy/content-primary) — this floats over the page content, not the
+// sidebar, so it needs to stay legible against either page background.
 const TOOLTIP_CLASS =
-  "pointer-events-none absolute left-full top-1/2 z-20 ml-[var(--space-sm)] -translate-y-1/2 whitespace-nowrap rounded-md bg-trust-navy px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold text-white opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100";
+  "pointer-events-none absolute left-full top-1/2 z-20 ml-[var(--space-sm)] -translate-y-1/2 whitespace-nowrap rounded-md bg-nav-bg px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold text-white opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100";
 
 function NavLink({
   item,
@@ -73,16 +77,13 @@ function NavLink({
 }) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
   const Icon = item.icon;
-  // Active fill is bright teal (primary-500) — white text on it measures
-  // under 3:1 (same finding as Button's primary variant, see
-  // DESIGN_ASSUMPTIONS.md D2.3), so it uses dark text-text-primary instead.
   return (
     <Link
       href={item.href}
       aria-label={item.label}
       className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold ${
         collapsed ? "justify-center" : "px-[var(--space-md)]"
-      } ${active ? "bg-primary-500 text-text-primary" : "text-primary-100 hover:bg-white/10 hover:text-white"}`}
+      } ${active ? "bg-nav-active text-nav-text-active" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
     >
       <Icon size={18} strokeWidth={2} className="shrink-0" />
       {collapsed ? <span className={TOOLTIP_CLASS}>{item.label}</span> : <span className="truncate">{item.label}</span>}
@@ -240,9 +241,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const photoURL = normalizePhotoURL(user?.data?.user?.icon);
 
   return (
-    <div className="flex h-dvh bg-background-alt">
+    <div className="flex h-dvh bg-page">
       <aside
-        className={`hidden h-dvh shrink-0 flex-col border-r border-primary-800 bg-primary-900 transition-[width] duration-200 ease-in-out lg:flex ${
+        className={`hidden h-dvh shrink-0 flex-col border-r border-nav-hover bg-nav-bg transition-[width] duration-200 ease-in-out lg:flex ${
           collapsed ? "w-16" : "w-64"
         }`}
       >
@@ -274,23 +275,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className={`shrink-0 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
           <div className="group relative">
             <div
-              className={`flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 group-hover:bg-white/10 group-hover:text-white ${
+              className={`flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-nav-text group-hover:bg-nav-hover group-hover:text-nav-text-active ${
                 collapsed ? "justify-center" : "px-[var(--space-md)]"
               }`}
             >
               <Plus size={18} strokeWidth={2} className="shrink-0" />
               {collapsed ? <span className={TOOLTIP_CLASS}>Create</span> : <span className="truncate">Create</span>}
             </div>
-            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-md border border-border bg-white opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
+            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-md border border-border bg-surface opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
               <Link
                 href="/vendors?create=true"
-                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-text-primary hover:bg-background-alt"
+                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
               >
                 Vendor
               </Link>
               <Link
                 href="/gl-tax-codes?create=true"
-                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-text-primary hover:bg-background-alt"
+                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
               >
                 GL Account
               </Link>
@@ -310,7 +311,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             type="button"
             onClick={togglePinned}
             aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
-            className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white ${
+            className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${
               collapsed ? "justify-center" : "px-[var(--space-md)]"
             }`}
           >
@@ -327,15 +328,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </nav>
 
-        <div className={`shrink-0 border-t border-primary-800 ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
+        <div className={`shrink-0 border-t border-nav-hover ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
           <Link
             href="/profile"
             aria-label={name}
             className={`group relative mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-md py-[var(--space-xs)] text-body-sm font-semibold ${
               collapsed ? "justify-center" : "px-[var(--space-sm)]"
-            } ${pathname === "/profile" ? "bg-primary-500 text-text-primary" : "text-primary-100 hover:bg-white/10 hover:text-white"}`}
+            } ${pathname === "/profile" ? "bg-nav-active text-nav-text-active" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
           >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-400 text-caption font-bold text-primary-900">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-nav-text-active/90 text-caption font-bold text-nav-bg">
               {photoURL ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={photoURL} alt={name} className="h-full w-full object-cover" />
@@ -345,14 +346,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
             {collapsed ? <span className={TOOLTIP_CLASS}>{name}</span> : name}
           </Link>
-          {/* Same near-black sidebar fill as everywhere else in this rail, so
-              logout keeps the light text-primary-100 treatment rather than
-              text-error — dark red on near-black falls under 4.5:1 (~3.6:1). */}
+          {/* Same dark sidebar fill as everywhere else in this rail, so
+              logout keeps the nav-text treatment rather than a status-danger
+              token — those are calibrated against light surfaces, not this
+              dark nav-bg fill. */}
           <button
             type="button"
             onClick={logout}
             aria-label="Logout"
-            className={`flex w-full items-center gap-[var(--space-sm)] rounded-md py-[var(--space-xs)] text-left text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white ${
+            className={`flex w-full items-center gap-[var(--space-sm)] rounded-md py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${
               collapsed ? "group relative justify-center" : "px-[var(--space-sm)]"
             }`}
           >
@@ -363,13 +365,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-[var(--space-sm)] border-b border-border bg-white px-[var(--space-md)] lg:gap-[var(--space-md)] lg:px-[var(--space-lg)]">
+        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-[var(--space-sm)] border-b border-border bg-surface px-[var(--space-md)] lg:gap-[var(--space-md)] lg:px-[var(--space-lg)]">
           <div className="flex min-w-0 items-center gap-[var(--space-sm)]">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
               aria-label="Open menu"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-background-alt lg:hidden"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-alt lg:hidden"
             >
               <Menu size={20} strokeWidth={2} />
             </button>
@@ -381,26 +383,26 @@ export function AppShell({ children }: { children: ReactNode }) {
                   aria-expanded={switcherOpen}
                   className={`flex min-w-0 items-center gap-[var(--space-sm)] rounded-md border px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm ${
                     needsEntitySelection
-                      ? "animate-pulse border-primary bg-primary-50 ring-2 ring-primary/50"
-                      : "border-border bg-background-soft"
+                      ? "animate-pulse border-accent bg-accent-bg ring-2 ring-accent-soft"
+                      : "border-border bg-page"
                   }`}
                 >
-                  <span className="min-w-0 truncate font-semibold text-text-primary">
+                  <span className="min-w-0 truncate font-semibold text-content-primary">
                     {activeConnection?.name ?? "Select your company"}
                   </span>
                   <ChevronDown
                     size={16}
-                    className={`shrink-0 transition-transform ${needsEntitySelection ? "text-primary" : "text-text-secondary"} ${switcherOpen ? "rotate-180" : ""}`}
+                    className={`shrink-0 transition-transform ${needsEntitySelection ? "text-accent" : "text-content-secondary"} ${switcherOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 {switcherOpen && (
-                  <div className="absolute left-0 top-full z-10 mt-[var(--space-xs)] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-white p-[var(--space-xs)] shadow-md">
+                  <div className="absolute left-0 top-full z-10 mt-[var(--space-xs)] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-[var(--space-xs)] shadow-md">
                     {/* Caret is part of this panel, not separately positioned
                         against the trigger button — so it's welded to
                         wherever the dropdown itself ends up (its width is
                         capped by max-w-[calc(100vw-2rem)] on narrow screens),
                         instead of drifting out of sync with it. */}
-                    <span className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-border bg-white" />
+                    <span className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-border bg-surface" />
                     {connectedAccounts.map((connection) => {
                       const isActive = connection._id === qbConnectionId;
                       return (
@@ -409,14 +411,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                           type="button"
                           onClick={() => handleSwitch(connection)}
                           className={`flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-sm)] text-left text-body-sm ${
-                            isActive ? "bg-primary-50 font-bold text-primary-700" : "text-text-primary hover:bg-background-alt"
+                            isActive ? "bg-accent-bg font-bold text-accent-text-on-bg" : "text-content-primary hover:bg-surface-alt"
                           }`}
                         >
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-caption font-bold text-primary-700">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-bg text-caption font-bold text-accent-text-on-bg">
                             {connection.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="min-w-0 flex-1 truncate">{connection.name}</span>
-                          {isActive && <Check size={16} strokeWidth={2.5} className="shrink-0 text-primary-600" />}
+                          {isActive && <Check size={16} strokeWidth={2.5} className="shrink-0 text-accent" />}
                         </button>
                       );
                     })}
@@ -427,7 +429,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <h2
-            className={`hidden truncate text-center text-h3 font-bold text-trust-navy transition-opacity duration-200 sm:block ${
+            className={`hidden truncate text-center text-h3 font-bold text-content-primary transition-opacity duration-200 sm:block ${
               greetingFading ? "opacity-0" : "opacity-100"
             }`}
           >
@@ -438,6 +440,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <GlobalSearchBar />
 
             <ChatWidget companyName={activeConnection?.name} />
+
+            <ThemeToggle />
 
             <NotificationBell />
           </div>
@@ -451,7 +455,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
           <div
-            className="relative flex h-full w-72 max-w-[85vw] flex-col bg-primary-900 shadow-xl"
+            className="relative flex h-full w-72 max-w-[85vw] flex-col bg-nav-bg shadow-xl"
             onClick={() => setMobileNavOpen(false)}
           >
             <div className="flex h-16 shrink-0 items-center justify-between px-[var(--space-lg)]">
@@ -463,7 +467,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
                 aria-label="Close menu"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-primary-100 hover:bg-white/10 hover:text-white"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <X size={20} strokeWidth={2} />
               </button>
@@ -473,19 +477,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                 touch equivalent — the two destinations are always-visible
                 links here instead. */}
             <div className="shrink-0 px-[var(--space-sm)] pb-[var(--space-xs)]">
-              <p className="px-[var(--space-md)] pb-[var(--space-xs)] text-caption font-bold uppercase tracking-wide text-primary-200">
+              <p className="px-[var(--space-md)] pb-[var(--space-xs)] text-caption font-bold uppercase tracking-wide text-nav-muted">
                 Create
               </p>
               <Link
                 href="/vendors?create=true"
-                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white"
+                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <Plus size={16} strokeWidth={2} className="shrink-0" />
                 Vendor
               </Link>
               <Link
                 href="/gl-tax-codes?create=true"
-                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white"
+                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <Plus size={16} strokeWidth={2} className="shrink-0" />
                 GL Account
@@ -498,15 +502,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               ))}
             </nav>
 
-            <div className="shrink-0 border-t border-primary-800 p-[var(--space-md)]">
+            <div className="shrink-0 border-t border-nav-hover p-[var(--space-md)]">
               <Link
                 href="/profile"
                 aria-label={name}
                 className={`mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold ${
-                  pathname === "/profile" ? "bg-primary-500 text-text-primary" : "text-primary-100 hover:bg-white/10 hover:text-white"
+                  pathname === "/profile" ? "bg-nav-active text-nav-text-active" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
                 }`}
               >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-400 text-caption font-bold text-primary-900">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-nav-text-active/90 text-caption font-bold text-nav-bg">
                   {photoURL ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={photoURL} alt={name} className="h-full w-full object-cover" />
@@ -520,7 +524,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={logout}
                 aria-label="Logout"
-                className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white"
+                className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <LogOut size={16} strokeWidth={2} className="shrink-0" />
                 Logout
