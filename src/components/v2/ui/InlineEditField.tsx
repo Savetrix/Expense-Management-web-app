@@ -7,6 +7,18 @@ interface InlineEditFieldProps {
   value: string;
   onCommit: (nextValue: string) => void | Promise<void>;
   multiline?: boolean;
+  /** "text" (default) or "date" — date swaps in a native date picker input
+   *  (still committed as a plain YYYY-MM-DD string) instead of a free-text
+   *  field. Added for invoice review's Invoice Date/Due Date fields. */
+  type?: "text" | "date";
+  /** Passed straight through to the underlying <input> (e.g. "decimal" for
+   *  amount fields) — irrelevant for multiline/date. */
+  inputMode?: "text" | "decimal" | "numeric";
+  placeholder?: string;
+  /** Required-field message shown under the field, matching SelectDropdown's
+   *  error styling — invoice review needs this for the same "GL account is
+   *  required" style validation the old form used. */
+  error?: string;
   formatDisplay?: (value: string) => string;
   ariaLabel: string;
   className?: string;
@@ -17,7 +29,18 @@ interface InlineEditFieldProps {
 // cancelInlineEdit, keyed off global DOM ids). Here the caller owns `value`
 // and receives the new value via `onCommit` — no document.getElementById
 // lookups, no module-level "which field is open" state.
-export function InlineEditField({ value, onCommit, multiline = false, formatDisplay, ariaLabel, className = "" }: InlineEditFieldProps) {
+export function InlineEditField({
+  value,
+  onCommit,
+  multiline = false,
+  type = "text",
+  inputMode,
+  placeholder,
+  error,
+  formatDisplay,
+  ariaLabel,
+  className = "",
+}: InlineEditFieldProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [justSaved, setJustSaved] = useState(false);
@@ -68,60 +91,75 @@ export function InlineEditField({ value, onCommit, multiline = false, formatDisp
     const sharedClassName =
       "w-full rounded-md border border-accent bg-surface px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40";
     return (
-      <div className={`flex items-start gap-[var(--space-xs)] ${className}`}>
-        {multiline ? (
-          <textarea
-            ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-            aria-label={ariaLabel}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
-            rows={3}
-            className={sharedClassName}
-          />
-        ) : (
-          <input
-            ref={inputRef as React.RefObject<HTMLInputElement>}
-            aria-label={ariaLabel}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
-            className={sharedClassName}
-          />
-        )}
-        <button
-          type="button"
-          aria-label={`Save ${ariaLabel}`}
-          onClick={() => void commitEdit()}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-status-success-text hover:bg-status-success-bg"
-        >
-          <Check size={16} strokeWidth={2.5} />
-        </button>
-        <button
-          type="button"
-          aria-label={`Cancel editing ${ariaLabel}`}
-          onClick={cancelEdit}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-muted hover:bg-surface-alt"
-        >
-          <X size={16} strokeWidth={2.5} />
-        </button>
+      <div className={className}>
+        <div className="flex items-start gap-[var(--space-xs)]">
+          {multiline ? (
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+              aria-label={ariaLabel}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              className={sharedClassName}
+            />
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              aria-label={ariaLabel}
+              type={type}
+              inputMode={type === "date" ? undefined : inputMode}
+              placeholder={placeholder}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleKeyDown}
+              className={sharedClassName}
+            />
+          )}
+          <button
+            type="button"
+            aria-label={`Save ${ariaLabel}`}
+            onClick={() => void commitEdit()}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-status-success-text hover:bg-status-success-bg"
+          >
+            <Check size={16} strokeWidth={2.5} />
+          </button>
+          <button
+            type="button"
+            aria-label={`Cancel editing ${ariaLabel}`}
+            onClick={cancelEdit}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-muted hover:bg-surface-alt"
+          >
+            <X size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+        {error && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{error}</p>}
       </div>
     );
   }
 
+  const isEmpty = !value.trim();
+
   return (
-    <button
-      type="button"
-      onClick={startEdit}
-      aria-label={`Edit ${ariaLabel}`}
-      className={`group flex w-full items-center gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] text-left hover:bg-accent-bg/40 ${
-        justSaved ? "v2-highlight-flash" : ""
-      } ${className}`}
-    >
-      <span className="min-w-0 flex-1 truncate text-body-sm text-content-primary group-hover:text-accent">
-        {formatDisplay ? formatDisplay(value) : value}
-      </span>
-      <Pencil size={14} strokeWidth={2} className="shrink-0 text-content-muted opacity-0 group-hover:opacity-100" />
-    </button>
+    <div className={className}>
+      <button
+        type="button"
+        onClick={startEdit}
+        aria-label={`Edit ${ariaLabel}`}
+        className={`group flex w-full items-center justify-end gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] text-right hover:bg-accent-bg/40 ${
+          justSaved ? "v2-highlight-flash" : ""
+        } ${error ? "border border-status-danger-border bg-status-danger-bg/40" : ""}`}
+      >
+        <span
+          className={`min-w-0 truncate text-body-sm group-hover:text-accent ${
+            isEmpty ? "text-content-muted" : "text-content-primary"
+          }`}
+        >
+          {isEmpty ? placeholder || "—" : formatDisplay ? formatDisplay(value) : value}
+        </span>
+        <Pencil size={14} strokeWidth={2} className="shrink-0 text-content-muted opacity-0 group-hover:opacity-100" />
+      </button>
+      {error && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{error}</p>}
+    </div>
   );
 }

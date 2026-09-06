@@ -202,7 +202,7 @@ export function InvoiceListContentV2() {
   const handleOpenFullDetails = (invoice: InvoiceRecord) => {
     dispatch(setSelectedInvoice(invoice));
     if (invoice.postedStatus === "pending") {
-      router.push(`/invoices/${invoice._id}/review`);
+      router.push(`/v2/invoices/${invoice._id}/review`);
       return;
     }
     router.push(`/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
