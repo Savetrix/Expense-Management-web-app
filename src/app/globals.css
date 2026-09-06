@@ -131,6 +131,10 @@
   --text-body: 16px;
   --text-body-sm: 14px;
   --text-caption: 12px;
+  /* Below --text-caption: dense accounting-table microcopy (row confidence
+     lines, week labels) that a 12px caption reads as too loud for. Added for
+     the v2 Invoices redesign density pass — see v2-style-tokens. */
+  --text-tiny: 10px;
 
   /* radius.ts (px). Named under Tailwind's --radius-* namespace so
      rounded-sm / rounded-pill / etc. utilities are generated. */
@@ -178,9 +182,16 @@
     --accent-text-on-bg: 15 110 86;  /* #0F6E56 */
 
     /* Neutrals & Surfaces */
+    /* bg-surface/bg-surface-alt were originally pale mint tints (#EAFAF9 /
+       #E1F5EE — the same hue family as accent-bg) rather than neutral
+       white/gray. Since these are the default card/table/modal background
+       and the generic "neutral alt surface" used all over the app, that
+       made every surface read as faintly green regardless of actual status
+       — accent-bg (still #E1F5EE, unchanged) is reserved for real
+       success/auto-posted meaning; these two are now genuinely neutral. */
     --bg-page: 248 250 252;          /* #F8FAFC */
-    --bg-surface: 234 250 249;       /* #EAFAF9 */
-    --bg-surface-alt: 225 245 238;   /* #E1F5EE */
+    --bg-surface: 255 255 255;       /* #FFFFFF */
+    --bg-surface-alt: 243 245 244;   /* #F3F5F4 */
     --border: 220 234 227;           /* #DCEAE3 */
     --border-strong: 192 216 208;    /* #C0D8D0 */
 
@@ -234,8 +245,8 @@
     --accent-text-on-bg: 159 225 203; /* #9FE1CB */
 
     /* Neutrals & Surfaces */
-    --bg-page: 0 0 0;                /* #000000 */
-    --bg-surface: 10 15 21;          /* #0A0F15 */
+    --bg-page: 27 27 30;                /* #000000 */
+    --bg-surface: 27 27 30;          /* #0A0F15 */
     --bg-surface-alt: 18 26 36;      /* #121A24 */
     --border: 26 38 35;              /* #1A2623 */
     --border-strong: 40 58 53;       /* #283A35 */
@@ -285,6 +296,18 @@ body {
 @layer utilities {
   .ring-accent-soft {
     --tw-ring-color: rgb(var(--accent) / 0.5);
+  }
+
+  /* "Just saved" flash for InlineEditField (src/components/v2/ui/InlineEditField.tsx)
+     after committing an edit. Built from the existing --accent token rather
+     than a new color — no dedicated highlight-flash color exists in either
+     theme, and this doesn't need one. */
+  @keyframes v2-highlight-flash {
+    0% { background-color: rgb(var(--accent) / 0.25); }
+    100% { background-color: transparent; }
+  }
+  .v2-highlight-flash {
+    animation: v2-highlight-flash 1.2s ease-out;
   }
 }
 
