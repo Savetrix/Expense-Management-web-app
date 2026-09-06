@@ -1010,7 +1010,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </div>
 
           {/* Invoice Information */}
-          <SectionCard title="Invoice Information" badge={<Badge variant="neutral">Inline editable</Badge>}>
+          <SectionCard title="Invoice Information" badge={<Badge variant="neutral"></Badge>}>
             <FieldRow id="field-invoiceNumber" label="Invoice Number" required>
               <InlineEditField
                 ariaLabel="Invoice Number"
