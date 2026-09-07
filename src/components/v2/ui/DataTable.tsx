@@ -74,11 +74,11 @@ export function DataTable<T>({
         </colgroup>
         <thead className="border-b border-border bg-page">
           <tr>
-            {selectable && <th className="sticky top-0 z-10 bg-page px-[var(--space-sm)] py-[6px]" />}
+            {selectable && <th className="sticky top-0 z-10 bg-page px-[var(--space-sm)] py-[var(--space-sm)]" />}
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`sticky top-0 z-10 overflow-hidden bg-page px-[var(--space-sm)] py-[6px] text-tiny font-bold uppercase tracking-wider text-content-muted ${
+                className={`sticky top-0 z-10 overflow-hidden bg-page px-[var(--space-sm)] py-[var(--space-sm)] text-tiny font-bold uppercase tracking-wider text-content-muted ${
                   col.align === "right" ? "text-right" : "text-left"
                 }`}
               >
@@ -103,7 +103,7 @@ export function DataTable<T>({
                 }`}
               >
                 {selectable && (
-                  <td className="px-[var(--space-sm)] py-[6px]" onClick={(event) => event.stopPropagation()}>
+                  <td className="px-[var(--space-sm)] py-[var(--space-sm)]" onClick={(event) => event.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selected}
@@ -115,7 +115,7 @@ export function DataTable<T>({
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`overflow-hidden px-[var(--space-sm)] py-[6px] text-caption text-content-primary ${
+                    className={`overflow-hidden px-[var(--space-sm)] py-[var(--space-sm)] text-caption text-content-primary ${
                       col.align === "right" ? "text-right" : "text-left"
                     } ${col.className ?? ""}`}
                   >
