@@ -1,27 +1,29 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { Building2, ChevronLeft } from "lucide-react";
+import { Building2 } from "lucide-react";
 
 import { taxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
 import { Badge } from "@/components/ui/Badge";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
-import { SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
+import { Modal, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { VendorRowV2 } from "./VendorRowV2";
 import { useVendorResolution } from "./useVendorResolution";
 
-// v2 counterpart of VendorResolutionContent (v1) — same store/thunks/handlers
-// (now shared with VendorResolutionDialogV2 via useVendorResolution)
-// verbatim, restyled onto this app's dense v2 tokens (bg-surface/border-border,
-// Tabs/SelectDropdown/SearchInput/Badge primitives) instead of the mobile-style
-// full-bleed colored header the v1 screen ports from Scantrix_v2. No Stitch
-// mockup exists for this screen, so it follows InvoiceReviewContentV2's own
-// established v2 conventions (sticky neutral header with actions, bg-surface
-// cards) rather than inventing new patterns.
-export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) {
-  const router = useRouter();
-
+// In-place counterpart of VendorResolutionContentV2 — same
+// useVendorResolution hook (same store reads, thunks, and QuickBooks API
+// calls), rendered inside the shared Modal shell instead of navigating to
+// /v2/invoices/[id]/vendor. Used from InvoiceReviewContentV2 so resolving a
+// vendor doesn't lose the reviewer's place on the invoice.
+export function VendorResolutionDialogV2({
+  invoiceId,
+  open,
+  onClose,
+}: {
+  invoiceId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const {
     invoiceVendor,
     vendorsLoading,
@@ -50,33 +52,20 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
     handleConfirm,
     handleCreateVendor,
     tabs,
-  } = useVendorResolution(invoiceId, () => router.back());
+  } = useVendorResolution(invoiceId, onClose);
 
   return (
-    <div className="w-full">
-      {/* Header — matches InvoiceReviewContentV2's slim sticky neutral action
-          bar rather than v1's full-bleed colored mobile-style header. */}
-      <div className="sticky top-0 z-40 flex flex-wrap items-center justify-between gap-[var(--space-sm)] border-b border-border bg-page px-[var(--space-md)] py-[var(--space-xs)] sm:px-[var(--space-lg)] sm:py-[var(--space-sm)]">
-        <div className="flex items-center gap-[var(--space-sm)]">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="inline-flex items-center gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] text-body-sm font-bold text-content-secondary hover:bg-surface-alt hover:text-content-primary"
-          >
-            <ChevronLeft size={18} strokeWidth={2.25} />
-            Back
-          </button>
-          <span className="hidden text-border-strong sm:inline">|</span>
-          <h1 className="hidden text-caption font-bold uppercase tracking-wide text-content-secondary sm:inline">
-            Resolve Vendor
-          </h1>
-        </div>
-
-        {selectedVendorObj && activeTab !== "create" && (
-          <div className="flex items-center gap-[var(--space-sm)]">
-            <div className="hidden min-w-0 text-right sm:block">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Resolve Vendor"
+      widthClassName="max-w-2xl"
+      footer={
+        selectedVendorObj && activeTab !== "create" ? (
+          <>
+            <div className="mr-auto min-w-0 text-left">
               <p className="text-tiny font-bold uppercase tracking-wider text-content-secondary">Selected</p>
-              <p className="max-w-[200px] truncate text-body-sm font-bold text-content-primary">{selectedVendorObj.displayName}</p>
+              <p className="max-w-[240px] truncate text-body-sm font-bold text-content-primary">{selectedVendorObj.displayName}</p>
             </div>
             <button
               type="button"
@@ -85,11 +74,20 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
             >
               Use this vendor
             </button>
-          </div>
-        )}
-      </div>
-
-      <div className="mx-auto flex max-w-2xl flex-col gap-[var(--space-md)] p-[var(--space-md)] sm:p-[var(--space-lg)]">
+          </>
+        ) : activeTab === "create" ? (
+          <button
+            type="button"
+            onClick={() => void handleCreateVendor()}
+            disabled={creatingVendor}
+            className="h-9 rounded-md bg-accent px-[var(--space-md)] text-caption font-bold text-accent-ink hover:bg-accent-hover disabled:opacity-60"
+          >
+            {creatingVendor ? "Creating…" : "Create vendor"}
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="flex flex-col gap-[var(--space-md)]">
         {/* Vendor on invoice */}
         <div className="flex items-start gap-[var(--space-sm)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-content-secondary">
@@ -127,14 +125,16 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
                 <p className="text-caption text-content-secondary">
                   These vendors closely match &quot;{invoiceVendor}&quot;. Click to select.
                 </p>
-                {suggestedVendors.map((vendor) => (
-                  <VendorRowV2
-                    key={vendor._id}
-                    vendor={vendor}
-                    isSelected={selectedVendorId === vendor._id}
-                    onSelect={() => setSelectedVendorId((prev) => (prev === vendor._id ? null : vendor._id))}
-                  />
-                ))}
+                <div className="flex max-h-[360px] flex-col gap-[var(--space-sm)] overflow-y-auto pr-1">
+                  {suggestedVendors.map((vendor) => (
+                    <VendorRowV2
+                      key={vendor._id}
+                      vendor={vendor}
+                      isSelected={selectedVendorId === vendor._id}
+                      onSelect={() => setSelectedVendorId((prev) => (prev === vendor._id ? null : vendor._id))}
+                    />
+                  ))}
+                </div>
               </>
             )}
           </div>
@@ -163,21 +163,23 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
                   {filteredVendors.length} vendor{filteredVendors.length !== 1 ? "s" : ""}
                   {searchText.trim() ? " matched" : " total"}
                 </p>
-                {filteredVendors.map((vendor) => (
-                  <VendorRowV2
-                    key={vendor._id}
-                    vendor={vendor}
-                    isSelected={selectedVendorId === vendor._id}
-                    onSelect={() => setSelectedVendorId((prev) => (prev === vendor._id ? null : vendor._id))}
-                  />
-                ))}
+                <div className="flex max-h-[360px] flex-col gap-[var(--space-sm)] overflow-y-auto pr-1">
+                  {filteredVendors.map((vendor) => (
+                    <VendorRowV2
+                      key={vendor._id}
+                      vendor={vendor}
+                      isSelected={selectedVendorId === vendor._id}
+                      onSelect={() => setSelectedVendorId((prev) => (prev === vendor._id ? null : vendor._id))}
+                    />
+                  ))}
+                </div>
               </>
             )}
           </div>
         )}
 
         {activeTab === "create" && (
-          <div className="flex flex-col gap-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm">
+          <div className="flex flex-col gap-[var(--space-md)]">
             <div>
               <h2 className="font-bold text-content-primary">Create a new vendor</h2>
               <p className="text-body-sm text-content-secondary">This will add the vendor directly to your QuickBooks account.</p>
@@ -239,18 +241,9 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
                 ))}
               </SelectDropdown>
             </div>
-
-            <button
-              type="button"
-              onClick={() => void handleCreateVendor()}
-              disabled={creatingVendor}
-              className="h-11 rounded-md bg-accent font-bold text-accent-ink hover:bg-accent-hover disabled:opacity-60"
-            >
-              {creatingVendor ? "Creating…" : "Create vendor"}
-            </button>
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -11,6 +11,8 @@ import {
   ChevronUp,
   Copy,
   Download,
+  Maximize2,
+  Minimize2,
   Plus,
   Printer,
   RefreshCw,
@@ -29,6 +31,7 @@ import { BrandIcon } from "@/components/icons/BrandIcon";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { InlineEditField, SelectDropdown } from "@/components/v2/ui";
+import { VendorResolutionDialogV2 } from "@/components/v2/invoices/VendorResolutionDialogV2";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   getInvoiceDetails,
@@ -330,8 +333,14 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const [scanZoom, setScanZoom] = useState(1);
   const [scanPanelHeight, setScanPanelHeight] = useState(SCAN_PANEL_DEFAULT_HEIGHT);
   const scanResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  // Remembers the height to restore to when un-maximizing — whatever the
+  // panel was at (default, or a manual drag) right before the maximize
+  // button was clicked, not always SCAN_PANEL_DEFAULT_HEIGHT.
+  const preMaximizeHeightRef = useRef(SCAN_PANEL_DEFAULT_HEIGHT);
+  const isScanPanelMaximized = scanPanelHeight >= SCAN_PANEL_MAX_HEIGHT;
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
   const quickActionsRef = useRef<HTMLDivElement>(null);
 
   // Pointer capture (not document-level listeners) so the drag keeps
@@ -358,6 +367,15 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     scanResizeRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleToggleScanPanelMaximize = () => {
+    if (isScanPanelMaximized) {
+      setScanPanelHeight(preMaximizeHeightRef.current);
+    } else {
+      preMaximizeHeightRef.current = scanPanelHeight;
+      setScanPanelHeight(SCAN_PANEL_MAX_HEIGHT);
     }
   };
 
@@ -764,7 +782,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         message: "This vendor is not registered in QuickBooks. Resolve the vendor now?",
         confirmLabel: "Resolve vendor",
       });
-      if (confirmed) router.push(`/v2/invoices/${invoiceId}/vendor`);
+      if (confirmed) setVendorDialogOpen(true);
       return;
     }
 
@@ -956,7 +974,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                       type="button"
                       onClick={() => {
                         setQuickActionsOpen(false);
-                        router.push(`/v2/invoices/${invoiceId}/vendor`);
+                        setVendorDialogOpen(true);
                       }}
                       className="flex w-full items-center gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)] text-left text-body-sm text-content-primary hover:bg-surface-alt"
                     >
@@ -1110,18 +1128,23 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                         <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
                         <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
                       </span>
-                      <Link href={`/v2/invoices/${invoiceId}/vendor`} className="shrink-0 text-body-sm font-bold text-accent">
+                      <button
+                        type="button"
+                        onClick={() => setVendorDialogOpen(true)}
+                        className="shrink-0 text-body-sm font-bold text-accent"
+                      >
                         Change
-                      </Link>
+                      </button>
                     </div>
                   ) : (
-                    <Link
-                      href={`/v2/invoices/${invoiceId}/vendor`}
-                      className="mt-[var(--space-sm)] flex items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
+                    <button
+                      type="button"
+                      onClick={() => setVendorDialogOpen(true)}
+                      className="mt-[var(--space-sm)] flex w-full items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
                     >
                       <span>+ Resolve Vendor</span>
                       <ChevronLeft size={18} strokeWidth={2} className="rotate-180" />
-                    </Link>
+                    </button>
                   ))}
               </div>
             )}
@@ -1581,13 +1604,25 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                     Open
                   </Link>
                 )}
-                {/* Always in the header (not the resizable box below), so it
-                    stays reachable even after dragging the panel to its max
-                    height pushes the drag handle itself below the fold of
-                    the aside's own scroll area. */}
+                {/* Always in the header (not the resizable box below), so
+                    they stay reachable even after dragging/maximizing the
+                    panel pushes the drag handle itself below the fold of the
+                    aside's own scroll area. */}
                 <button
                   type="button"
-                  onClick={() => setScanPanelHeight(SCAN_PANEL_DEFAULT_HEIGHT)}
+                  onClick={handleToggleScanPanelMaximize}
+                  aria-label={isScanPanelMaximized ? "Restore scanned copy size" : "Maximize scanned copy"}
+                  title={isScanPanelMaximized ? "Restore size" : "Maximize"}
+                  className="text-content-secondary hover:text-accent"
+                >
+                  {isScanPanelMaximized ? <Minimize2 size={14} strokeWidth={2} /> : <Maximize2 size={14} strokeWidth={2} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    preMaximizeHeightRef.current = SCAN_PANEL_DEFAULT_HEIGHT;
+                    setScanPanelHeight(SCAN_PANEL_DEFAULT_HEIGHT);
+                  }}
                   aria-label="Reset scanned copy size"
                   title="Reset size"
                   className="text-content-secondary hover:text-accent"
@@ -1642,7 +1677,10 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               onPointerMove={handleScanResizeMove}
               onPointerUp={handleScanResizeEnd}
               onPointerCancel={handleScanResizeEnd}
-              onDoubleClick={() => setScanPanelHeight(SCAN_PANEL_DEFAULT_HEIGHT)}
+              onDoubleClick={() => {
+                preMaximizeHeightRef.current = SCAN_PANEL_DEFAULT_HEIGHT;
+                setScanPanelHeight(SCAN_PANEL_DEFAULT_HEIGHT);
+              }}
               role="separator"
               aria-orientation="horizontal"
               aria-label="Resize scanned copy"
@@ -1790,6 +1828,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </div>
         </div>
       )}
+
+      <VendorResolutionDialogV2
+        invoiceId={invoiceId}
+        open={vendorDialogOpen}
+        onClose={() => setVendorDialogOpen(false)}
+      />
     </div>
   );
 }
