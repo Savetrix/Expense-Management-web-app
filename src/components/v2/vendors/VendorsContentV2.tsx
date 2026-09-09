@@ -63,6 +63,22 @@ const EMPTY_FORM: VendorFormState = {
   address: "",
 };
 
+// Mirrors TeamMembersContentV2's role badge styling, for the "Active
+// company" summary card shared between both screens' sidebars.
+const ROLE_META: Record<string, { label: string; className: string }> = {
+  owner: { label: "Owner", className: "bg-[#E5F7F5] text-[#177E71]" },
+  admin: { label: "Admin", className: "bg-[#EEF4FF] text-[#4A6CF7]" },
+  accountant: { label: "Accountant", className: "bg-[#F5F3FF] text-[#7C3AED]" },
+  contributor: {
+    label: "Contributor",
+    className: "bg-background-alt text-content-secondary",
+  },
+};
+const ROLE_FALLBACK = {
+  label: "Member",
+  className: "bg-background-alt text-content-secondary",
+};
+
 const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 const FIELD_INPUT_CLASS =
   "mt-[var(--space-xs)] h-[50px] w-full rounded-md border border-border bg-page px-[var(--space-md)] text-body text-content-primary placeholder:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-60";
@@ -423,8 +439,10 @@ export function VendorsContentV2() {
     );
   }
 
+  const activeRoleMeta = ROLE_META[currentRole] || ROLE_FALLBACK;
+
   return (
-    <div className="mx-auto max-w-6xl p-[var(--space-md)] sm:p-[var(--space-lg)]">
+    <div className="max-w-6xl p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <PageHeader
         title="Vendors"
         subtitle={`Manage vendors for ${activeConnection.name}.`}
@@ -458,28 +476,30 @@ export function VendorsContentV2() {
         </div>
       )}
 
-      <div className="mt-[var(--space-lg)] grid grid-cols-1 gap-[var(--space-lg)] lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+      <div className="mt-[var(--space-lg)] grid grid-cols-1 gap-[var(--space-lg)] lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="flex min-w-0 flex-col gap-[var(--space-md)]">
-          <div className="flex flex-wrap items-center gap-[var(--space-sm)]">
-            <Tabs
-              items={[
-                { value: "active", label: "Active", count: vendors.length },
-                { value: "inactive", label: "Inactive", count: inactiveVendors.length },
-              ]}
-              value={activeTab}
-              onChange={(value) => setActiveTab(value as VendorTab)}
-            />
+          <div className="flex flex-col gap-[var(--space-sm)] sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="self-start sm:self-auto">
+              <Tabs
+                items={[
+                  { value: "active", label: "Active", count: vendors.length },
+                  { value: "inactive", label: "Inactive", count: inactiveVendors.length },
+                ]}
+                value={activeTab}
+                onChange={(value) => setActiveTab(value as VendorTab)}
+              />
+            </div>
             {currentList.length > 0 && (
               <SearchInput
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder="Search by name, email or phone…"
-                widthClassName="w-full lg:flex-1"
+                widthClassName="w-full sm:w-auto lg:flex-1"
               />
             )}
           </div>
 
-          <div className="flex flex-col gap-[var(--space-sm)]">
+          <div className="flex max-h-[560px] flex-col gap-[var(--space-sm)] overflow-y-auto pr-1">
             {currentLoading ? (
               <SkeletonListRows count={4} />
             ) : currentError ? (
@@ -564,25 +584,27 @@ export function VendorsContentV2() {
         </div>
 
         <div className="flex flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--space-lg)]">
-          {selectedVendor ? (
-            <VendorDetailV2
-              vendor={selectedVendor}
-              glAccounts={glAccounts}
-              taxCodes={taxCodes}
-              invoices={invoices}
-              canManage={canManageVendors}
-              isInactive={activeTab === "inactive"}
-              onEdit={() => openEditSheet(selectedVendor)}
-              onDeactivate={() => handleDeactivate(selectedVendor)}
-              onReactivate={() => handleReactivate(selectedVendor)}
-              deactivating={deactivatingId === selectedVendor._id}
-              reactivating={reactivatingId === selectedVendor._id}
-            />
-          ) : (
-            <div className="rounded-lg border border-border bg-surface p-[var(--space-md)] text-center text-body-sm text-content-secondary shadow-sm">
-              Select a vendor to see their details and recent invoices.
+          <div>
+            <p className="mb-[var(--space-sm)] text-caption font-bold uppercase tracking-wide text-content-secondary">
+              Active company
+            </p>
+            <div className="flex items-center justify-between gap-[var(--space-sm)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm">
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-[var(--space-xs)] font-bold text-content-primary">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+                  <span className="truncate">{activeConnection.name}</span>
+                </p>
+                <p className="mt-[2px] truncate text-caption text-content-secondary">
+                  Realm ID: {activeConnection.realmId}
+                </p>
+              </div>
+              <span
+                className={`shrink-0 rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${activeRoleMeta.className}`}
+              >
+                {activeRoleMeta.label}
+              </span>
             </div>
-          )}
+          </div>
 
           {canManageVendors && activeTab === "active" && (
             <VendorCleanupSuggestions
@@ -599,9 +621,31 @@ export function VendorsContentV2() {
         </div>
       </div>
 
+      <Modal open={!!selectedVendor} onClose={() => setSelectedVendorId(null)} title={selectedVendor?.displayName || "Vendor"}>
+        {selectedVendor && (
+          <VendorDetailV2
+            vendor={selectedVendor}
+            glAccounts={glAccounts}
+            taxCodes={taxCodes}
+            invoices={invoices}
+            canManage={canManageVendors}
+            isInactive={activeTab === "inactive"}
+            onEdit={() => {
+              setSelectedVendorId(null);
+              openEditSheet(selectedVendor);
+            }}
+            onDeactivate={() => handleDeactivate(selectedVendor)}
+            onReactivate={() => handleReactivate(selectedVendor)}
+            deactivating={deactivatingId === selectedVendor._id}
+            reactivating={reactivatingId === selectedVendor._id}
+          />
+        )}
+      </Modal>
+
       <Modal
         open={sheetVisible}
         onClose={closeSheet}
+        widthClassName="max-w-2xl"
         title={editingVendor ? "Edit Vendor" : "Add Vendor"}
         footer={
           <Button onClick={handleSave} loading={saving} disabled={saving} className="w-full">
@@ -609,8 +653,8 @@ export function VendorsContentV2() {
           </Button>
         }
       >
-        <div className="flex flex-col gap-[var(--space-md)]">
-          <div>
+        <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-2">
+          <div className="sm:col-span-2">
             <label className={FIELD_LABEL_CLASS}>Vendor name *</label>
             <input
               value={form.displayName}
@@ -667,19 +711,21 @@ export function VendorsContentV2() {
             )}
           </div>
 
-          <SelectDropdown
-            label="Tax code"
-            value={form.taxCodeId}
-            onChange={(e) => setForm((f) => ({ ...f, taxCodeId: e.target.value }))}
-            disabled={saving}
-          >
-            <option value="">Select tax code (not applicable if your QB company doesn&apos;t use tax codes)</option>
-            {taxCodes.map((code) => (
-              <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                {taxCodeName(code)}
-              </option>
-            ))}
-          </SelectDropdown>
+          <div className="sm:col-span-2">
+            <SelectDropdown
+              label="Tax code"
+              value={form.taxCodeId}
+              onChange={(e) => setForm((f) => ({ ...f, taxCodeId: e.target.value }))}
+              disabled={saving}
+            >
+              <option value="">Select tax code (not applicable if your QB company doesn&apos;t use tax codes)</option>
+              {taxCodes.map((code) => (
+                <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
+                  {taxCodeName(code)}
+                </option>
+              ))}
+            </SelectDropdown>
+          </div>
 
           <div>
             <label className={FIELD_LABEL_CLASS}>Email</label>
@@ -704,7 +750,7 @@ export function VendorsContentV2() {
             />
           </div>
 
-          <div>
+          <div className="sm:col-span-2">
             <label className={FIELD_LABEL_CLASS}>Address</label>
             <input
               value={form.address}
@@ -715,7 +761,9 @@ export function VendorsContentV2() {
             />
           </div>
 
-          {formError && !glMissing && <p className="text-caption font-semibold text-status-danger-text">{formError}</p>}
+          {formError && !glMissing && (
+            <p className="sm:col-span-2 text-caption font-semibold text-status-danger-text">{formError}</p>
+          )}
         </div>
       </Modal>
     </div>

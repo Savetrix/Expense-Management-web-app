@@ -78,7 +78,7 @@ export function VendorDetailV2({
   const recentInvoices = vendorInvoices.slice(0, RECENT_INVOICES_LIMIT);
 
   return (
-    <div className="flex flex-col gap-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm">
+    <div className="flex flex-col gap-[var(--space-md)]">
       <div className="flex items-start gap-[var(--space-sm)]">
         <Avatar
           name={vendor.displayName}
