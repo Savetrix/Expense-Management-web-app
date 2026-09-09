@@ -674,29 +674,92 @@ function Assistant() {
           </Reveal>
         </div>
 
-        {/* MCP: niche, but a genuine differentiator for the AI-tooling crowd. */}
-        <Reveal delay={180} className="mt-14">
-          <div className="flex flex-col items-start gap-5 rounded-2xl border border-border bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--lp-navy)]/5 text-[color:var(--lp-navy)]">
-                <Plug size={20} strokeWidth={2} />
-              </span>
-              <div>
-                <h3 className="text-[16.5px] font-bold text-trust-navy">
-                  Or bring your own AI
-                </h3>
-                <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-text-secondary">
-                  Scantrix ships an MCP connector, so assistants like Claude can read your
-                  invoices and vendors and act on them directly — same permissions, same
-                  confirmations, no export step.
+      </div>
+    </section>
+  );
+}
+
+// --- Claude connector ------------------------------------------------------
+
+/** Grouped the way a user thinks about them, not the way they are named. */
+const CONNECTOR_GROUPS = [
+  { label: "Invoices", body: "Upload, read, correct, post to QuickBooks, reject" },
+  { label: "Vendors", body: "Create, update, deactivate, reactivate, list" },
+  { label: "Companies", body: "Connect QuickBooks, switch the active company, check status" },
+  { label: "Team & plan", body: "Invite teammates, manage members, review your subscription" },
+];
+
+function ClaudeConnector() {
+  return (
+    <section id="claude" className="scroll-mt-20 relative overflow-hidden border-b border-border bg-[color:var(--lp-navy-950)]">
+      <div
+        className="pointer-events-none absolute -right-32 -top-32 h-[520px] w-[520px] rounded-full opacity-[0.18]"
+        style={{ background: "radial-gradient(circle, var(--lp-teal) 0%, transparent 65%)" }}
+        aria-hidden
+      />
+      <div className="relative mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
+        <div className="grid items-center gap-12 lg:grid-cols-[1.04fr_1fr] lg:gap-14">
+          <Reveal>
+            <span className="inline-flex items-center gap-2 rounded-pill border border-white/15 bg-white/5 px-3 py-1.5 text-[12.5px] font-semibold text-white/90">
+              <Plug size={14} strokeWidth={2.2} />
+              Early access
+            </span>
+
+            <h2 className="mt-5 text-[clamp(1.9rem,3.8vw,2.7rem)] font-bold leading-[1.1] tracking-[-0.02em] text-white">
+              Run your books from Claude.
+            </h2>
+
+            <p className="mt-5 text-[16.5px] leading-relaxed text-white/70">
+              Scantrix is built as a one-click connector for Claude. Add it once, sign in
+              through your browser, and Claude can work directly on your invoices, vendors
+              and QuickBooks companies — no config files, no API keys, no exporting
+              spreadsheets back and forth.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-3">
+              {[
+                "Add custom connector, paste the URL, sign in. Done.",
+                "33 tools — the whole product, not a read-only slice.",
+                "Your own permissions apply; it sees only your companies.",
+                "Anything that writes to QuickBooks asks you first.",
+              ].map((line) => (
+                <div key={line} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--lp-teal)]/15 text-[color:var(--lp-teal)]">
+                    <Check size={13} strokeWidth={3} />
+                  </span>
+                  <p className="text-[14.5px] leading-relaxed text-white/75">{line}</p>
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-7 text-[13px] leading-relaxed text-white/45">
+              Built on the Model Context Protocol with full OAuth 2.1, so your Scantrix
+              password never reaches the assistant.
+            </p>
+          </Reveal>
+
+          <Reveal delay={110}>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-lg sm:p-6">
+              <p className="text-[12px] font-semibold uppercase tracking-wider text-white/45">
+                What Claude can do
+              </p>
+              <div className="mt-4 flex flex-col gap-2.5">
+                {CONNECTOR_GROUPS.map((g) => (
+                  <div key={g.label} className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5">
+                    <p className="text-[13.5px] font-bold text-white">{g.label}</p>
+                    <p className="mt-1 text-[13px] leading-relaxed text-white/60">{g.body}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 rounded-xl border border-dashed border-white/15 px-4 py-3">
+                <p className="text-[13px] leading-relaxed text-white/55">
+                  <span className="font-semibold text-white/80">&ldquo;Upload this invoice to Acme
+                  and post it once you&apos;ve checked the vendor.&rdquo;</span>
                 </p>
               </div>
             </div>
-            <span className="shrink-0 rounded-pill border border-border bg-[color:var(--lp-soft)] px-3 py-1.5 text-[12px] font-semibold text-text-secondary">
-              Model Context Protocol
-            </span>
-          </div>
-        </Reveal>
+          </Reveal>
+        </div>
       </div>
     </section>
   );
@@ -1169,6 +1232,7 @@ export function LandingPage() {
         <EmailForwarding />
         <Capabilities />
         <Assistant />
+        <ClaudeConnector />
         <DashboardShowcase />
         <Differentiation />
         <Pricing />
