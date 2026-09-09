@@ -4,11 +4,19 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  AtSign,
   Building2,
   Check,
+  Copy,
+  CopyCheck,
   Eye,
+  FolderSync,
   Keyboard,
   ListChecks,
+  MailCheck,
+  MessageSquare,
+  Plug,
+  Receipt,
   ScanLine,
   Search,
   ShieldCheck,
@@ -93,9 +101,10 @@ function Hero() {
 
           <LoadIn delay={160}>
             <p className="mt-6 text-[17px] leading-relaxed text-text-secondary">
-              Scantrix reads every invoice — vendor, amounts, dates — matches it to the
-              right vendor in QuickBooks, and posts the bill. You only review the ones
-              that actually need a human.
+              Forward it, drop it in, or let the assistant handle it. Scantrix reads every
+              invoice — vendor, amounts, dates — matches it to the right vendor in
+              QuickBooks, and posts the bill. You only review the ones that actually need
+              a human.
             </p>
           </LoadIn>
 
@@ -231,8 +240,8 @@ function Problem() {
 const STEPS = [
   {
     n: "01",
-    title: "Scan",
-    body: "Upload a PDF or snap a photo. Scantrix queues it and starts reading immediately.",
+    title: "Send it in",
+    body: "Forward the email, drop in a PDF, or snap a photo. Scantrix queues it and starts reading immediately.",
     visual: <ScanVisual />,
   },
   {
@@ -280,6 +289,136 @@ function HowItWorks() {
   );
 }
 
+// --- Email forwarding ------------------------------------------------------
+
+const FORWARD_GUARDS = [
+  {
+    icon: <Users size={17} strokeWidth={2} />,
+    title: "Only people you name",
+    body: "You list who may send. Mail from anyone else is discarded — no invoice, no trace, no reply that confirms the address exists.",
+  },
+  {
+    icon: <ShieldCheck size={17} strokeWidth={2} />,
+    title: "Spoofing checked, every time",
+    body: "Sender addresses can be forged, so each message is verified against the anti-spoofing records its own domain publishes.",
+  },
+  {
+    icon: <MailCheck size={17} strokeWidth={2} />,
+    title: "Attachments treated as hostile",
+    body: "A file's name proves nothing. Contents are inspected and virus-scanned before anything reaches your books.",
+  },
+];
+
+function EmailForwarding() {
+  return (
+    <section id="email" className="scroll-mt-20 relative overflow-hidden border-b border-border bg-white">
+      <div
+        className="lp-glow pointer-events-none absolute -left-32 top-10 h-[420px] w-[420px] rounded-full opacity-60"
+        aria-hidden
+      />
+      <div className="relative mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <SectionLabel className="justify-center">New — Email forwarding</SectionLabel>
+          <h2 className="mt-4 text-[clamp(1.9rem,3.8vw,2.7rem)] font-bold leading-[1.1] tracking-[-0.02em] text-trust-navy">
+            Stop downloading attachments to upload them again.
+          </h2>
+          <p className="mt-5 text-[16.5px] leading-relaxed text-text-secondary">
+            Every QuickBooks company gets its own address. Forward the invoice to it and
+            you&apos;re done — no download, no re-upload, nothing to file. It lands in the
+            same review queue as anything else.
+          </p>
+        </Reveal>
+
+        {/* The address is the product here, so it gets to be the hero object. */}
+        <Reveal delay={90} className="mt-12">
+          <div className="mx-auto max-w-2xl rounded-2xl border border-border bg-[color:var(--lp-soft)] p-5 shadow-sm sm:p-6">
+            <p className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary">
+              Forward invoices to
+            </p>
+            <div className="mt-3 flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3.5 shadow-sm">
+              <AtSign size={17} strokeWidth={2.2} className="shrink-0 text-[color:var(--lp-teal-600)]" />
+              <code className="min-w-0 flex-1 break-all text-[14.5px] font-semibold text-trust-navy">
+                <span className="text-[color:var(--lp-teal-700)]">acme-corp</span>@invoice.scantrix.ai
+              </code>
+              <CopyCheck size={16} strokeWidth={2} className="hidden shrink-0 text-[color:var(--lp-auto)] sm:block" aria-hidden />
+            </div>
+            <p className="mt-3.5 text-[13.5px] leading-relaxed text-text-secondary">
+              Pick your own name for it — <span className="font-semibold text-text-primary">acme-corp</span>,{" "}
+              <span className="font-semibold text-text-primary">acme.payables</span>, whatever your team
+              will remember. Give it to a supplier once and their invoices file themselves from then on.
+            </p>
+          </div>
+        </Reveal>
+
+        {/* One address per company is the real answer to multi-entity books. */}
+        <Reveal delay={160} className="mt-12">
+          <div className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
+            <div className="rounded-2xl border border-border bg-white p-6 shadow-sm">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
+                <Building2 size={20} strokeWidth={2} />
+              </span>
+              <h3 className="mt-4 text-[16.5px] font-bold text-trust-navy">
+                One address per company — so nothing lands in the wrong books
+              </h3>
+              <p className="mt-2.5 text-[14px] leading-relaxed text-text-secondary">
+                Handling five clients means five addresses. The address decides which company
+                an invoice belongs to, so nobody picks from a dropdown at the moment of
+                forwarding — and nobody picks wrong.
+              </p>
+              <div className="mt-5 flex flex-col gap-2">
+                {[
+                  { name: "Acme Corp", handle: "acme-corp" },
+                  { name: "Devyani International", handle: "devyani" },
+                  { name: "Funky Finger Inc", handle: "funkyfinger" },
+                ].map((c) => (
+                  <div
+                    key={c.handle}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border bg-[color:var(--lp-soft)] px-3 py-2.5"
+                  >
+                    <span className="truncate text-[13px] font-semibold text-text-primary">{c.name}</span>
+                    <code className="shrink-0 text-[12px] font-medium text-[color:var(--lp-teal-700)]">
+                      {c.handle}@…
+                    </code>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {FORWARD_GUARDS.map((g) => (
+                <div key={g.title} className="rounded-2xl border border-border bg-white p-5 shadow-sm">
+                  <div className="flex items-start gap-3.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
+                      {g.icon}
+                    </span>
+                    <div>
+                      <h3 className="text-[14.5px] font-bold text-trust-navy">{g.title}</h3>
+                      <p className="mt-1.5 text-[13.5px] leading-relaxed text-text-secondary">{g.body}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* The honest limits, stated as choices. Reads as confidence, not caveat. */}
+        <Reveal delay={230} className="mt-8">
+          <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-[color:var(--lp-soft)] p-5 sm:p-6">
+            <p className="text-[13.5px] leading-relaxed text-text-secondary">
+              <span className="font-bold text-trust-navy">Forwarding never posts on its own.</span>{" "}
+              An emailed invoice follows exactly the same reading, vendor matching, duplicate
+              checks and review rules as one you upload by hand — arriving by email is never a
+              reason to skip a step. PDFs and images, attached or dragged into the message.
+              Links in the body are deliberately never opened.
+            </p>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 // --- Capabilities (bento) --------------------------------------------------
 
 function CapabilityTile({
@@ -319,7 +458,8 @@ function Capabilities() {
         </h2>
         <p className="mt-5 text-[16px] leading-relaxed text-text-secondary">
           Built around what accountants actually do all day: read bills, keep vendors
-          straight, and get clean data into the books.
+          straight, catch the ones you&apos;ve already paid, and get clean data into the
+          books.
         </p>
       </Reveal>
 
@@ -377,7 +517,43 @@ function Capabilities() {
           />
         </Reveal>
 
-        <Reveal delay={210} className="md:col-span-2 lg:col-span-3">
+        <Reveal delay={175}>
+          <CapabilityTile
+            icon={<Copy size={20} strokeWidth={2} />}
+            title="Catches the invoice you already paid"
+            body="Same vendor, same invoice number, second time around — flagged before it posts, not after the payment run."
+            className="h-full"
+          />
+        </Reveal>
+
+        <Reveal delay={175}>
+          <CapabilityTile
+            icon={<Receipt size={20} strokeWidth={2} />}
+            title="Your accounts and tax codes, in sync"
+            body="Pull your chart of accounts and tax codes from QuickBooks, refresh them on demand, and create what's missing without leaving Scantrix."
+            className="h-full"
+          />
+        </Reveal>
+
+        <Reveal delay={210}>
+          <CapabilityTile
+            icon={<Users size={20} strokeWidth={2} />}
+            title="Tidies up your vendor list"
+            body="Spots the near-duplicates that accumulate over years — the ones a human eye skims past — and suggests the merge."
+            className="h-full"
+          />
+        </Reveal>
+
+        <Reveal delay={210}>
+          <CapabilityTile
+            icon={<FolderSync size={20} strokeWidth={2} />}
+            title="Connects to Google Drive"
+            body="Point Scantrix at Drive and pull invoices from where your team already files them."
+            className="h-full"
+          />
+        </Reveal>
+
+        <Reveal delay={245} className="md:col-span-2 lg:col-span-3">
           <div className="flex flex-col items-start gap-5 rounded-2xl border border-border bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-4">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
@@ -405,6 +581,120 @@ function Capabilities() {
                 +
               </span>
             </div>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+// --- Assistant -------------------------------------------------------------
+
+/** Real prompts, each mapping to a tool the assistant actually has. */
+const ASSISTANT_ASKS = [
+  "What did we spend with Northwind last quarter?",
+  "Show me everything still waiting for review.",
+  "Create a vendor for Payroll Harmony Services.",
+  "Post invoice 1988 to QuickBooks.",
+  "Which vendors are duplicates?",
+];
+
+function Assistant() {
+  return (
+    <section id="assistant" className="scroll-mt-20 border-b border-border bg-[color:var(--lp-soft)]">
+      <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
+        <div className="grid items-center gap-12 lg:grid-cols-[1fr_1.02fr] lg:gap-14">
+          <Reveal>
+            <SectionLabel>Assistant</SectionLabel>
+            <h2 className="mt-4 text-[clamp(1.9rem,3.8vw,2.7rem)] font-bold leading-[1.1] tracking-[-0.02em] text-trust-navy">
+              Ask for it instead of clicking for it.
+            </h2>
+            <p className="mt-5 text-[16px] leading-relaxed text-text-secondary">
+              A built-in assistant that doesn&apos;t just answer questions — it does the work.
+              Summarise spend, fix a vendor, post a bill, sync your chart of accounts. It
+              works on your books, with your permissions, and asks before anything that
+              changes them.
+            </p>
+
+            <div className="mt-7 flex flex-col gap-3">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
+                  <Check size={13} strokeWidth={3} />
+                </span>
+                <p className="text-[14.5px] leading-relaxed text-text-secondary">
+                  <span className="font-semibold text-text-primary">It confirms before it writes.</span>{" "}
+                  Anything that touches QuickBooks is shown to you first.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
+                  <Check size={13} strokeWidth={3} />
+                </span>
+                <p className="text-[14.5px] leading-relaxed text-text-secondary">
+                  <span className="font-semibold text-text-primary">Your conversations are yours.</span>{" "}
+                  Saved per user, per company — never pooled across the team.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
+                  <Check size={13} strokeWidth={3} />
+                </span>
+                <p className="text-[14.5px] leading-relaxed text-text-secondary">
+                  <span className="font-semibold text-text-primary">Scoped to what you can see.</span>{" "}
+                  It can never reach a company you don&apos;t have access to.
+                </p>
+              </div>
+            </div>
+          </Reveal>
+
+          <Reveal delay={110}>
+            <div className="rounded-2xl border border-border bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex items-center gap-2.5 border-b border-border pb-4">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
+                  <MessageSquare size={16} strokeWidth={2} />
+                </span>
+                <span className="text-[13.5px] font-bold text-trust-navy">Ask Scantrix</span>
+              </div>
+              <div className="mt-4 flex flex-col gap-2.5">
+                {ASSISTANT_ASKS.map((q, i) => (
+                  <div
+                    key={q}
+                    className="rounded-xl border border-border bg-[color:var(--lp-soft)] px-3.5 py-3 text-[13.5px] leading-snug text-text-primary"
+                    style={{ opacity: 1 - i * 0.13 }}
+                  >
+                    {q}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-border px-3.5 py-3">
+                <Sparkles size={15} strokeWidth={2} className="shrink-0 text-[color:var(--lp-teal-600)]" />
+                <span className="text-[13px] text-text-secondary">…or just describe what you need.</span>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+
+        {/* MCP: niche, but a genuine differentiator for the AI-tooling crowd. */}
+        <Reveal delay={180} className="mt-14">
+          <div className="flex flex-col items-start gap-5 rounded-2xl border border-border bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--lp-navy)]/5 text-[color:var(--lp-navy)]">
+                <Plug size={20} strokeWidth={2} />
+              </span>
+              <div>
+                <h3 className="text-[16.5px] font-bold text-trust-navy">
+                  Or bring your own AI
+                </h3>
+                <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-text-secondary">
+                  Scantrix ships an MCP connector, so assistants like Claude can read your
+                  invoices and vendors and act on them directly — same permissions, same
+                  confirmations, no export step.
+                </p>
+              </div>
+            </div>
+            <span className="shrink-0 rounded-pill border border-border bg-[color:var(--lp-soft)] px-3 py-1.5 text-[12px] font-semibold text-text-secondary">
+              Model Context Protocol
+            </span>
           </div>
         </Reveal>
       </div>
@@ -876,7 +1166,9 @@ export function LandingPage() {
         <IntegrationStrip />
         <Problem />
         <HowItWorks />
+        <EmailForwarding />
         <Capabilities />
+        <Assistant />
         <DashboardShowcase />
         <Differentiation />
         <Pricing />

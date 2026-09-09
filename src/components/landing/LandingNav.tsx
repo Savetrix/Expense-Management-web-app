@@ -9,6 +9,7 @@ import { trackSignupClick } from "./pixel";
 
 const LINKS = [
   { href: "#how", label: "How it works" },
+  { href: "#email", label: "Email forwarding" },
   { href: "#capabilities", label: "Capabilities" },
   { href: "#difference", label: "Why Scantrix" },
   { href: "#pricing", label: "Pricing" },
