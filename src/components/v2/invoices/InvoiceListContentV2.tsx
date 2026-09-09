@@ -205,7 +205,7 @@ export function InvoiceListContentV2() {
       router.push(`/v2/invoices/${invoice._id}/review`);
       return;
     }
-    router.push(`/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
+    router.push(`/v2/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
   };
 
   const tabCounts: Record<ListType, number> = {

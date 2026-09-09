@@ -14,6 +14,7 @@ import {
   Plus,
   Printer,
   RefreshCw,
+  RotateCcw,
   Save,
   StickyNote,
   Trash2,
@@ -21,7 +22,8 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { Badge } from "@/components/ui/Badge";
@@ -54,6 +56,18 @@ import { taxCodeId as getTaxCodeId, taxCodeName as getTaxCodeName } from "@/lib/
 const SCAN_MIN_ZOOM = 1;
 const SCAN_MAX_ZOOM = 3;
 const SCAN_ZOOM_STEP = 0.5;
+
+// Drag-to-resize range for the Scanned Copy panel — "minimize" down to a
+// compact strip, "maximize" up to a near-full-height reading view.
+const SCAN_PANEL_DEFAULT_HEIGHT = 600;
+const SCAN_PANEL_MIN_HEIGHT = 280;
+const SCAN_PANEL_MAX_HEIGHT = 1000;
+
+// Drag-to-resize range for the right-hand panel's width (Scanned Copy,
+// Vendor Details, Item Description Notes, Status History).
+const ASIDE_DEFAULT_WIDTH = 400;
+const ASIDE_MIN_WIDTH = 300;
+const ASIDE_MAX_WIDTH = 680;
 
 // Same radius-with-pathLength(100) technique OutcomeMixCardV2 uses for its
 // donut — lets stroke-dasharray/offset be plain percentages regardless of
@@ -209,14 +223,24 @@ function SectionCard({
   hint,
   children,
   defaultOpen = true,
+  forceOpen,
 }: {
   title: string;
   badge?: ReactNode;
   hint?: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  // Pops a collapsed-by-default section back open when it starts containing
+  // something the user needs to see right now (a validation error) — e.g.
+  // Vendor Details/Financial Summary default closed, but a failed
+  // required-field check should still reveal them instead of hiding the bad
+  // field behind a closed accordion.
+  forceOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || !!forceOpen);
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
       <button
@@ -304,9 +328,83 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
   const [scanLoading, setScanLoading] = useState(true);
   const [scanZoom, setScanZoom] = useState(1);
+  const [scanPanelHeight, setScanPanelHeight] = useState(SCAN_PANEL_DEFAULT_HEIGHT);
+  const scanResizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const quickActionsRef = useRef<HTMLDivElement>(null);
+
+  // Pointer capture (not document-level listeners) so the drag keeps
+  // tracking the handle even when the cursor passes over the PDF <iframe>
+  // inside the panel — an iframe has its own document and would otherwise
+  // swallow mousemove/pointermove once the cursor crosses into it.
+  const handleScanResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    scanResizeRef.current = { startY: event.clientY, startHeight: scanPanelHeight };
+  };
+
+  const handleScanResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!scanResizeRef.current) return;
+    const delta = event.clientY - scanResizeRef.current.startY;
+    const next = Math.min(
+      SCAN_PANEL_MAX_HEIGHT,
+      Math.max(SCAN_PANEL_MIN_HEIGHT, scanResizeRef.current.startHeight + delta),
+    );
+    setScanPanelHeight(next);
+  };
+
+  const handleScanResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    scanResizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  // Sticky header's real rendered height (varies with wrapping at narrow
+  // widths) — the aside panel sticks right below it instead of at a fixed
+  // token offset, so the header can never cover the top of the panel as the
+  // page scrolls.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    const node = headerRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setHeaderHeight(entry.contentRect.height);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  // Drag-to-resize width for the right-hand panel (Scanned Copy, Vendor
+  // Details, Item Description Notes, Status History all live in this one
+  // column, so widening it widens/aligns all of them together).
+  const [asideWidth, setAsideWidth] = useState(ASIDE_DEFAULT_WIDTH);
+  const asideResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleAsideResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    asideResizeRef.current = { startX: event.clientX, startWidth: asideWidth };
+  };
+
+  const handleAsideResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!asideResizeRef.current) return;
+    // The panel is on the right, so dragging left (negative clientX delta)
+    // should widen it.
+    const delta = asideResizeRef.current.startX - event.clientX;
+    const next = Math.min(ASIDE_MAX_WIDTH, Math.max(ASIDE_MIN_WIDTH, asideResizeRef.current.startWidth + delta));
+    setAsideWidth(next);
+  };
+
+  const handleAsideResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    asideResizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
 
   useEffect(() => {
     dispatch(clearVendorResolutionForOtherInvoice(invoiceId));
@@ -652,7 +750,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (errorKeys.length > 0) {
       setFieldErrors(errors);
       showToast(errors[errorKeys[0]] || "Please fill in the required fields.", "error");
-      document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      // The target field may live inside a section that defaults closed
+      // (Financial Summary/Vendor Details) — forceOpen re-renders it open on
+      // the same tick, so wait a frame for that DOM update before scrolling.
+      requestAnimationFrame(() => {
+        document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
       return;
     }
     if (vendorResolutionRequired && !vendorIsResolved) {
@@ -661,7 +764,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         message: "This vendor is not registered in QuickBooks. Resolve the vendor now?",
         confirmLabel: "Resolve vendor",
       });
-      if (confirmed) router.push(`/invoices/${invoiceId}/vendor`);
+      if (confirmed) router.push(`/v2/invoices/${invoiceId}/vendor`);
       return;
     }
 
@@ -729,7 +832,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (errorKeys.length > 0) {
       setFieldErrors(errors);
       showToast(errors[errorKeys[0]] || "Please fill in the required fields.", "error");
-      document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      // The target field may live inside a section that defaults closed
+      // (Financial Summary/Vendor Details) — forceOpen re-renders it open on
+      // the same tick, so wait a frame for that DOM update before scrolling.
+      requestAnimationFrame(() => {
+        document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
       return;
     }
 
@@ -755,7 +863,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (errorKeys.length > 0) {
       setFieldErrors(errors);
       showToast(errors[errorKeys[0]] || "Please fill in the required fields.", "error");
-      document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      // The target field may live inside a section that defaults closed
+      // (Financial Summary/Vendor Details) — forceOpen re-renders it open on
+      // the same tick, so wait a frame for that DOM update before scrolling.
+      requestAnimationFrame(() => {
+        document.getElementById(`field-${errorKeys[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
       return;
     }
 
@@ -765,7 +878,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
     if (updateInvoiceExtractedData.fulfilled.match(result)) {
       showToast("Invoice updated and synced to QuickBooks.", "success");
-      router.push(`/invoices/${invoiceId}`);
+      router.push(`/v2/invoices/${invoiceId}`);
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to update invoice.", "error");
@@ -793,8 +906,13 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
   return (
     <div className="w-full">
-      {/* Header */}
-      <div className="sticky top-0 z-40 flex flex-wrap items-center justify-between gap-[var(--space-sm)] border-b border-border bg-page p-[var(--space-md)] sm:p-[var(--space-lg)]">
+      {/* Header — kept short (py-xs/py-sm, not the roomier p-md/p-lg the rest
+          of the screen uses) so it reads as a slim action bar rather than
+          eating vertical space above the fold. */}
+      <div
+        ref={headerRef}
+        className="sticky top-0 z-40 flex flex-wrap items-center justify-between gap-[var(--space-sm)] border-b border-border bg-page px-[var(--space-md)] py-[var(--space-xs)] sm:px-[var(--space-lg)] sm:py-[var(--space-sm)]"
+      >
         <div className="flex items-center gap-[var(--space-sm)]">
           <button
             type="button"
@@ -838,7 +956,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                       type="button"
                       onClick={() => {
                         setQuickActionsOpen(false);
-                        router.push(`/invoices/${invoiceId}/vendor`);
+                        router.push(`/v2/invoices/${invoiceId}/vendor`);
                       }}
                       className="flex w-full items-center gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)] text-left text-body-sm text-content-primary hover:bg-surface-alt"
                     >
@@ -907,8 +1025,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-[var(--space-md)] p-[var(--space-md)] sm:gap-[var(--space-lg)] sm:p-[var(--space-lg)] lg:grid-cols-6 lg:items-start">
-        <div className="flex min-w-0 flex-col gap-[var(--space-md)] lg:col-span-4">
+      <div className="flex flex-col gap-[var(--space-md)] p-[var(--space-md)] sm:gap-[var(--space-lg)] sm:p-[var(--space-lg)] lg:flex-row lg:items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {/* Hero */}
           <div className={`relative overflow-hidden rounded-2xl border p-[var(--space-lg)] ${TIER_CLASSES[tier].bg} ${TIER_CLASSES[tier].border}`}>
             <button
@@ -992,13 +1110,13 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                         <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
                         <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
                       </span>
-                      <Link href={`/invoices/${invoiceId}/vendor`} className="shrink-0 text-body-sm font-bold text-accent">
+                      <Link href={`/v2/invoices/${invoiceId}/vendor`} className="shrink-0 text-body-sm font-bold text-accent">
                         Change
                       </Link>
                     </div>
                   ) : (
                     <Link
-                      href={`/invoices/${invoiceId}/vendor`}
+                      href={`/v2/invoices/${invoiceId}/vendor`}
                       className="mt-[var(--space-sm)] flex items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
                     >
                       <span>+ Resolve Vendor</span>
@@ -1171,7 +1289,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </SectionCard>
 
           {/* Financial Summary */}
-          <SectionCard title="Financial Summary" badge={<Badge variant={isBalanced ? "success" : "warning"}>{isBalanced ? "Balanced" : "Unbalanced"}</Badge>}>
+          <SectionCard
+            title="Financial Summary"
+            badge={<Badge variant={isBalanced ? "success" : "warning"}>{isBalanced ? "Balanced" : "Unbalanced"}</Badge>}
+            defaultOpen={false}
+            forceOpen={Boolean(fieldErrors.amountBeforeTax || fieldErrors.taxAmount || fieldErrors.totalAfterTax)}
+          >
             <FieldRow id="field-amountBeforeTax" label="Before Tax" required>
               <InlineEditField
                 ariaLabel="Amount Before Tax"
@@ -1208,10 +1331,10 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 className={`text-right text-h3 font-black ${TIER_CLASSES[tier].text}`}
               />
             </FieldRow>
-            <div className="flex items-center justify-between gap-[var(--space-md)] px-[var(--space-md)] py-[var(--space-sm)]">
+            {/* <div className="flex items-center justify-between gap-[var(--space-md)] px-[var(--space-md)] py-[var(--space-sm)]">
               <span className="text-body-sm font-medium text-content-secondary">Subtotal + Tax</span>
               <Badge variant={isBalanced ? "success" : "warning"}>{Math.round(verifiedPercent)}% verified</Badge>
-            </div>
+            </div> */}
           </SectionCard>
 
           {/* Line Items */}
@@ -1381,7 +1504,33 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </SectionCard>
         </div>
 
-        <aside className="flex min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--space-lg)] lg:col-span-2">
+        {/* Column-width drag handle — widening/narrowing the panel here
+            resizes Scanned Copy, Vendor Details, Item Description Notes and
+            Status History together, since they all share this one column. */}
+        <div
+          onPointerDown={handleAsideResizeStart}
+          onPointerMove={handleAsideResizeMove}
+          onPointerUp={handleAsideResizeEnd}
+          onPointerCancel={handleAsideResizeEnd}
+          onDoubleClick={() => setAsideWidth(ASIDE_DEFAULT_WIDTH)}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panel"
+          title="Drag to resize · double-click to reset"
+          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md hover:bg-surface-alt lg:flex lg:w-2"
+        >
+          <span className="h-10 w-1 rounded-full bg-border-strong" />
+        </div>
+
+        <aside
+          style={
+            {
+              "--v2-header-h": `${headerHeight}px`,
+              "--v2-aside-w": `${asideWidth}px`,
+            } as CSSProperties
+          }
+          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0 lg:max-h-[calc(100vh_-_var(--v2-header-h))] lg:overflow-y-auto"
+        >
           {/* Scanned copy */}
           <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-x-[var(--space-md)] gap-y-[var(--space-xs)] border-b border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]">
@@ -1432,10 +1581,26 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                     Open
                   </Link>
                 )}
+                {/* Always in the header (not the resizable box below), so it
+                    stays reachable even after dragging the panel to its max
+                    height pushes the drag handle itself below the fold of
+                    the aside's own scroll area. */}
+                <button
+                  type="button"
+                  onClick={() => setScanPanelHeight(SCAN_PANEL_DEFAULT_HEIGHT)}
+                  aria-label="Reset scanned copy size"
+                  title="Reset size"
+                  className="text-content-secondary hover:text-accent"
+                >
+                  <RotateCcw size={14} strokeWidth={2} />
+                </button>
               </div>
             </div>
 
-            <div className={`relative h-[600px] bg-page ${scanZoom > 1 ? "overflow-auto" : "overflow-hidden"}`}>
+            <div
+              style={{ height: scanPanelHeight }}
+              className={`relative bg-page ${scanZoom > 1 ? "overflow-auto" : "overflow-hidden"}`}
+            >
               {scanLoading && previewUrl && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Spinner size="md" />
@@ -1469,45 +1634,28 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 </div>
               )}
             </div>
+
+            {/* Drag to minimize/maximize the scanned copy, clamped between
+                SCAN_PANEL_MIN_HEIGHT and SCAN_PANEL_MAX_HEIGHT. */}
+            <div
+              onPointerDown={handleScanResizeStart}
+              onPointerMove={handleScanResizeMove}
+              onPointerUp={handleScanResizeEnd}
+              onPointerCancel={handleScanResizeEnd}
+              onDoubleClick={() => setScanPanelHeight(SCAN_PANEL_DEFAULT_HEIGHT)}
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize scanned copy"
+              title="Drag to resize · double-click to reset"
+              className="flex h-3 shrink-0 cursor-ns-resize touch-none items-center justify-center border-t border-border bg-page hover:bg-surface-alt"
+            >
+              <span className="h-1 w-10 rounded-full bg-border-strong" />
+            </div>
           </div>
 
-          {/* Status History */}
-          {statusHistory.length > 0 && (
-            <SectionCard title="Status History">
-              <div className="flex flex-col gap-[var(--space-md)] px-[var(--space-md)] py-[var(--space-md)]">
-                {statusHistory.map((entry, index) => {
-                  const isLast = index === statusHistory.length - 1;
-                  const entryReason = translateInvoiceReason(entry.reason);
-                  const changedByName = getUserDisplayName(entry.changedBy);
-                  return (
-                    <div key={index} className="flex gap-[var(--space-sm)]">
-                      <span
-                        className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2 ${
-                          isLast ? "border-accent bg-accent" : "border-border-strong bg-border"
-                        }`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-content-primary">
-                          {entry.postedStatus ? entry.postedStatus.charAt(0).toUpperCase() + entry.postedStatus.slice(1) : "—"}
-                        </p>
-                        {(changedByName || entry.changedAt) && (
-                          <p className="text-caption text-content-secondary">
-                            {changedByName && `By ${changedByName}`}
-                            {changedByName && entry.changedAt && "  ·  "}
-                            {entry.changedAt && formatDetailDateTime(entry.changedAt)}
-                          </p>
-                        )}
-                        {entryReason && <p className="text-caption font-semibold text-accent">{entryReason.message}</p>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </SectionCard>
-          )}
 
           {/* Vendor Details */}
-          <SectionCard title="Vendor Details">
+          <SectionCard title="Vendor Details" defaultOpen={false} forceOpen={Boolean(fieldErrors.vendor)}>
             <FieldRow id="field-vendor" label="Vendor Entity" required>
               {isPendingReview ? (
                 // Falls back to the backend's own auto-match when the user
@@ -1563,7 +1711,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </SectionCard>
 
           {/* Item Description Notes */}
-          <SectionCard title="Item Description Notes" badge={<StickyNote size={14} strokeWidth={2} className="text-content-muted" />}>
+          <SectionCard
+            title="Item Description Notes"
+            badge={<StickyNote size={14} strokeWidth={2} className="text-content-muted" />}
+            defaultOpen={false}
+          >
             <div className="px-[var(--space-md)] py-[var(--space-md)]">
               <InlineEditField
                 ariaLabel="Item Description Notes"
@@ -1574,6 +1726,42 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               />
             </div>
           </SectionCard>
+
+                    {/* Status History */}
+          {statusHistory.length > 0 && (
+            <SectionCard title="Status History" defaultOpen={false}>
+              <div className="flex flex-col gap-[var(--space-md)] px-[var(--space-md)] py-[var(--space-md)]">
+                {statusHistory.map((entry, index) => {
+                  const isLast = index === statusHistory.length - 1;
+                  const entryReason = translateInvoiceReason(entry.reason);
+                  const changedByName = getUserDisplayName(entry.changedBy);
+                  return (
+                    <div key={index} className="flex gap-[var(--space-sm)]">
+                      <span
+                        className={`mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2 ${
+                          isLast ? "border-accent bg-accent" : "border-border-strong bg-border"
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-content-primary">
+                          {entry.postedStatus ? entry.postedStatus.charAt(0).toUpperCase() + entry.postedStatus.slice(1) : "—"}
+                        </p>
+                        {(changedByName || entry.changedAt) && (
+                          <p className="text-caption text-content-secondary">
+                            {changedByName && `By ${changedByName}`}
+                            {changedByName && entry.changedAt && "  ·  "}
+                            {entry.changedAt && formatDetailDateTime(entry.changedAt)}
+                          </p>
+                        )}
+                        {entryReason && <p className="text-caption font-semibold text-accent">{entryReason.message}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </SectionCard>
+          )}
+
         </aside>
       </div>
 

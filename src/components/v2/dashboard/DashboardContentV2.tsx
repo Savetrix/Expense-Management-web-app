@@ -528,12 +528,12 @@ export function DashboardContentV2() {
   const handleOpenInvoice = (invoice: InvoiceRecord) => {
     dispatch(setSelectedInvoice(invoice));
     const suffix = invoice.postedStatus === "pending" ? "/review" : "";
-    router.push(`/invoices/${invoice._id}${suffix}`);
+    router.push(`/v2/invoices/${invoice._id}${suffix}`);
   };
 
   const handleViewAllInvoices = () => {
     if (recentCardRef.current) requestExpandTransition(recentCardRef.current);
-    router.push("/invoices");
+    router.push("/v2/invoices");
   };
 
   const toggleSelected = (id: string) => {

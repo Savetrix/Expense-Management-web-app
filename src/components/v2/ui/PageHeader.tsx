@@ -16,7 +16,13 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
         <h1 className="text-h1 font-bold text-content-primary">{title}</h1>
         {subtitle && <p className="mt-[var(--space-xs)] text-body-sm text-content-secondary">{subtitle}</p>}
       </div>
-      {action && <div className="flex shrink-0 items-center gap-[var(--space-sm)]">{action}</div>}
+      {/* Below sm the action slot claims its own full-width row (the parent is
+          flex-wrap) and wraps internally, so a toolbar with a search field +
+          button can't push the header wider than a phone viewport. From sm up
+          it behaves exactly as before: a shrink-0 block beside the title. */}
+      {action && (
+        <div className="flex w-full flex-wrap items-center gap-[var(--space-sm)] sm:w-auto sm:shrink-0">{action}</div>
+      )}
     </div>
   );
 }

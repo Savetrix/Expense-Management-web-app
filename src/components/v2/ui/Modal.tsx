@@ -34,7 +34,16 @@ export function Modal({ open, onClose, title, children, footer, widthClassName =
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-[var(--space-md)] backdrop-blur-sm"
+      // z-[95] deliberately sits BELOW DialogHost's confirm backdrop (z-[100])
+      // and toast stack (z-[110]), and above the chat panel (z-[90]) and every
+      // in-page layer (≤ z-50). Modal content routinely raises a
+      // confirmDialog of its own — Integrations' Disconnect, and every
+      // confirm in the email-forwarding panel nested inside it — and at
+      // z-[120] that confirm rendered *behind* this panel, leaving the user
+      // with a dimmed, unanswerable dialog. A confirm raised from a modal has
+      // to be reachable, which outranks an unrelated toast painting over the
+      // panel for a few seconds.
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 p-[var(--space-md)] backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -69,11 +78,24 @@ export function Modal({ open, onClose, title, children, footer, widthClassName =
   );
 }
 
-export function ModalDefinitionRow({ label, children, ...props }: { label: string; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+interface ModalDefinitionRowProps extends HTMLAttributes<HTMLDivElement> {
+  label: string;
+  /** Optional leading glyph beside the label — the Integrations connection
+   * detail lists each fact (connected on / realm id / role) with one. */
+  icon?: ReactNode;
+  children: ReactNode;
+}
+
+export function ModalDefinitionRow({ label, icon, children, ...props }: ModalDefinitionRowProps) {
   return (
     <div {...props} className={`flex items-center justify-between gap-[var(--space-md)] border-b border-border py-[var(--space-sm)] last:border-b-0 ${props.className ?? ""}`}>
-      <span className="text-body-sm text-content-secondary">{label}</span>
-      <span className="text-body-sm font-semibold text-content-primary">{children}</span>
+      <span className="flex min-w-0 items-center gap-[var(--space-xs)] text-body-sm text-content-secondary">
+        {icon && <span className="shrink-0 text-content-muted">{icon}</span>}
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="flex min-w-0 items-center justify-end gap-[var(--space-xs)] text-body-sm font-semibold text-content-primary">
+        {children}
+      </span>
     </div>
   );
 }

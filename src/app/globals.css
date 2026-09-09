@@ -291,6 +291,13 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+/* A native <button> defaults to cursor: default (not pointer) unless styled —
+   every enabled button/toggle in the app should read as clickable. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
 /* Soft accent ring used to draw attention to the entity switcher while it
    needs a selection (paired with border-accent + bg-accent-bg + animate-pulse). */
 @layer utilities {
