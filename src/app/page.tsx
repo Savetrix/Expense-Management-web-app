@@ -1,17 +1,42 @@
 import type { Metadata } from "next";
 
 import { LandingPage } from "@/components/landing/LandingPage";
+import {
+  faqPageJsonLd,
+  jsonLdScriptProps,
+  organizationJsonLd,
+  softwareApplicationJsonLd,
+} from "@/lib/seo";
 
-// AuthGate (src/components/auth/AuthGate.tsx) renders this marketing landing
-// page at "/" for every visitor, logged in or not — it's the one route that
-// doesn't redirect authenticated users away, so it can still be previewed
-// without logging out first. See its root-route logic.
+// The public marketing page, and currently the only indexable route on the
+// site. It sits outside the (app) route group, so unlike every other page it
+// renders to real HTML on the server — no Providers, no AuthGate, nothing that
+// waits for the browser. See src/app/(app)/layout.tsx for why that split
+// exists.
 export const metadata: Metadata = {
-  title: "Scantrix — Invoices, posted to QuickBooks automatically",
+  title: "QuickBooks Invoice Scanning & AP Automation | Scantrix",
   description:
-    "Scantrix reads every invoice, matches the vendor in QuickBooks, and posts the bill — so accountants and small-business teams only review the exceptions. Start free for 14 days.",
+    "Scantrix reads every supplier invoice, matches the vendor in QuickBooks Online and posts the bill — so your team only reviews the exceptions. Free 14-day trial, no credit card.",
+  alternates: { canonical: "/" },
+  keywords: [
+    "QuickBooks invoice scanning",
+    "accounts payable automation",
+    "invoice OCR QuickBooks",
+    "bill entry automation",
+    "AP automation for accountants",
+  ],
 };
 
 export default function RootPage() {
-  return <LandingPage />;
+  return (
+    <>
+      {/* Structured data. Emitted from the server component rather than the
+          client tree so it is present in the initial HTML, which is the only
+          form crawlers parse it in. Payloads and their sourcing: @/lib/seo. */}
+      <script {...jsonLdScriptProps(organizationJsonLd)} />
+      <script {...jsonLdScriptProps(softwareApplicationJsonLd)} />
+      <script {...jsonLdScriptProps(faqPageJsonLd)} />
+      <LandingPage />
+    </>
+  );
 }

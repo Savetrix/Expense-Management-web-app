@@ -1,24 +1,60 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Geist } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
-import { Providers } from "./providers";
-import { AuthGate } from "@/components/auth/AuthGate";
+import { SITE_NAME, SITE_URL } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Geist Mono moved to src/app/(app)/layout.tsx — it is only rendered inside the
+// signed-in product, and declaring it here made every marketing visitor
+// preload a font file the page never uses.
 
 export const metadata: Metadata = {
-  title: "Scantrix — Invoice & Expense Management",
+  // Required before any metadata field may use a relative path. Without it the
+  // canonical and og:url below would have to be absolute strings, and a build
+  // error is raised for relative ones.
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Scantrix — Invoice & Expense Management",
+    // Page titles supply their own " — Scantrix" today, so no template suffix
+    // is applied here; adding one would double the brand on every route.
+    template: "%s",
+  },
   description:
     "AI-assisted invoice scanning, QuickBooks sync, and team management for accountants and small businesses.",
+  applicationName: SITE_NAME,
+  // No default canonical here on purpose. A canonical inherited by every route
+  // would have pointed each noindex app page at "/", which reads as "this page
+  // is really the homepage" — contradictory, and wrong. Indexable pages declare
+  // their own; see src/app/page.tsx.
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    locale: "en_US",
+    url: SITE_URL,
+  },
+  twitter: { card: "summary_large_image" },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
+};
+
+export const viewport: Viewport = {
+  // --color-primary, the teal in public/scantrix-icon.png and the landing
+  // page's --lp-teal token (src/app/globals.css).
+  themeColor: "#1fb6aa",
 };
 
 export default function RootLayout({
@@ -29,7 +65,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
@@ -65,9 +101,11 @@ export default function RootLayout({
           hydrates) — it does not suppress hydration mismatches anywhere else
           in the tree. See https://react.dev/link/hydration-mismatch. */}
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <Providers>
-          <AuthGate>{children}</AuthGate>
-        </Providers>
+        {/* Providers > AuthGate used to wrap this slot. They now live in
+            src/app/(app)/layout.tsx (and are re-applied by ./not-found.tsx),
+            so the marketing route at "/" renders to real HTML on the server
+            instead of an empty shell. */}
+        {children}
       </body>
     </html>
   );
