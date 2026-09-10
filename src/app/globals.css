@@ -136,6 +136,18 @@ body {
   transform: none;
 }
 
+/* Without JavaScript there is no IntersectionObserver to add .is-visible, so
+   every section below the fold would sit at opacity 0 forever. The markup is
+   server-rendered and in the DOM either way, but a crawler or reader that
+   does not execute JS should still SEE it — and "visible to the user" is the
+   condition Google applies to the FAQ answers this page marks up. */
+@media (scripting: none) {
+  .lp-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Above-the-fold load-in: runs on first paint (no JS/observer dependency) so
    the hero is never stuck invisible and never hurts LCP. Staggered by delay. */
 @keyframes lp-load-in {

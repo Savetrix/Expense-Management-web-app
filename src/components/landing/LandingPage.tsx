@@ -16,6 +16,7 @@ import {
   MailCheck,
   MessageSquare,
   Plug,
+  Plus,
   Receipt,
   ScanLine,
   Search,
@@ -29,6 +30,7 @@ import {
 import { ReactNode, useEffect, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import { FAQ_ITEMS } from "@/lib/seo";
 import { CustomPlanEnquiryModal } from "@/components/subscription/CustomPlanEnquiryModal";
 import { LandingNav } from "./LandingNav";
 import {
@@ -1085,6 +1087,56 @@ const VALUES = [
   },
 ];
 
+// --- FAQ --------------------------------------------------------------------
+
+// Questions and answers come from @/lib/seo's FAQ_ITEMS, the same array the
+// FAQPage JSON-LD on src/app/page.tsx is built from. One source, because
+// Google only credits FAQ structured data whose answers are actually visible
+// on the page — letting the two drift would silently invalidate the markup.
+//
+// <details>/<summary> rather than a JS accordion: it collapses without
+// hydration, keeps every answer in the server-rendered HTML, and gives
+// keyboard and screen-reader users the native disclosure semantics for free.
+function Faq() {
+  return (
+    <section id="faq" className="scroll-mt-20 border-y border-border bg-[color:var(--lp-soft)]">
+      <div className="mx-auto max-w-3xl px-5 py-20 sm:px-8 sm:py-24">
+        <Reveal className="text-center">
+          <SectionLabel className="justify-center">FAQ</SectionLabel>
+          <h2 className="mt-4 text-[clamp(1.8rem,3.6vw,2.6rem)] font-bold leading-[1.1] tracking-[-0.02em] text-trust-navy">
+            Questions accountants ask first.
+          </h2>
+        </Reveal>
+
+        <div className="mt-12 flex flex-col gap-3">
+          {FAQ_ITEMS.map((item, i) => (
+            <Reveal key={item.question} delay={i * 60}>
+              <details className="group rounded-2xl border border-border bg-white px-5 py-4 shadow-sm open:shadow-md sm:px-6">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
+                  <h3 className="text-[15.5px] font-bold text-trust-navy sm:text-[16.5px]">
+                    {item.question}
+                  </h3>
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)] transition-transform group-open:rotate-45"
+                    aria-hidden
+                  >
+                    <Plus size={16} strokeWidth={2.5} />
+                  </span>
+                </summary>
+                <p className="mt-3 text-[14.5px] leading-relaxed text-text-secondary">
+                  {item.answer}
+                </p>
+              </details>
+            </Reveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// --- About -------------------------------------------------------------
+
 function About() {
   return (
     <section id="about" className="scroll-mt-20 mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
@@ -1188,6 +1240,7 @@ function Footer() {
           <a href="#how" className="transition-colors hover:text-trust-navy">How it works</a>
           <a href="#capabilities" className="transition-colors hover:text-trust-navy">Capabilities</a>
           <a href="#pricing" className="transition-colors hover:text-trust-navy">Pricing</a>
+          <a href="#faq" className="transition-colors hover:text-trust-navy">FAQ</a>
           <a href="#about" className="transition-colors hover:text-trust-navy">About</a>
           <Link href="/login" className="transition-colors hover:text-trust-navy">Log in</Link>
           <Link href="/register" onClick={trackSignupClick} className="font-semibold text-trust-navy">Start free</Link>
@@ -1237,6 +1290,7 @@ export function LandingPage() {
         <Differentiation />
         <Pricing />
         <About />
+        <Faq />
         <FinalCta />
       </main>
       <Footer />
