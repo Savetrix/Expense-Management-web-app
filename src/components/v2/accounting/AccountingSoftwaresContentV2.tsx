@@ -158,11 +158,23 @@ function IntegrationRow({
   selected,
   muted,
 }: IntegrationRowProps) {
+  const handleRowClick = (e: React.MouseEvent) => {
+    if (onOpen && !muted) {
+      // Prevent opening if clicking on an action button
+      const target = e.target as HTMLElement;
+      const isActionClick = target.closest(".integration-row-action");
+      if (!isActionClick) {
+        onOpen();
+      }
+    }
+  };
+
   return (
     <div
-      className={`flex items-center gap-[var(--space-md)] rounded-md border bg-surface px-[var(--space-md)] py-[var(--space-sm)] ${
+      onClick={handleRowClick}
+      className={`flex items-center gap-[var(--space-md)] rounded-md border bg-surface px-[var(--space-md)] py-[var(--space-sm)] transition-colors ${
         selected ? "border-accent ring-1 ring-accent/30" : "border-border"
-      } ${muted ? "opacity-60" : ""}`}
+      } ${onOpen && !muted ? "cursor-pointer hover:bg-surface-alt" : ""} ${muted ? "opacity-60" : ""}`}
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt">
         {icon}
@@ -171,16 +183,19 @@ function IntegrationRow({
         <p className="truncate text-body-sm font-semibold text-content-primary">{name}</p>
         <p className="truncate text-caption text-content-secondary">{description}</p>
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-[var(--space-sm)]">{actions}</div>}
+      {actions && <div className="integration-row-action flex shrink-0 items-center gap-[var(--space-sm)]">{actions}</div>}
       {onOpen && (
         <button
           type="button"
-          onClick={onOpen}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
           aria-label={openLabel}
           title={openLabel}
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-content-secondary hover:bg-surface-alt hover:text-content-primary"
+          className="integration-row-action flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-content-secondary hover:bg-surface-alt hover:text-content-primary"
         >
-          <Settings2 size={16} strokeWidth={2} />
+          <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-text-secondary" />
         </button>
       )}
     </div>
@@ -479,7 +494,7 @@ export function AccountingSoftwaresContentV2() {
   const linkedCompanyName = activeConnections.find((c) => c._id === activeConnectionId)?.name || "—";
 
   return (
-    <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
+    <div className="w-full p-[var(--space-lg)] sm:p-[var(--space-lg)]">
       <p className="mb-[var(--space-xs)] flex items-center gap-[var(--space-xs)] text-tiny font-bold uppercase tracking-[0.08em] text-accent-text-on-bg">
         Accounting Software
         <ChevronRight size={11} strokeWidth={2.5} className="text-content-muted" />
@@ -491,13 +506,13 @@ export function AccountingSoftwaresContentV2() {
         subtitle="Connect and synchronize the accounting software, storage drives, and AI tools you use with Scantrix."
         action={
           <>
-            <SearchInput
+            {/* <SearchInput
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Filter connectors"
               aria-label="Filter connectors"
               widthClassName="lg:w-56"
-            />
+            /> */}
             <Button
               type="button"
               variant="outline"
@@ -556,7 +571,7 @@ export function AccountingSoftwaresContentV2() {
                           <Badge variant={needsReconnect ? "warning" : isActive ? "success" : "neutral"}>
                             {needsReconnect ? "Reconnect required" : isActive ? "Active" : "Connected"}
                           </Badge>
-                          {isActive ? (
+                          {isActive && (
                             <button
                               type="button"
                               onClick={handleSyncActive}
@@ -566,15 +581,7 @@ export function AccountingSoftwaresContentV2() {
                               <RefreshCw size={13} strokeWidth={2.25} className={syncing ? "animate-spin" : ""} />
                               {syncing ? "Syncing…" : "Sync now"}
                             </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleSwitch(connection)}
-                              className={`hidden sm:flex ${ROW_ACTION_CLASS}`}
-                            >
-                              Switch
-                            </button>
-                          )}
+                          ) }
                         </>
                       }
                     />

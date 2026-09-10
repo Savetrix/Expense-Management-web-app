@@ -239,19 +239,19 @@ export function GLTaxCodeContentV2() {
       key: "name",
       header: "Account name",
       width: "45%",
-      render: (account) => <span className="block truncate font-bold text-content-primary">{account.name}</span>,
+      render: (account) => <span className="block truncate py-[var(--space-sm)] font-bold text-content-primary">{account.name}</span>,
     },
     {
       key: "type",
       header: "Type",
       width: "30%",
-      render: (account) => <span className="block truncate text-content-secondary">{account.accountType || "—"}</span>,
+      render: (account) => <span className="block truncate py-[var(--space-sm)] text-content-secondary">{account.accountType || "—"}</span>,
     },
     {
       key: "subtype",
       header: "Subtype",
       width: "25%",
-      render: (account) => <span className="block truncate text-content-secondary">{account.accountSubType || "—"}</span>,
+      render: (account) => <span className="block truncate py-[var(--space-sm)] text-content-secondary">{account.accountSubType || "—"}</span>,
     },
   ];
 
@@ -349,25 +349,23 @@ export function GLTaxCodeContentV2() {
       )}
 
       <div className="mt-[var(--space-lg)] overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
-        <div className="flex flex-col gap-[var(--space-sm)] border-b border-border bg-page p-[var(--space-md)]">
-          <div className="flex flex-wrap items-center gap-[var(--space-sm)]">
-            <Tabs
-              items={[
-                { value: "accounts", label: "GL Accounts", count: accounts.length },
-                { value: "taxCodes", label: "Tax Codes", count: taxCodes.length },
-              ]}
-              value={activeTab}
-              onChange={(value) => setActiveTab(value as GLTab)}
+        <div className="flex flex-col gap-[var(--space-md)] border-b border-border bg-page p-[var(--space-md)] lg:flex-row lg:items-center ">
+          <Tabs
+            items={[
+              { value: "accounts", label: "GL Accounts", count: accounts.length },
+              { value: "taxCodes", label: "Tax Codes", count: taxCodes.length },
+            ]}
+            value={activeTab}
+            onChange={(value) => setActiveTab(value as GLTab)}
+          />
+          {currentCount > 0 && (
+            <SearchInput
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder={activeTab === "accounts" ? "Search GL accounts…" : "Search tax codes…"}
+              widthClassName="w-full lg:w-96"
             />
-            {currentCount > 0 && (
-              <SearchInput
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder={activeTab === "accounts" ? "Search GL accounts…" : "Search tax codes…"}
-                widthClassName="w-full lg:ml-auto lg:w-72"
-              />
-            )}
-          </div>
+          )}
         </div>
 
         {currentLoading ? (
