@@ -34,13 +34,20 @@ import { Button } from "@/components/ui/Button";
 //
 // So the toast renders above dialogs, from a host mounted on every route, and
 // error-tone messages stay up longer and must be dismissed deliberately.
-const TOAST_MS = { error: 9000, success: 4500, info: 4500 } as const;
+const TOAST_MS = { error: 9000, warning: 6000, success: 4500, info: 4500 } as const;
 
-const TOAST_ICON = { success: CheckCircle2, error: XCircle, info: Info } as const;
-const TOAST_ICON_CLASS = {
-  success: "text-success",
-  error: "text-error",
-  info: "text-info",
+const TOAST_ICON = { success: CheckCircle2, error: XCircle, warning: AlertTriangle, info: Info } as const;
+
+// Each tone maps to one status token triple (see globals.css) so the whole
+// card reads as one color — tinted background, matching border, colored
+// icon and text — instead of a white card with only the icon tinted. Icon
+// and message text below don't repeat the color themselves; they inherit
+// it via normal CSS color inheritance from this class.
+const TOAST_TONE_CLASSES = {
+  success: "border-status-success-border bg-status-success-bg text-status-success-text",
+  error: "border-status-danger-border bg-status-danger-bg text-status-danger-text",
+  warning: "border-status-warning-border bg-status-warning-bg text-status-warning-text",
+  info: "border-status-info-border bg-status-info-bg text-status-info-text",
 } as const;
 
 export function DialogHost() {
@@ -109,15 +116,15 @@ export function DialogHost() {
               <div
                 key={toast.id}
                 role={toast.tone === "error" ? "alert" : "status"}
-                className="pointer-events-auto flex items-start gap-[var(--space-sm)] rounded-lg border border-border bg-white p-[var(--space-md)] shadow-xl"
+                className={`pointer-events-auto flex items-start gap-[var(--space-sm)] rounded-lg border p-[var(--space-md)] shadow-xl ${TOAST_TONE_CLASSES[toast.tone]}`}
               >
-                <Icon size={18} strokeWidth={2} className={`mt-0.5 shrink-0 ${TOAST_ICON_CLASS[toast.tone]}`} />
-                <p className="min-w-0 flex-1 whitespace-pre-line text-body-sm text-text-primary">{toast.message}</p>
+                <Icon size={18} strokeWidth={2} className="mt-0.5 shrink-0" />
+                <p className="min-w-0 flex-1 whitespace-pre-line text-body-sm">{toast.message}</p>
                 <button
                   type="button"
                   onClick={() => setToasts((cur) => cur.filter((c) => c.id !== toast.id))}
                   aria-label="Dismiss"
-                  className="-m-1 shrink-0 rounded p-1 text-text-secondary hover:bg-background-alt"
+                  className="-m-1 shrink-0 rounded p-1 opacity-70 transition-opacity hover:opacity-100"
                 >
                   <X size={14} strokeWidth={2} />
                 </button>
@@ -138,7 +145,7 @@ export function DialogHost() {
           onKeyDown={(e) => e.key === "Escape" && settle(false)}
         >
           <div
-            className="w-full max-w-sm cursor-auto rounded-lg bg-white p-[var(--space-lg)] shadow-xl"
+            className="w-full max-w-sm cursor-auto rounded-lg bg-surface p-[var(--space-lg)] shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-[var(--space-sm)]">
