@@ -660,6 +660,24 @@ export function EmailForwardingPanel({
       )}
 
       <div className="flex flex-col gap-[var(--space-sm)]">
+        {/* Reachable even while the address looks healthy.
+            Previously Reconnect appeared ONLY once a failure had been recorded,
+            which left the one case that needs it most with no way out: access is
+            lost the moment someone removes the Scantrix member from the Team
+            page, but nothing here knows that until the next forwarded invoice
+            has already been dropped. Repairing it should not require breaking it
+            first, and re-running the invite when it is not needed is harmless. */}
+        {alias.delegationActive && (
+          <button
+            type="button"
+            onClick={handleReconnect}
+            disabled={busy}
+            className="flex h-11 w-full cursor-pointer items-center justify-center gap-[var(--space-xs)] rounded-md border border-border font-bold text-text-primary hover:bg-background-alt disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={15} />
+            {busy ? "Working…" : "Re-check access to this company"}
+          </button>
+        )}
         <button
           type="button"
           onClick={handleRegenerate}
