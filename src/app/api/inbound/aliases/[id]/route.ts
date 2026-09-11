@@ -408,6 +408,9 @@ async function reconnect(
     ...current,
     active: true,
     revokedAt: null,
+    // Membership has just been re-established, so the recorded outage is over.
+    // Left set, the badge would stay red until the next successful upload.
+    accessLostAt: null,
   }));
   if (!updated) return notFound();
 

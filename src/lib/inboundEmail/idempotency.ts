@@ -57,6 +57,9 @@ const PERMANENT_CODES: ReadonlySet<RejectionCode> = new Set<RejectionCode>([
   // Reached only after classifyHttpFailure already ruled the backend's refusal
   // permanent; a retryable upload failure never becomes this code.
   "ingestion_failed",
+  // Retrying for 32 hours cannot re-add the service account to a company; only
+  // a human pressing Reconnect can.
+  "forwarding_access_lost",
   // A refused host or a redirect will be refused identically next time.
   "attachment_download_failed",
   // Retrying cannot unwrap a nested message; the sender has to resend.

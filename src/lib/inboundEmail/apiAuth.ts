@@ -113,7 +113,11 @@ export function publicAlias(alias: AliasRecord, domain?: string): PublicAlias {
     rotationVersion: alias.rotationVersion,
     ownerEmail: alias.ownerEmail,
     additionalSenders: alias.additionalSenders ?? [],
-    delegationActive: alias.active,
+    // NOT `alias.active`, which only means "not revoked". An address whose
+    // company has dropped the service account is still active and still
+    // receives mail — it just cannot file any of it, and reporting that as
+    // healthy is how a client spent days forwarding invoices into nothing.
+    delegationActive: alias.active && !alias.accessLostAt,
     createdAt: alias.createdAt,
     lastUsedAt: alias.lastUsedAt,
     revokedAt: alias.revokedAt,

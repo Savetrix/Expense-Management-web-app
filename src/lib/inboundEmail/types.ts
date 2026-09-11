@@ -73,6 +73,17 @@ export type RejectionCode =
   /** The invoice backend refused the upload for a reason that will not change. */
   | "ingestion_failed"
   /**
+   * The upload was refused with 403: the Scantrix service account is no longer a
+   * member of this company, so it cannot file anything there.
+   *
+   * Split out of `ingestion_failed` after a client hit it. The generic code made
+   * a one-click fix ("Reconnect") look like a mysterious processing failure, and
+   * the address still showed "Active" while every forwarded invoice was being
+   * dropped. Membership is usually lost because someone tidied the Team page and
+   * removed an unfamiliar member.
+   */
+  | "forwarding_access_lost"
+  /**
    * The message was forwarded AS AN ATTACHMENT (`message/rfc822`) rather than
    * inline, so the invoice is nested inside another email we do not unwrap.
    *

@@ -44,7 +44,22 @@ export type AcquireOutcome =
 
 export type UploadOutcome =
   | { ok: true; invoiceId: string | null }
-  | { ok: false; transient: boolean; detail: string };
+  | {
+      ok: false;
+      transient: boolean;
+      /** Structural, for logs and branching: "upload-403", "upload-500". */
+      detail: string;
+      /**
+       * The backend's OWN words, when it gave any.
+       *
+       * Previously discarded, which is why a forwarded invoice that failed for a
+       * perfectly explainable reason — "Duplicate invoice — '012345' already
+       * exists" — was reported to the accountant as "The invoice couldn't be
+       * processed." The dashboard showed the real reason and the forwarding
+       * panel did not, for the same invoice.
+       */
+      message: string | null;
+    };
 
 export interface IngestFile {
   bytes: Buffer;
@@ -108,6 +123,26 @@ export function extractInvoiceId(payload: unknown): string | null {
     if (id) return id;
   }
   return null;
+}
+
+/**
+ * A human-readable failure message from the invoice backend, if it gave one.
+ *
+ * The API wraps payloads as `{success, message, data}`, so `message` is the
+ * field that carries text an accountant can act on. Anything that looks like a
+ * machine token rather than a sentence is dropped — showing "ERR_QB_4021" to a
+ * user is no better than showing nothing.
+ */
+export function readUpstreamMessage(payload: unknown): string | null {
+  const record = payload as Record<string, unknown> | null;
+  if (!record || typeof record !== "object") return null;
+  const raw =
+    pickString(record, ["message", "error"]) ??
+    pickString(record.data as Record<string, unknown> | undefined, ["message", "error"]);
+  if (!raw) return null;
+  // Must read like a sentence: contains a space and some lower-case letters.
+  if (!/\s/.test(raw) || !/[a-z]/.test(raw)) return null;
+  return raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
 }
 
 export class ServiceAccountAuthority implements IngestAuthority {
@@ -175,7 +210,7 @@ export class ServiceAccountAuthority implements IngestAuthority {
     };
 
     let response = await send(accessToken);
-    if (!response) return { ok: false, transient: true, detail: "upload-unreachable" };
+    if (!response) return { ok: false, transient: true, detail: "upload-unreachable", message: null };
 
     // A 401 means the cached token was refused. Sign in once more and retry —
     // this is the whole self-healing story, and it is safe because a refused
@@ -187,10 +222,11 @@ export class ServiceAccountAuthority implements IngestAuthority {
           ok: false,
           transient: refreshed.reason === "transient",
           detail: `reauth-${refreshed.detail}`,
+          message: null,
         };
       }
       response = await send(refreshed.accessToken);
-      if (!response) return { ok: false, transient: true, detail: "upload-unreachable" };
+      if (!response) return { ok: false, transient: true, detail: "upload-unreachable", message: null };
     }
 
     if (response.ok) {
@@ -202,6 +238,12 @@ export class ServiceAccountAuthority implements IngestAuthority {
     // company — surfaced rather than retried, because no amount of waiting adds
     // a membership.
     const transient = classifyHttpFailure(response.status) === "retryable";
-    return { ok: false, transient, detail: `upload-${response.status}` };
+    const body = await response.json().catch(() => null);
+    return {
+      ok: false,
+      transient,
+      detail: `upload-${response.status}`,
+      message: readUpstreamMessage(body),
+    };
   }
 }

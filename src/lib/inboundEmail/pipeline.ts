@@ -48,6 +48,7 @@ import {
   recordEmailInvoiceIds,
   releaseClaim,
   saveMessage,
+  setAliasAccessLost,
   touchAliasUsed,
   type AliasRecord,
   type MessageAttachmentRecord,
@@ -193,6 +194,7 @@ export async function processInboundEvent(
     detail: string | null,
     alias: AliasRecord | null,
     invoiceCount = 0,
+    upstreamMessage: string | null = null,
   ): Promise<void> => {
     record = {
       ...record,
@@ -220,6 +222,7 @@ export async function processInboundEvent(
         status,
         rejectionCode: code,
         detail,
+        upstreamMessage,
         invoiceCount,
         companyName: alias?.companyName ?? null,
         qbConnectionId: alias?.qbConnectionId ?? record.qbConnectionId ?? null,
@@ -392,6 +395,9 @@ export async function processInboundEvent(
   const downloadUrlById = new Map(metas.map((meta) => [meta.id, meta.downloadUrl]));
   const results: MessageAttachmentRecord[] = [];
   let transientSeen: string | null = null;
+  // Set when the backend refuses with 403, so the alias can stop advertising
+  // itself as "Active" while nothing it receives can possibly be filed.
+  let accessLost = false;
 
   for (const attachment of candidates) {
     const previous = record.attachments.find(
@@ -543,11 +549,17 @@ export async function processInboundEvent(
       results.push({ ...ingesting, status: "pending", detail: upload.detail });
       transientSeen = transientSeen ?? upload.detail;
     } else {
+      // A 403 is not a processing failure — it is a lost membership, and it has
+      // a one-click fix. Telling the two apart is the difference between
+      // "The invoice couldn't be processed." and "press Reconnect".
+      const lostAccess = upload.detail === "upload-403";
+      if (lostAccess) accessLost = true;
       results.push({
         ...ingesting,
         status: "rejected",
-        rejectionCode: "ingestion_failed",
+        rejectionCode: lostAccess ? "forwarding_access_lost" : "ingestion_failed",
         detail: upload.detail,
+        upstreamMessage: upload.message,
       });
     }
 
@@ -574,15 +586,34 @@ export async function processInboundEvent(
     return retry(transientSeen ?? "partial-retry");
   }
 
+  // The first attachment that failed, whose reason is the one worth showing:
+  // a message-level "no attachment ingested" explains nothing to anybody.
+  const firstFailure = results.find((entry) => entry.rejectionCode) ?? null;
+  // Keep the alias's health honest, but only when an upload actually reported
+  // one way or the other: a message with no usable attachment proves nothing
+  // about membership and must not clear a real outage.
+  if (accessLost || completed > 0) {
+    await setAliasAccessLost(alias.tokenHash, accessLost);
+  }
+
   if (completed === 0) {
-    const firstCode = results.find((entry) => entry.rejectionCode)?.rejectionCode ?? null;
-    await finish("rejected", firstCode ?? "no_supported_attachments", "no attachment ingested", alias);
-    return { kind: "rejected", code: firstCode ?? "no_supported_attachments", correlationId };
+    const code = firstFailure?.rejectionCode ?? "no_supported_attachments";
+    await finish("rejected", code, "no attachment ingested", alias, 0, firstFailure?.upstreamMessage ?? null);
+    return { kind: "rejected", code, correlationId };
   }
 
   const status: InboundMessageStatus =
     completed === results.length ? "completed" : "partially_completed";
-  await finish(status, null, `${completed} of ${results.length} ingested`, alias, completed);
+  await finish(
+    status,
+    null,
+    `${completed} of ${results.length} ingested`,
+    alias,
+    completed,
+    // A partial success still owes an explanation for the files that did not
+    // make it, and this is the only place it can be shown.
+    firstFailure?.upstreamMessage ?? null,
+  );
   return { kind: "done", status, correlationId, invoiceCount: completed };
 }
 

@@ -141,6 +141,18 @@ export interface AliasRecord {
   createdAt: string;
   revokedAt: string | null;
   lastUsedAt: string | null;
+  /**
+   * When the invoice backend last refused an upload with 403 — i.e. the Scantrix
+   * service account is no longer a member of this company.
+   *
+   * Exists because `active` answers the wrong question. `active` means "this
+   * address has not been revoked", and the settings panel was reporting it as
+   * "Active" while every forwarded invoice was being refused. A membership
+   * removed on the Team page is invisible from here until an upload fails, so
+   * the first failure is recorded and the badge tells the truth from then on.
+   * Cleared by Reconnect, which re-invites the service account.
+   */
+  accessLostAt?: string | null;
 }
 
 export interface ActivityEntry {
@@ -153,6 +165,11 @@ export interface ActivityEntry {
   rejectionCode: RejectionCode | null;
   /** Safe structural detail, e.g. "3 of 4 accepted". */
   detail: string | null;
+  /**
+   * The invoice backend's own explanation for a failure, surfaced verbatim in
+   * the settings panel. Optional so entries written before this stay readable.
+   */
+  upstreamMessage?: string | null;
   invoiceCount: number;
   companyName: string | null;
   /**
@@ -193,6 +210,15 @@ export interface MessageAttachmentRecord {
   status: InboundAttachmentStatus;
   rejectionCode: RejectionCode | null;
   detail: string | null;
+  /**
+   * What the invoice backend itself said, when it said anything.
+   *
+   * Separate from `detail`, which stays structural ("upload-409"): this is the
+   * sentence a person can act on — "Duplicate invoice — '012345' already
+   * exists" — and it is the difference between the forwarding panel agreeing
+   * with the dashboard and contradicting it. Optional so older records read.
+   */
+  upstreamMessage?: string | null;
   invoiceId: string | null;
 }
 
@@ -487,6 +513,24 @@ export async function revokeAlias(tokenHash: string): Promise<AliasRecord | null
 
 export async function deleteAlias(tokenHash: string): Promise<void> {
   await blobIo().remove(aliasPath(tokenHash));
+}
+
+/**
+ * Record that this company refused an upload, or that it works again.
+ *
+ * Best-effort like touchAliasUsed: a badge is not worth failing an ingestion
+ * over. Writes only on a CHANGE, so the common healthy path costs one read.
+ */
+export async function setAliasAccessLost(tokenHash: string, lost: boolean): Promise<void> {
+  try {
+    await updateAlias(tokenHash, (current) => {
+      const had = Boolean(current.accessLostAt);
+      if (had === lost) return null;
+      return { ...current, accessLostAt: lost ? nowIso() : null };
+    });
+  } catch {
+    // structural only, nothing to report
+  }
 }
 
 export async function touchAliasUsed(tokenHash: string): Promise<void> {

@@ -52,6 +52,8 @@ export interface InboundActivityEntry {
   status: string;
   rejectionCode: string | null;
   detail: string | null;
+  /** The invoice backend's own words for a failure, when it gave any. */
+  upstreamMessage?: string | null;
   invoiceCount: number;
   companyName: string | null;
   qbConnectionId?: string | null;

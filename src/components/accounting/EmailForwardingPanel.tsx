@@ -64,6 +64,8 @@ const REJECTION_COPY: Record<string, string> = {
   too_many_attachments: "Too many attachments in one email.",
   duplicate_attachment: "The same file appeared twice.",
   credential_expired: "Email forwarding lost access to this company — reconnect below.",
+  forwarding_access_lost:
+    "Scantrix no longer has access to this company, so the invoice couldn't be filed. Press Reconnect above — the address stays the same, and you can forward this email again afterwards.",
   ingestion_failed: "The invoice couldn't be processed.",
   attachment_download_failed: "We couldn't retrieve the attachment from the mail provider.",
   invalid_payload: "The email couldn't be read.",
@@ -143,6 +145,12 @@ function ActivityRow({ entry }: { entry: InboundActivityEntry }) {
         {entry.senderEmail || "unknown sender"} · {formatWhen(entry.receivedAt)}
       </p>
       {reason && <p className="text-caption text-error">{reason}</p>}
+      {/* The backend's own sentence — "Duplicate invoice — '012345' already
+          exists". Without it this panel showed generic copy for a failure the
+          invoice dashboard explained precisely, and the two disagreed. */}
+      {entry.upstreamMessage && (
+        <p className="text-caption text-text-secondary">{entry.upstreamMessage}</p>
+      )}
       {/* The auth-header evidence. This is what turns "authentication_failed"
           from a mystery into a five-minute fix — see authResults.ts. */}
       {entry.authDiagnostics && entry.authDiagnostics.trust !== "verified" && (

@@ -27,6 +27,7 @@ import {
   readAlias,
   InboundWriteConflictError,
   readMessage,
+  readUserRecord,
   releaseClaim,
   saveMessage,
   type AliasRecord,
@@ -35,6 +36,8 @@ import {
   type WritePrecondition,
 } from "../lib/inboundEmail/store";
 import { hashAliasLocalPart } from "../lib/inboundEmail/alias";
+import { publicAlias } from "../lib/inboundEmail/apiAuth";
+import { classifyRejection } from "../lib/inboundEmail/idempotency";
 import type { NormalizedInboundEvent } from "../lib/inboundEmail/types";
 
 // ==============================
@@ -599,7 +602,13 @@ interface FakeOptions {
   headers?: Record<string, string | string[]>;
   metas?: ResendAttachmentMeta[];
   bytes?: Record<string, Buffer>;
-  uploadResults?: Array<{ ok: boolean; transient?: boolean; invoiceId?: string }>;
+  uploadResults?: Array<{
+    ok: boolean;
+    transient?: boolean;
+    invoiceId?: string;
+    detail?: string;
+    message?: string;
+  }>;
   acquireFails?: "unauthorized" | "transient";
   fetchThrows?: boolean;
   downloadTransient?: boolean;
@@ -643,7 +652,12 @@ function fakes(options: FakeOptions = {}) {
       if (!planned || planned.ok) {
         return { ok: true, invoiceId: planned?.invoiceId ?? `inv_${uploadIndex}` };
       }
-      return { ok: false, transient: planned.transient ?? false, detail: "upload-500" };
+      return {
+        ok: false,
+        transient: planned.transient ?? false,
+        detail: planned.detail ?? "upload-500",
+        message: planned.message ?? null,
+      };
     },
   };
 
@@ -1171,6 +1185,100 @@ describe("inbound pipeline", () => {
     assert.equal(result.kind, "done");
     assert.equal(uploads.length, 1);
     assert.equal(uploads[0].qbId, "qb_acme");
+  });
+
+  // ── A LOST MEMBERSHIP ─────────────────────────────────────────────────────
+  // A client forwarded invoices for days into a company that had removed the
+  // Scantrix service account from its Team page. Every upload came back 403; the
+  // panel said "Active" and "The invoice couldn't be processed."
+
+  it("names a 403 as lost access rather than a generic processing failure", async () => {
+    const { authority, provider } = fakes({
+      uploadResults: [{ ok: false, detail: "upload-403" }],
+    });
+    const result = await processInboundEvent(event(), { config: config(), authority, provider });
+
+    assert.equal(result.kind, "rejected");
+    if (result.kind === "rejected") assert.equal(result.code, "forwarding_access_lost");
+
+    // Permanent: 32 hours of redelivery cannot restore a membership.
+    assert.equal(classifyRejection("forwarding_access_lost"), "permanent");
+  });
+
+  it("stops reporting the address as healthy once an upload is refused with 403", async () => {
+    __setInboundBlobIoForTests(memoryIo());
+    await createAlias(aliasRecord());
+
+    const before = await readAlias(ALIAS_HASH);
+    assert.ok(before);
+    assert.equal(publicAlias(before).delegationActive, true);
+
+    const { authority, provider } = fakes({ uploadResults: [{ ok: false, detail: "upload-403" }] });
+    await processInboundEvent(event(), { config: config(), authority, provider });
+
+    const after = await readAlias(ALIAS_HASH);
+    assert.ok(after?.accessLostAt);
+    // Still `active` — mail is still accepted and recorded — but no longer
+    // advertised as working, which is the distinction the badge got wrong.
+    assert.equal(after?.active, true);
+    assert.equal(publicAlias(after).delegationActive, false);
+  });
+
+  it("clears the outage as soon as an upload succeeds again", async () => {
+    __setInboundBlobIoForTests(memoryIo());
+    await createAlias(aliasRecord());
+
+    const { authority, provider } = fakes({ uploadResults: [{ ok: false, detail: "upload-403" }] });
+    await processInboundEvent(event(), { config: config(), authority, provider });
+    assert.ok((await readAlias(ALIAS_HASH))?.accessLostAt);
+
+    const { authority: a2, provider: p2 } = fakes();
+    await processInboundEvent(event({ providerEventId: "msg_recovered" }), {
+      config: config(),
+      authority: a2,
+      provider: p2,
+    });
+    assert.equal((await readAlias(ALIAS_HASH))?.accessLostAt, null);
+  });
+
+  it("keeps an outage recorded when a later message has nothing to upload", async () => {
+    __setInboundBlobIoForTests(memoryIo());
+    await createAlias(aliasRecord());
+
+    const { authority, provider } = fakes({ uploadResults: [{ ok: false, detail: "upload-403" }] });
+    await processInboundEvent(event(), { config: config(), authority, provider });
+
+    // An email with no usable attachment proves nothing about membership, so it
+    // must not clear a real outage by omission.
+    const { authority: a2, provider: p2 } = fakes({ metas: [] });
+    await processInboundEvent(event({ providerEventId: "msg_empty" }), {
+      config: config(),
+      authority: a2,
+      provider: p2,
+    });
+    assert.ok((await readAlias(ALIAS_HASH))?.accessLostAt);
+  });
+
+  it("keeps the invoice backend's own explanation instead of replacing it", async () => {
+    __setInboundBlobIoForTests(memoryIo());
+    await createAlias(aliasRecord());
+
+    const { authority, provider } = fakes({
+      uploadResults: [
+        { ok: false, detail: "upload-409", message: "Duplicate invoice — '012345' already exists" },
+      ],
+    });
+    await processInboundEvent(event(), { config: config(), authority, provider });
+
+    const stored = await readMessage("msg_1");
+    assert.equal(
+      stored?.attachments[0]?.upstreamMessage,
+      "Duplicate invoice — '012345' already exists",
+    );
+    // And it reaches the settings panel, which is the whole point: the invoice
+    // dashboard was showing this sentence while the panel showed boilerplate.
+    const activity = (await readUserRecord("user_1")).recentActivity[0];
+    assert.equal(activity?.upstreamMessage, "Duplicate invoice — '012345' already exists");
   });
 
   it("never stores a user credential on the alias while ingesting", async () => {
