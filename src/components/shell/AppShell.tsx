@@ -27,11 +27,13 @@ import { ExpandTransitionOverlay } from "@/components/shell/ExpandTransitionOver
 import { GlobalSearchBar } from "@/components/shell/GlobalSearchBar";
 import { NotificationBell } from "@/components/shell/NotificationBell";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { showToast } from "@/lib/dialogManager";
 import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
-import { getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
+import { connectQuickBooks, getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
+import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 
 interface QBConnection {
   _id: string;
@@ -131,9 +133,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const user = useAppSelector((state) => state.auth.user);
   const accessToken: string | undefined = user?.data?.accessToken;
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
+  // Governs the "Add account" row in the switcher below — a plan's
+  // QuickBooks slots are a hard backend limit (402 on connect once full), so
+  // this disables the row proactively instead of letting the OAuth round
+  // trip fail.
+  const subscription = useAppSelector((state) => state.subscription.subscription);
 
   const [connections, setConnections] = useState<QBConnection[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const collapsed = !pinned;
@@ -166,6 +174,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         setConnections(result.payload?.data?.connections ?? []);
       }
     })();
+  }, [accessToken, dispatch]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    dispatch(fetchMySubscription());
   }, [accessToken, dispatch]);
 
   // Read the persisted preference after mount rather than in useState's
@@ -245,6 +258,36 @@ export function AppShell({ children }: { children: ReactNode }) {
     setSwitcherOpen(false);
     if (!accessToken || connection._id === qbConnectionId) return;
     await dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: connection._id }));
+  };
+
+  // subscription is only null before fetchMySubscription resolves — don't
+  // disable the row on that brief gap, only once the real numbers say the
+  // plan's QuickBooks slots are actually full.
+  const qbSlotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  const addAccountTitle = qbSlotsFull
+    ? `All ${subscription!.maxSlots} QuickBooks slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+    : undefined;
+
+  const handleAddAccount = async () => {
+    if (!accessToken || addingAccount || qbSlotsFull) return;
+    setSwitcherOpen(false);
+    setAddingAccount(true);
+    try {
+      const redirectAfter = `${window.location.origin}${pathname}`;
+      const result = await dispatch(connectQuickBooks({ accessToken, redirectAfter }));
+      if (connectQuickBooks.fulfilled.match(result)) {
+        const authUrl = result.payload?.data?.authUrl;
+        if (authUrl) {
+          window.location.href = authUrl;
+          return;
+        }
+        showToast("Could not start QuickBooks connection. Please try again.", "error");
+      } else {
+        showToast(typeof result.payload === "string" ? result.payload : "Could not start QuickBooks connection.", "error");
+      }
+    } finally {
+      setAddingAccount(false);
+    }
   };
 
   const name = capitalizeWords(user?.data?.user?.firstName || user?.data?.user?.email?.split("@")[0] || "Account");
@@ -452,6 +495,27 @@ export function AppShell({ children }: { children: ReactNode }) {
                         </button>
                       );
                     })}
+
+                    {/* Same connect flow as the "Add account" row on the
+                        Integrations page — QuickBooks connection management
+                        used to live only there, this just offers the same
+                        action from wherever the switcher already is. */}
+                    <div className="mt-[var(--space-xs)] border-t border-border pt-[var(--space-xs)]">
+                      <button
+                        type="button"
+                        onClick={handleAddAccount}
+                        disabled={addingAccount || qbSlotsFull}
+                        title={addAccountTitle}
+                        className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-sm)] text-left text-body-sm font-semibold text-accent hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-content-secondary">
+                          <Plus size={14} strokeWidth={2.5} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {addingAccount ? "Connecting…" : "Add account"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

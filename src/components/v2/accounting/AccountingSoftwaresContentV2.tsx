@@ -42,6 +42,7 @@ import {
   updateQuickBooksSettings,
 } from "@/store/quickBooks/quickBooksApi";
 import { useQuickBooksConnections, QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
+import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 
 // The connection/Drive/MCP detail lives in ONE modal slot — only one can be
 // open at a time, so swapping which one is open never needs its own show/hide
@@ -234,6 +235,11 @@ export function AccountingSoftwaresContentV2() {
   // Server-side per-connection setting, loaded by getQuickBooksStatus for
   // whichever connection is active — see quickBooksSlice.
   const autoPostEnabled = useAppSelector((state) => state.quickBooks.autoPostEnabled);
+  // Governs the "Add account" affordance below — a plan's QuickBooks slots
+  // are a hard backend limit (402 on connect once full), so this page
+  // disables the button proactively instead of letting the OAuth round trip
+  // fail.
+  const subscription = useAppSelector((state) => state.subscription.subscription);
 
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveStatusLoading, setDriveStatusLoading] = useState(true);
@@ -314,6 +320,16 @@ export function AccountingSoftwaresContentV2() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [checkDriveStatus]);
+
+  useEffect(() => {
+    dispatch(fetchMySubscription());
+    // Re-check on focus too — slotsUsed changes after adding/disconnecting a
+    // QuickBooks account, including ones done from the header company
+    // switcher or a QuickBooks OAuth redirect in this same tab.
+    const onFocus = () => dispatch(fetchMySubscription());
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [dispatch]);
 
   const handleDriveDisconnect = async () => {
     const confirmed = await confirmDialog({
@@ -452,6 +468,16 @@ export function AccountingSoftwaresContentV2() {
         ? "Add account"
         : "Connect";
 
+  // subscription is only null before fetchMySubscription resolves — don't
+  // disable the button on that brief gap, only once the real numbers say
+  // the plan's QuickBooks slots are actually full.
+  const qbSlotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  const qbConnectActionTitle = qbSlotsFull
+    ? `All ${subscription!.maxSlots} QuickBooks slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+    : activeConnections.length > 0
+      ? "Connect another QuickBooks company to Scantrix."
+      : "Sync vendors and post invoices automatically.";
+
   // Client-side filter over every section — the "Filter connectors" field
   // narrows Connected / Available / Coming soon at once.
   const matches = useCallback(
@@ -476,18 +502,33 @@ export function AccountingSoftwaresContentV2() {
     [matches],
   );
 
+  // Only the one active company shows as a row here — switching between
+  // several connected companies now happens from the header's company
+  // switcher, so this page doesn't need to list every connected account.
+  // Mirrors useQuickBooksConnections' own checkStatus target-selection: with
+  // exactly one connected company there's nothing to pick, otherwise show
+  // whichever one is actually active.
+  const primaryConnection: QBConnection | null = useMemo(() => {
+    if (visibleActiveConnections.length === 1) return visibleActiveConnections[0];
+    return visibleActiveConnections.find((c) => c._id === activeConnectionId) ?? null;
+  }, [visibleActiveConnections, activeConnectionId]);
+
   const driveVisible = driveConnected && matches("Google Drive", "Posted invoices are copied to your Drive");
-  const showQbAvailable = matches("QuickBooks", "QuickBooks Online", "Sync vendors and post invoices");
+  // QuickBooks itself is no longer offered in "Available to connect" — adding
+  // a company now happens from the header's company switcher, or from the
+  // "Add account" row at the bottom of Connected below.
+  const showAddAccountRow = matches("QuickBooks", "QuickBooks Online", "Add account", "Connect a company");
   const showDriveAvailable = !driveConnected && matches("Google Drive", "Save a copy of every posted invoice");
   const showMcpAvailable = matches("Claude MCP", "Ask Claude about your invoices and vendors");
 
   const connectedCount = activeConnections.length + (driveConnected ? 1 : 0);
   const showConnectedSection =
     checkingStatus ||
-    visibleActiveConnections.length > 0 ||
+    Boolean(primaryConnection) ||
     driveVisible ||
-    visibleDisconnectedConnections.length > 0;
-  const showAvailableSection = showQbAvailable || showDriveAvailable || showMcpAvailable;
+    visibleDisconnectedConnections.length > 0 ||
+    showAddAccountRow;
+  const showAvailableSection = showDriveAvailable || showMcpAvailable;
   const nothingMatchesFilter =
     query.trim().length > 0 && !showConnectedSection && !showAvailableSection && visibleComingSoon.length === 0;
 
@@ -547,7 +588,9 @@ export function AccountingSoftwaresContentV2() {
               {checkingStatus ? (
                 <SkeletonListRows count={2} />
               ) : (
-                visibleActiveConnections.map((connection) => {
+                primaryConnection &&
+                (() => {
+                  const connection = primaryConnection;
                   const isActive = connection._id === activeConnectionId;
                   const needsReconnect = connection.status === "reconnect_required";
                   const isSelected = detail?.type === "connection" && detail.id === connection._id;
@@ -586,7 +629,7 @@ export function AccountingSoftwaresContentV2() {
                       }
                     />
                   );
-                })
+                })()
               )}
 
               {driveVisible && (
@@ -672,23 +715,6 @@ export function AccountingSoftwaresContentV2() {
           <section>
             <SectionHeading label="Available to connect" meta="Connect once, sync continuously" />
             <div className="flex flex-col gap-[var(--space-sm)]">
-              {showQbAvailable && (
-                <IntegrationRow
-                  icon={<BrandIcon name="quickbooks" size={22} />}
-                  name="QuickBooks"
-                  description={
-                    activeConnections.length > 0
-                      ? "Connect another QuickBooks company to Scantrix."
-                      : "Sync vendors and post invoices automatically."
-                  }
-                  actions={
-                    <Button type="button" size="sm" onClick={handleConnect} loading={connecting} className="shrink-0">
-                      {!connecting && <Plug size={14} strokeWidth={2.25} />}
-                      {qbConnectActionLabel}
-                    </Button>
-                  }
-                />
-              )}
               {showDriveAvailable && (
                 <IntegrationRow
                   icon={<BrandIcon name="google-drive" size={22} />}
