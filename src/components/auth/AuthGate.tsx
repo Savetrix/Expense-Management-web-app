@@ -12,9 +12,9 @@ import { Spinner } from "@/components/ui/Spinner";
 // Routes reachable regardless of auth state. /invite/accept and
 // /register/verify-otp both have their own internal auth-aware logic
 // (see their page components) — they are not simply "logged-out only".
-const PUBLIC_ROUTES = ["/login", "/register", "/register/verify-otp", "/invite/accept", "/forgot-password"];
+const PUBLIC_ROUTES = ["/login","/v2/login", "/register","/v2/register",  "/register/verify-otp", "/invite/accept", "/forgot-password"];
 
-const AUTH_ONLY_REDIRECT_ROUTES = ["/login", "/register"];
+const AUTH_ONLY_REDIRECT_ROUTES = ["/login","/v2/login", "/register","/v2/register"];
 
 // Full-screen/transitional routes that never show the persistent app shell
 // (C12), even once authenticated — same list as PUBLIC_ROUTES (all

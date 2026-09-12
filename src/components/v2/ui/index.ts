@@ -6,6 +6,7 @@ export { Tabs } from "./Tabs";
 export type { TabItem } from "./Tabs";
 export { SelectDropdown } from "./SelectDropdown";
 export { SearchInput } from "./SearchInput";
+export { PasswordInput } from "./PasswordInput";
 export { ProgressBar } from "./ProgressBar";
 export { Avatar } from "./Avatar";
 export { PageHeader } from "./PageHeader";
