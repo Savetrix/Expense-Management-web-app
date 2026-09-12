@@ -81,12 +81,22 @@ function NavLink({
     <Link
       href={item.href}
       aria-label={item.label}
-      className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold ${
+      className={`group relative flex items-center gap-[var(--space-sm)] overflow-hidden rounded-sm py-[var(--space-sm)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
         collapsed ? "justify-center" : "px-[var(--space-md)]"
-      } ${active ? "bg-nav-active text-nav-text-active" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
+      } ${active ? "bg-nav-tab-active text-nav-text-active shadow-sm" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
     >
+      {active && (
+        <span className="absolute h-full left-0 w-1 rounded-full bg-accent" aria-hidden="true" />
+      )}
       <Icon size={18} strokeWidth={2} className="shrink-0" />
-      {collapsed ? <span className={TOOLTIP_CLASS}>{item.label}</span> : <span className="truncate">{item.label}</span>}
+      <span
+        className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+          collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+        }`}
+      >
+        {item.label}
+      </span>
+      {collapsed && <span className={TOOLTIP_CLASS}>{item.label}</span>}
     </Link>
   );
 }
@@ -243,22 +253,40 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-dvh bg-page">
       <aside
-        className={`hidden h-dvh shrink-0 flex-col border-r border-nav-hover bg-nav-bg transition-[width] duration-200 ease-in-out lg:flex ${
+        className={`relative hidden h-dvh shrink-0 flex-col border-r border-nav-hover bg-nav-bg transition-[width] duration-300 ease-in-out lg:flex ${
           collapsed ? "w-16" : "w-64"
         }`}
       >
-        <div className={`flex h-16 shrink-0 items-center ${collapsed ? "justify-center" : "px-[var(--space-lg)]"}`}>
+        <button
+          type="button"
+          onClick={togglePinned}
+          aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
+          className="absolute -right-4 top-12 z-20 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-nav-bg bg-accent text-black shadow-md transition-colors hover:bg-accent-hover"
+        >
+          {collapsed ? (
+            <ChevronsRight size={16} strokeWidth={2.5} className="shrink-0" />
+          ) : (
+            <ChevronsLeft size={16} strokeWidth={2.5} className="shrink-0" />
+          )}
+        </button>
+
+        <div
+          className={`flex h-16 shrink-0 items-center overflow-hidden transition-[padding] duration-300 ease-in-out ${collapsed ? "justify-center" : "px-[var(--space-lg)]"}`}
+        >
           <Link
             href="/dashboard"
             aria-label="Go to dashboard"
             className="group relative flex min-w-0 items-center gap-[var(--space-sm)]"
           >
             <Image src="/scantrix-icon.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
-            {collapsed ? (
-              <span className={TOOLTIP_CLASS}>Scantrix</span>
-            ) : (
-              <span className="truncate text-h3 font-bold text-white">Scantrix</span>
-            )}
+            <span
+              className={`truncate text-h3 font-bold text-white transition-[max-width,opacity] duration-300 ease-in-out ${
+                collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+              }`}
+            >
+              Scantrix
+            </span>
+            {collapsed && <span className={TOOLTIP_CLASS}>Scantrix</span>}
           </Link>
         </div>
 
@@ -272,17 +300,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             part of NAV_ITEMS' active-link rendering. Jumps straight into
             create mode via a ?create=true param VendorsContent/
             GLTaxCodeContent watch for. */}
-        <div className={`shrink-0 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
+        <div className={`shrink-0 mt-5 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
           <div className="group relative">
             <div
-              className={`flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-nav-text group-hover:bg-nav-hover group-hover:text-nav-text-active ${
-                collapsed ? "justify-center" : "px-[var(--space-md)]"
+              className={`flex items-center gap-[var(--space-sm)] overflow-hidden bg-accent py-[var(--space-sm)] text-body-sm font-bold text-accent-ink shadow-sm transition-colors duration-300 ease-in-out hover:bg-accent-hover ${
+                collapsed ? "justify-center rounded-full" : "rounded-lg px-[var(--space-md)]"
               }`}
             >
-              <Plus size={18} strokeWidth={2} className="shrink-0" />
-              {collapsed ? <span className={TOOLTIP_CLASS}>Create</span> : <span className="truncate">Create</span>}
+              <Plus size={18} strokeWidth={2.5} className="shrink-0" />
+              <span
+                className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+                  collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+                }`}
+              >
+                Create
+              </span>
+              {collapsed && <span className={TOOLTIP_CLASS}>Create</span>}
             </div>
-            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-md border border-border bg-surface opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
+            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-lg border border-border bg-surface opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
               <Link
                 href="/vendors?create=true"
                 className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
@@ -303,40 +338,21 @@ export function AppShell({ children }: { children: ReactNode }) {
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
           ))}
-
-          {/* Manual pin toggle, right after Subscription — the rest of the
-              sidebar already expands per-row on hover, but some users want
-              it pinned open (or closed) instead of relying on that. */}
-          <button
-            type="button"
-            onClick={togglePinned}
-            aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
-            className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${
-              collapsed ? "justify-center" : "px-[var(--space-md)]"
-            }`}
-          >
-            {collapsed ? (
-              <ChevronsRight size={18} strokeWidth={2} className="shrink-0" />
-            ) : (
-              <ChevronsLeft size={18} strokeWidth={2} className="shrink-0" />
-            )}
-            {collapsed ? (
-              <span className={TOOLTIP_CLASS}>Pin sidebar open</span>
-            ) : (
-              <span className="truncate">Collapse sidebar</span>
-            )}
-          </button>
         </nav>
 
-        <div className={`shrink-0 border-t border-nav-hover ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
+        <div className={`shrink-0  ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
           <Link
             href="/profile"
             aria-label={name}
-            className={`group relative mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-md py-[var(--space-xs)] text-body-sm font-semibold ${
+            className={`group relative mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] overflow-hidden truncate rounded-xl py-[var(--space-xs)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
               collapsed ? "justify-center" : "px-[var(--space-sm)]"
-            } ${pathname === "/profile" ? "bg-nav-active text-nav-text-active" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
+            } ${
+              pathname === "/profile"
+                ? "bg-accent text-accent-ink  shadow-sm"
+                : `text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${collapsed ? "" : ""}`
+            }`}
           >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-nav-text-active/90 text-caption font-bold text-nav-bg">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-caption font-bold text-accent-ink">
               {photoURL ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={photoURL} alt={name} className="h-full w-full object-cover" />
@@ -344,7 +360,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 name.charAt(0).toUpperCase()
               )}
             </span>
-            {collapsed ? <span className={TOOLTIP_CLASS}>{name}</span> : name}
+            <span
+              className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+                collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+              }`}
+            >
+              {name}
+            </span>
+            {collapsed && <span className={TOOLTIP_CLASS}>{name}</span>}
           </Link>
           {/* Same dark sidebar fill as everywhere else in this rail, so
               logout keeps the nav-text treatment rather than a status-danger
@@ -354,18 +377,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             type="button"
             onClick={logout}
             aria-label="Logout"
-            className={`flex w-full items-center gap-[var(--space-sm)] rounded-md py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${
+            className={`flex w-full items-center gap-[var(--space-sm)] overflow-hidden rounded-lg py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text transition-colors duration-300 ease-in-out hover:bg-nav-hover hover:text-nav-text-active ${
               collapsed ? "group relative justify-center" : "px-[var(--space-sm)]"
             }`}
           >
             <LogOut size={16} strokeWidth={2} className="shrink-0" />
-            {collapsed ? <span className={TOOLTIP_CLASS}>Logout</span> : "Logout"}
+            <span
+              className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+                collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+              }`}
+            >
+              Logout
+            </span>
+            {collapsed && <span className={TOOLTIP_CLASS}>Logout</span>}
           </button>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-[var(--space-sm)] border-b border-border bg-surface px-[var(--space-md)] lg:gap-[var(--space-md)] lg:px-[var(--space-lg)]">
+        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-[var(--space-sm)]  bg-surface px-[var(--space-md)] lg:gap-[var(--space-md)] lg:px-[var(--space-lg)]">
           <div className="flex min-w-0 items-center gap-[var(--space-sm)]">
             <button
               type="button"
@@ -381,7 +411,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   type="button"
                   onClick={() => setSwitcherOpen((v) => !v)}
                   aria-expanded={switcherOpen}
-                  className={`flex min-w-0 items-center gap-[var(--space-sm)] rounded-md border px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm ${
+                  className={`flex min-w-0 items-center gap-[var(--space-sm)] rounded-lg border px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm ${
                     needsEntitySelection
                       ? "animate-pulse border-accent bg-accent-bg ring-2 ring-accent-soft"
                       : "border-border bg-page"
@@ -458,7 +488,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             className="relative flex h-full w-72 max-w-[85vw] flex-col bg-nav-bg shadow-xl"
             onClick={() => setMobileNavOpen(false)}
           >
-            <div className="flex h-16 shrink-0 items-center justify-between px-[var(--space-lg)]">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-nav-hover px-[var(--space-lg)]">
               <Link href="/dashboard" aria-label="Go to dashboard" className="flex min-w-0 items-center gap-[var(--space-sm)]">
                 <Image src="/scantrix-icon.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
                 <span className="truncate text-h3 font-bold text-white">Scantrix</span>
@@ -506,11 +536,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 href="/profile"
                 aria-label={name}
-                className={`mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold ${
-                  pathname === "/profile" ? "bg-nav-active text-nav-text-active" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
+                className={`mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-xl border px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold ${
+                  pathname === "/profile"
+                    ? "bg-accent text-accent-ink border-transparent shadow-sm"
+                    : "border-nav-hover text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
                 }`}
               >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-nav-text-active/90 text-caption font-bold text-nav-bg">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-caption font-bold text-accent-ink">
                   {photoURL ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={photoURL} alt={name} className="h-full w-full object-cover" />
@@ -524,7 +556,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={logout}
                 aria-label="Logout"
-                className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
+                className="flex w-full items-center gap-[var(--space-sm)] rounded-lg px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <LogOut size={16} strokeWidth={2} className="shrink-0" />
                 Logout

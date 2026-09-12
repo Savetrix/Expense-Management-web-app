@@ -67,6 +67,7 @@
   --color-nav-bg: rgb(var(--nav-bg));
   --color-nav-hover: rgb(var(--nav-bg-hover));
   --color-nav-active: rgb(var(--nav-bg-active));
+  --color-nav-tab-active: rgb(var(--nav-tab-active));
   --color-nav-text: rgb(var(--nav-text));
   --color-nav-muted: rgb(var(--nav-text-muted));
   --color-nav-text-active: rgb(var(--nav-text-active));
@@ -171,6 +172,7 @@
     --nav-bg: 15 110 86;             /* #0F6E56 */
     --nav-bg-hover: 26 77 64;        /* #1A4D40 */
     --nav-bg-active: 29 107 92;      /* #1D6B5C */
+    --nav-tab-active: 34 129 95;     /* #22815F */
     --nav-text: 159 225 203;         /* #9FE1CB */
     --nav-text-muted: 143 163 194;   /* #8FA3C2 */
     --nav-text-active: 255 255 255;  /* #FFFFFF */
@@ -234,6 +236,7 @@
     --nav-bg: 0 0 0;                 /* #000000 */
     --nav-bg-hover: 15 23 20;        /* #0F1714 */
     --nav-bg-active: 20 50 43;       /* #14322B */
+    --nav-tab-active: 34 129 95;     /* #22815F */
     --nav-text: 159 225 203;         /* #9FE1CB */
     --nav-text-muted: 107 128 120;   /* #6B8078 */
     --nav-text-active: 255 255 255;  /* #FFFFFF */
