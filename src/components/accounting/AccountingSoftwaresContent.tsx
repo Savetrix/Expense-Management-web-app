@@ -565,14 +565,30 @@ export function AccountingSoftwaresContent() {
                     panel, not just owner/admin: reconnecting re-runs OAuth for
                     THIS connection to rotate its tokens, which is how an active
                     account gets refreshed. The backend still enforces whatever
-                    role it enforces. */}
+                    role it enforces.
+
+                    A fully disconnected connection (isDeleted: true) is the
+                    one exception: the backend's re-auth-by-id endpoint only
+                    matches isDeleted: false and 404s ("QB Connection not
+                    found") otherwise, since that slot was already freed. The
+                    plain connect flow is what actually works here — Intuit's
+                    callback upserts by (ownerId, realmId), so re-authorizing
+                    the same company revives this exact record (and its
+                    history) rather than creating an unrelated new one, while
+                    still going through the normal slot-availability check. */}
                 <button
                   type="button"
-                  onClick={() => handleReconnect(selectedConnection)}
-                  disabled={reconnectingId === selectedConnection._id}
+                  onClick={() => (isSelectedDisconnected ? handleConnect() : handleReconnect(selectedConnection))}
+                  disabled={isSelectedDisconnected ? connecting : reconnectingId === selectedConnection._id}
                   className="h-11 w-full rounded-md border border-border font-bold text-text-primary hover:bg-background-alt disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {reconnectingId === selectedConnection._id ? "Reconnecting…" : "Reconnect"}
+                  {isSelectedDisconnected
+                    ? connecting
+                      ? "Reconnecting…"
+                      : "Reconnect"
+                    : reconnectingId === selectedConnection._id
+                      ? "Reconnecting…"
+                      : "Reconnect"}
                 </button>
                 {/* Hidden once access is already revoked (reconnect_required) —
                     there's nothing left to disconnect from until the owner
