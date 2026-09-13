@@ -151,12 +151,25 @@ interface DisconnectQuickBooksPayload {
   qbConnectionId: string;
 }
 
+export interface DisconnectQuickBooksResponse {
+  success: boolean;
+  message: string;
+  // Present only when the slot was locked this billing cycle: the backend
+  // revokes QB access but deliberately keeps the slot reserved (see
+  // invoice.controller.js lockSlotOnFirstScan) instead of a full disconnect.
+  data?: {
+    code?: string;
+    unlockAt?: string;
+    accessRevoked?: boolean;
+  } | null;
+}
+
 export const disconnectQuickBooks = createAsyncThunk(
   "quickbooks/disconnectQuickBooks",
   async (data: DisconnectQuickBooksPayload, thunkAPI) => {
     try {
       console.log("========== QUICKBOOKS DISCONNECT REQUEST ==========");
-      const response = await api.delete("/quickbooks/disconnect", {
+      const response = await api.delete<DisconnectQuickBooksResponse>("/quickbooks/disconnect", {
         headers: {
           Authorization: `Bearer ${data.accessToken}`,
           "X-QB-Id": data.qbConnectionId,

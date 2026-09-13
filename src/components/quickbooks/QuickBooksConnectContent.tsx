@@ -98,14 +98,19 @@ export function QuickBooksConnectContent() {
                   >
                     {reconnectingId === connection._id ? "…" : "Reconnect"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDisconnect(connection)}
-                    disabled={disconnectingId === connection._id}
-                    className="rounded-md bg-error/10 px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold text-error disabled:opacity-60"
-                  >
-                    {disconnectingId === connection._id ? "…" : "Disconnect"}
-                  </button>
+                  {/* Hidden once access is already revoked (reconnect_required)
+                      — there's nothing left to disconnect from until the
+                      owner re-authorizes, at which point this reappears. */}
+                  {!needsReconnect && (
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnect(connection)}
+                      disabled={disconnectingId === connection._id}
+                      className="rounded-md bg-error/10 px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold text-error disabled:opacity-60"
+                    >
+                      {disconnectingId === connection._id ? "…" : "Disconnect"}
+                    </button>
+                  )}
                 </div>
               </Card>
             );
