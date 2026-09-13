@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ChevronLeft, Pencil, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { deleteInvoice, getInvoiceDetails } from "@/store/invoice/invoiceApi";
-import { fetchQuickBooksAccounts } from "@/store/quickBooks/quickBooksApi";
+import { fetchQuickBooksAccounts, getMyQBConnections } from "@/store/quickBooks/quickBooksApi";
 import { Spinner } from "@/components/ui/Spinner";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import {
@@ -27,6 +27,14 @@ import { getUserDisplayName, translateInvoiceReason } from "@/lib/invoiceDisplay
 const SCAN_MIN_ZOOM = 1;
 const SCAN_MAX_ZOOM = 3;
 const SCAN_ZOOM_STEP = 0.5;
+
+interface QBConnection {
+  _id: string;
+  name: string;
+  realmId: string;
+  role: string;
+  createdAt: string;
+}
 
 function SectionHeader({ title, bg, color }: { title: string; bg: string; color: string }) {
   return (
@@ -80,11 +88,13 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
   const type = resolveInvoiceDetailType(invoiceObject?.postedStatus);
   const theme = INVOICE_DETAIL_THEME[type];
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
+  const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
   const glAccounts = useAppSelector((state) => state.quickBooks.accounts);
   const deleting = useAppSelector((state) => state.invoice.deleting);
 
   const [scanLoading, setScanLoading] = useState(true);
   const [scanZoom, setScanZoom] = useState(1);
+  const [connections, setConnections] = useState<QBConnection[]>([]);
 
   useEffect(() => {
     dispatch(getInvoiceDetails(invoiceId));
@@ -95,6 +105,27 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
     if (accessToken) dispatch(fetchQuickBooksAccounts({ accessToken }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
+
+  const fetchConnections = useCallback(async () => {
+    if (!accessToken) return;
+    const result = await dispatch(getMyQBConnections({ accessToken }));
+    if (getMyQBConnections.fulfilled.match(result)) {
+      setConnections(result.payload?.data?.connections ?? []);
+    }
+  }, [accessToken, dispatch]);
+
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
+
+  // With exactly one connected company there's nothing to choose, so use it
+  // directly. With 2+, only use a match for the actively selected connection —
+  // same pattern as VendorsContent/GLTaxCodeContent.
+  const activeConnection = connections.length === 1 ? connections[0] : connections.find((c) => c._id === qbConnectionId);
+  const currentRole = activeConnection?.role || "";
+  // Mirrors PERMISSIONS.APPROVE_POST_QBO on the backend — every role except
+  // contributor can delete a posted/failed invoice.
+  const canDeleteInvoice = currentRole !== "" && currentRole !== "contributor";
 
   // Deleted/missing invoice (e.g. a stale link after deletion) — bounce back
   // to the list instead of leaving the user stuck on an infinite spinner.
@@ -131,9 +162,15 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
   const [showTechnicalReason, setShowTechnicalReason] = useState(false);
 
   const handleDeleteInvoice = async () => {
+    // auto/manual invoices are already posted — deleting them also removes
+    // the linked Bill from QuickBooks, unlike a failed invoice which never
+    // had one, so the warning should say so.
+    const isPosted = type === "auto" || type === "manual";
     const confirmed = await confirmDialog({
       title: "Delete this invoice?",
-      message: "This will permanently delete the invoice and cannot be undone.",
+      message: isPosted
+        ? "This will permanently delete the invoice and its linked bill in QuickBooks. This cannot be undone."
+        : "This will permanently delete the invoice and cannot be undone.",
       confirmLabel: "Delete",
       tone: "destructive",
     });
@@ -142,7 +179,7 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
     const result = await dispatch(deleteInvoice({ invoiceId }));
     if (deleteInvoice.fulfilled.match(result)) {
       showToast("Invoice deleted successfully.", "success");
-      router.push("/invoices?type=failed");
+      router.push(`/invoices?type=${type}`);
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to delete invoice.", "error");
@@ -176,6 +213,11 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
     ? `/invoices/preview?url=${encodeURIComponent(invoiceUrl)}&mimeType=${encodeURIComponent(previewMimeType)}`
     : null;
 
+  const showEditButton = type === "auto" || type === "manual";
+  // Mirrors the backend's deletableStatuses (invoice.controller.js) — auto,
+  // manual, and failed can all be deleted; pending/processing cannot.
+  const showDeleteButton = canDeleteInvoice && (type === "auto" || type === "manual" || type === "failed");
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: theme.screenBg }}>
       <div className="mx-auto max-w-6xl p-[var(--space-lg)]">
@@ -200,7 +242,7 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
           <div className="flex flex-col gap-[var(--space-md)]">
             {/* Hero */}
             <div className="relative rounded-2xl px-[var(--space-lg)] pb-[var(--space-lg)] pt-[var(--space-md)]" style={{ backgroundColor: theme.cardBg }}>
-              <div className="mb-[var(--space-xs)] flex flex-wrap items-center gap-[var(--space-sm)] pr-12">
+              <div className={`mb-[var(--space-xs)] flex flex-wrap items-center gap-[var(--space-sm)] ${showEditButton && showDeleteButton ? "pr-24" : "pr-12"}`}>
                 <span className="rounded-pill bg-white/70 px-[var(--space-sm)] py-1 text-caption font-bold" style={{ color: theme.accentColor }}>
                   {theme.statusLabel}
                 </span>
@@ -211,36 +253,41 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
                 )}
               </div>
 
-              {/* Editing (auto/manual) syncs the changes back to the linked
-                  QuickBooks bill but keeps the invoice under its current
-                  status — the backend has no auto→manual transition on
-                  edit, only on first posting a pending invoice. Reuses the
-                  same editable-form screen a pending invoice is reviewed on
-                  (InvoiceReviewContent), rather than an inline edit mode
-                  here, so both edit flows look and behave identically. */}
-              {(type === "auto" || type === "manual") && (
-                <button
-                  type="button"
-                  onClick={() => router.push(`/invoices/${invoiceId}/review`)}
-                  aria-label="Edit invoice"
-                  className="absolute right-[var(--space-md)] top-[var(--space-md)] flex h-9 w-9 items-center justify-center rounded-full bg-white/75"
-                  style={{ color: theme.accentColor }}
-                >
-                  <Pencil size={16} strokeWidth={2.25} />
-                </button>
-              )}
-              {type === "failed" && (
-                <button
-                  type="button"
-                  onClick={handleDeleteInvoice}
-                  disabled={deleting}
-                  aria-label="Delete invoice"
-                  className="absolute right-[var(--space-md)] top-[var(--space-md)] flex h-9 w-9 items-center justify-center rounded-full bg-white/75 disabled:opacity-50"
-                  style={{ color: theme.accentColor }}
-                >
-                  <Trash2 size={16} strokeWidth={2.25} />
-                </button>
-              )}
+              <div className="absolute right-[var(--space-md)] top-[var(--space-md)] flex items-center gap-[var(--space-xs)]">
+                {/* Editing (auto/manual) syncs the changes back to the linked
+                    QuickBooks bill but keeps the invoice under its current
+                    status — the backend has no auto→manual transition on
+                    edit, only on first posting a pending invoice. Reuses the
+                    same editable-form screen a pending invoice is reviewed on
+                    (InvoiceReviewContent), rather than an inline edit mode
+                    here, so both edit flows look and behave identically. */}
+                {showEditButton && (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/invoices/${invoiceId}/review`)}
+                    aria-label="Edit invoice"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/75"
+                    style={{ color: theme.accentColor }}
+                  >
+                    <Pencil size={16} strokeWidth={2.25} />
+                  </button>
+                )}
+                {/* Deleting an auto/manual invoice also removes its linked
+                    bill from QuickBooks (see handleDeleteInvoice) — gated by
+                    role the same way the backend gates APPROVE_POST_QBO. */}
+                {showDeleteButton && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteInvoice}
+                    disabled={deleting}
+                    aria-label="Delete invoice"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-white/75 disabled:opacity-50"
+                    style={{ color: theme.accentColor }}
+                  >
+                    <Trash2 size={16} strokeWidth={2.25} />
+                  </button>
+                )}
+              </div>
 
               <p className="text-h2 font-extrabold" style={{ color: theme.labelColor }}>
                 {vendorName}

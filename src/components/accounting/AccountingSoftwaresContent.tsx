@@ -190,6 +190,9 @@ export function AccountingSoftwaresContent() {
   const [driveDisconnecting, setDriveDisconnecting] = useState(false);
   // Client-side only — see the storage.ts comment on setDriveConnectedAt.
   const [driveConnectedAt, setDriveConnectedAt] = useState<string | null>(null);
+  // Which Google account is connected (e.g. "abc1@gmail.com") — comes straight
+  // from the backend's status response, unlike driveConnectedAt above.
+  const [driveEmail, setDriveEmail] = useState<string | null>(null);
 
   const [detail, setDetail] = useState<DetailView>(null);
   const [disconnectedExpanded, setDisconnectedExpanded] = useState(false);
@@ -223,12 +226,13 @@ export function AccountingSoftwaresContent() {
     setDriveStatusLoading(true);
     const result = await dispatch(getGoogleDriveStatus());
     if (getGoogleDriveStatus.fulfilled.match(result)) {
-      // The backend only ever returns {connected} here (see AccountingSoftwaresScreen.tsx's
-      // matching comment on the mobile side) — no email/connectedAt/folderUrl exist server-side,
-      // so "Connected on" is stamped client-side the first time a connection is observed.
+      // The backend returns {connected, email} — no connectedAt/folderUrl
+      // exist server-side, so "Connected on" is still stamped client-side
+      // the first time a connection is observed.
       const data = result.payload?.data;
       const nowConnected = Boolean(data?.connected);
       setDriveConnected(nowConnected);
+      setDriveEmail(nowConnected ? data?.email ?? null : null);
       if (nowConnected) {
         const stored = getStoredDriveConnectedAt();
         const stampedAt = stored ?? new Date().toISOString();
@@ -242,15 +246,29 @@ export function AccountingSoftwaresContent() {
     setDriveStatusLoading(false);
   }, [dispatch]);
 
+  // Re-runs on activeConnectionId too — Drive is linked per QB workspace
+  // (the backend keys off the X-QB-Id header), so switching the active
+  // connection must re-check status; otherwise the previous workspace's
+  // driveConnected value keeps showing (e.g. a "Disconnect" button for a
+  // workspace whose Drive link is actually not connected).
   useEffect(() => {
     checkDriveStatus();
-    // Re-check on focus: covers returning from the Google OAuth redirect (the
-    // /google-drive landing page bounces back here) and a disconnect done in
-    // another tab.
+    // Re-check on focus too: covers returning from the Google OAuth redirect
+    // (the /google-drive landing page bounces back here) and a disconnect
+    // done in another tab.
     const onFocus = () => checkDriveStatus();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [checkDriveStatus]);
+  }, [checkDriveStatus, activeConnectionId]);
+
+  // Safety net: if status flips to disconnected (e.g. the re-check above)
+  // while the Drive detail panel happens to be open, close it instead of
+  // leaving a blank panel — its content is gated on driveConnected (below).
+  useEffect(() => {
+    if (detail?.type === "drive" && !driveConnected && !driveStatusLoading) {
+      setDetail(null);
+    }
+  }, [detail, driveConnected, driveStatusLoading]);
 
   const handleDriveDisconnect = async () => {
     const confirmed = await confirmDialog({
@@ -385,7 +403,7 @@ export function AccountingSoftwaresContent() {
                   <ConnectedRow
                     icon={<BrandIcon name="google-drive" size={28} />}
                     name="Google Drive"
-                    description="Posted invoices are copied to your Drive automatically."
+                    description={driveEmail || "Posted invoices are copied to your Drive automatically."}
                     badgeLabel="Connected"
                     badgeClassName="bg-[#0066DA]/10 text-[#0066DA]"
                     selected={detail?.type === "drive"}
@@ -556,7 +574,12 @@ export function AccountingSoftwaresContent() {
                 >
                   {reconnectingId === selectedConnection._id ? "Reconnecting…" : "Reconnect"}
                 </button>
-                {!isSelectedDisconnected && (
+                {/* Hidden once access is already revoked (reconnect_required) —
+                    there's nothing left to disconnect from until the owner
+                    re-authorizes, at which point this reappears (and, if the
+                    billing cycle has since rolled over, will fully free the
+                    slot instead of revoking again). */}
+                {!isSelectedDisconnected && !isSelectedReconnectRequired && (
                   <button
                     type="button"
                     onClick={handleDisconnectSelected}
@@ -584,6 +607,7 @@ export function AccountingSoftwaresContent() {
           {detail?.type === "drive" && driveConnected && (
             <DetailPanelShell title="Google Drive" subtitle="Connected account details" onClose={closeDetail}>
               <div className="mt-[var(--space-md)] flex flex-col divide-y divide-border">
+                <DetailRow label="Google account" value={driveEmail || "—"} />
                 <DetailRow label="Connected on" value={formatConnectedDate(driveConnectedAt)} />
                 <DetailRow
                   label="Linked QuickBooks company"

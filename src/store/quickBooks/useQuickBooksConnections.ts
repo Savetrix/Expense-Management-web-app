@@ -158,7 +158,20 @@ export function useQuickBooksConnections(redirectPath: string) {
     try {
       const result = await dispatch(disconnectQuickBooks({ accessToken, qbConnectionId: connection._id }));
       if (disconnectQuickBooks.fulfilled.match(result)) {
-        setConnections((prev) => prev.filter((c) => c._id !== connection._id));
+        // Slot was locked this billing cycle — the backend revoked QB access
+        // but deliberately kept the slot reserved (still isDeleted: false)
+        // instead of a full disconnect, so the connection stays in the list
+        // as "reconnect_required" rather than disappearing. Surface that
+        // explicitly, otherwise clicking Disconnect looks like a no-op.
+        if (result.payload?.data?.accessRevoked) {
+          const unlockAt = result.payload.data.unlockAt;
+          const unlockNote = unlockAt
+            ? ` Slot reserved until ${new Date(unlockAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.`
+            : "";
+          showToast(`QuickBooks access revoked.${unlockNote} Reconnect the same company anytime.`, "success");
+        } else {
+          setConnections((prev) => prev.filter((c) => c._id !== connection._id));
+        }
         await checkStatus();
         return true;
       }
