@@ -284,7 +284,7 @@ export function RegisterFormV2() {
                 <div className="h-px flex-1 bg-border" />
               </div>
 
-              <GoogleSignInButton onSuccess={() => router.push("/dashboard")} onError={setFormError} />
+              <GoogleSignInButton onSuccess={() => router.push("/v2/dashboard")} onError={setFormError} />
             </form>
           </Card>
         </div>

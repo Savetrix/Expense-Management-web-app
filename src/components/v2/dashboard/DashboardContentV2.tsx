@@ -743,19 +743,19 @@ export function DashboardContentV2() {
             <StatRowV2
               count={autoPostedInvoices.length}
               label="Auto-posted"
-              href="/invoices?type=auto"
+              href="/v2/invoices?type=auto"
               colorClass="text-status-success-text"
             />
             <StatRowV2
               count={manualPostedInvoices.length}
               label="Manually Posted"
-              href="/invoices?type=manual"
+              href="/v2/invoices?type=manual"
               colorClass="text-status-warning-text"
             />
             <StatRowV2
               count={failedInvoices.length}
               label="Failed"
-              href="/invoices?type=failed"
+              href="/v2/invoices?type=failed"
               colorClass="text-status-danger-text"
               last
             />
@@ -765,7 +765,7 @@ export function DashboardContentV2() {
 
       <div className="flex min-w-0 flex-col gap-[var(--space-md)] sm:col-span-2 lg:col-span-2">
         <Link
-          href="/invoices?type=pending"
+          href="/v2/invoices?type=pending"
           className="flex items-center gap-[var(--space-sm)] rounded-lg bg-nav-bg p-[var(--space-md)] text-white shadow-md"
         >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-accent">

@@ -65,7 +65,7 @@ export function LoginFormV2() {
         );
       }
     }
-    router.push("/dashboard");
+    router.push("/v2/dashboard");
   };
 
   const handleSubmit = async (event: FormEvent) => {

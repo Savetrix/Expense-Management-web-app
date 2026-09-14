@@ -385,7 +385,7 @@ export function TeamMembersContentV2() {
               : "Connect a QuickBooks company before inviting your team to collaborate on it."}
           </p>
           {connections.length === 0 && (
-            <Link href="/quickbooks">
+            <Link href="/v2/quickbooks">
               <Button className="mt-[var(--space-md)]">
                 Connect QuickBooks
               </Button>
