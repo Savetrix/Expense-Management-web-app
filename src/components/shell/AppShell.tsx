@@ -27,6 +27,7 @@ import { ExpandTransitionOverlay } from "@/components/shell/ExpandTransitionOver
 import { GlobalSearchBar } from "@/components/shell/GlobalSearchBar";
 import { NotificationBell } from "@/components/shell/NotificationBell";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
 import { showToast } from "@/lib/dialogManager";
 import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
@@ -141,6 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const [connections, setConnections] = useState<QBConnection[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [addingAccount, setAddingAccount] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -268,9 +270,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? `All ${subscription!.maxSlots} QuickBooks slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
     : undefined;
 
+  // Opens the QB-slots modal instead of jumping straight into the OAuth
+  // redirect — lets the user see how many of their plan's slots are already
+  // used before leaving the app.
+  const handleOpenAddAccount = () => {
+    setSwitcherOpen(false);
+    setAddAccountModalOpen(true);
+  };
+
   const handleAddAccount = async () => {
     if (!accessToken || addingAccount || qbSlotsFull) return;
-    setSwitcherOpen(false);
+    setAddAccountModalOpen(false);
     setAddingAccount(true);
     try {
       const redirectAfter = `${window.location.origin}${pathname}`;
@@ -508,9 +518,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <div className="mt-[var(--space-xs)] border-t border-border pt-[var(--space-xs)]">
                       <button
                         type="button"
-                        onClick={handleAddAccount}
-                        disabled={addingAccount || qbSlotsFull}
-                        title={addAccountTitle}
+                        onClick={handleOpenAddAccount}
+                        disabled={addingAccount}
                         className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-sm)] text-left text-body-sm font-semibold text-accent hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-content-secondary">
@@ -634,6 +643,65 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
+
+      <Modal
+        open={addAccountModalOpen}
+        onClose={() => setAddAccountModalOpen(false)}
+        title="Add a QuickBooks account"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setAddAccountModalOpen(false)}
+              className="rounded-lg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-secondary hover:bg-surface-alt"
+            >
+              Cancel
+            </button>
+            {qbSlotsFull ? (
+              <Link
+                href="/v2/subscription"
+                onClick={() => setAddAccountModalOpen(false)}
+                className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover"
+              >
+                Upgrade plan
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={handleAddAccount}
+                disabled={addingAccount}
+                className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {addingAccount ? "Connecting…" : "Continue to QuickBooks"}
+              </button>
+            )}
+          </>
+        }
+      >
+        <p className="text-body-sm text-content-secondary">
+          Each connected QuickBooks company uses one slot on your plan.
+        </p>
+        <div className="mt-[var(--space-md)]">
+          {subscription ? (
+            <ModalDefinitionRow label="Plan">{subscription.planName}</ModalDefinitionRow>
+          ) : null}
+          <ModalDefinitionRow label="Slots used">
+            {subscription ? `${subscription.slotsUsed} / ${subscription.maxSlots}` : "—"}
+          </ModalDefinitionRow>
+        </div>
+        {subscription && (
+          <div className="mt-[var(--space-sm)]">
+            <ProgressBar
+              percent={(subscription.slotsUsed / Math.max(subscription.maxSlots, 1)) * 100}
+              colorClassName={qbSlotsFull ? "bg-status-danger" : "bg-accent"}
+              label="QuickBooks slots used"
+            />
+          </div>
+        )}
+        {qbSlotsFull && (
+          <p className="mt-[var(--space-md)] text-body-sm text-status-danger">{addAccountTitle}</p>
+        )}
+      </Modal>
     </div>
   );
 }

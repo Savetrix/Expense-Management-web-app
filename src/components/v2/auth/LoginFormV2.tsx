@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
+import { TextInput } from "@/components/v2/ui/TextInput";
 import { PasswordInput } from "@/components/v2/ui/PasswordInput";
 import { loginUser } from "@/store/auth/authApi";
 import { acceptQBInvite } from "@/store/quickBooks/quickBooksApi";
@@ -138,7 +138,7 @@ export function LoginFormV2() {
 
           <Card>
             <form className="flex flex-col gap-[var(--space-md)]" onSubmit={handleSubmit} noValidate>
-              <Input
+              <TextInput
                 label="Email"
                 type="email"
                 name="email"

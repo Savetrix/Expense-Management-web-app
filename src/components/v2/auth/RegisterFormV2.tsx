@@ -6,8 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
+import { TextInput } from "@/components/v2/ui/TextInput";
 import { PasswordInput } from "@/components/v2/ui/PasswordInput";
 import { SelectDropdown } from "@/components/v2/ui/SelectDropdown";
 import { registerUser } from "@/store/auth/authApi";
@@ -185,7 +185,7 @@ export function RegisterFormV2() {
           <Card>
             <form className="flex flex-col gap-[var(--space-md)]" onSubmit={handleSubmit} noValidate>
               <div className="grid grid-cols-2 gap-[var(--space-md)]">
-                <Input
+                <TextInput
                   label="First name"
                   name="firstName"
                   autoComplete="given-name"
@@ -195,7 +195,7 @@ export function RegisterFormV2() {
                   onChange={(e) => handleChange("firstName", e.target.value)}
                   onBlur={() => handleBlur("firstName")}
                 />
-                <Input
+                <TextInput
                   label="Last name"
                   name="lastName"
                   autoComplete="family-name"
@@ -207,7 +207,7 @@ export function RegisterFormV2() {
                 />
               </div>
 
-              <Input
+              <TextInput
                 label="Email"
                 type="email"
                 name="email"
