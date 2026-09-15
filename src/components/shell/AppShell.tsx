@@ -26,11 +26,15 @@ import { ChatWidget } from "@/components/chatbot/ChatWidget";
 import { ExpandTransitionOverlay } from "@/components/shell/ExpandTransitionOverlay";
 import { GlobalSearchBar } from "@/components/shell/GlobalSearchBar";
 import { NotificationBell } from "@/components/shell/NotificationBell";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
+import { showToast } from "@/lib/dialogManager";
 import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
-import { getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
+import { connectQuickBooks, getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
+import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 
 interface QBConnection {
   _id: string;
@@ -46,21 +50,24 @@ interface QBConnection {
 // (see AccountingSoftwaresContent's connected-accounts drill-down) — a
 // separate top-level "QuickBooks" link duplicated that same destination.
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/invoices", label: "Invoices", icon: FileText },
-  { href: "/team", label: "Team", icon: Users },
-  { href: "/vendors", label: "Vendors", icon: Store },
-  { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
-  { href: "/accounting-software", label: "Integrations", icon: Puzzle },
-  { href: "/subscription", label: "Subscription", icon: CreditCard },
+  { href: "/v2/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/v2/invoices", label: "Invoices", icon: FileText },
+  { href: "/v2/team", label: "Team", icon: Users },
+  { href: "/v2/vendors", label: "Vendors", icon: Store },
+  { href: "/v2/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
+  { href: "/v2/accounting-software", label: "Integrations", icon: Puzzle },
+  { href: "/v2/subscription", label: "Subscription", icon: CreditCard },
 ] as const;
 
 // Floating label that appears next to a single icon on hover, instead of
 // widening the whole rail — keeps every other row untouched while you're
 // pointed at one of them. Only used while the sidebar isn't pinned open,
 // since a pinned sidebar already shows the label inline.
+// Fixed dark nav-bg rather than a token that flips with the theme (e.g.
+// trust-navy/content-primary) — this floats over the page content, not the
+// sidebar, so it needs to stay legible against either page background.
 const TOOLTIP_CLASS =
-  "pointer-events-none absolute left-full top-1/2 z-20 ml-[var(--space-sm)] -translate-y-1/2 whitespace-nowrap rounded-md bg-trust-navy px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold text-white opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100";
+  "pointer-events-none absolute left-full top-1/2 z-20 ml-[var(--space-sm)] -translate-y-1/2 whitespace-nowrap rounded-md bg-nav-bg px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold text-white opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100";
 
 function NavLink({
   item,
@@ -73,19 +80,26 @@ function NavLink({
 }) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
   const Icon = item.icon;
-  // Active fill is bright teal (primary-500) — white text on it measures
-  // under 3:1 (same finding as Button's primary variant, see
-  // DESIGN_ASSUMPTIONS.md D2.3), so it uses dark text-text-primary instead.
   return (
     <Link
       href={item.href}
       aria-label={item.label}
-      className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold ${
+      className={`group relative flex items-center gap-[var(--space-sm)] overflow-hidden rounded-sm py-[var(--space-sm)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
         collapsed ? "justify-center" : "px-[var(--space-md)]"
-      } ${active ? "bg-primary-500 text-text-primary" : "text-primary-100 hover:bg-white/10 hover:text-white"}`}
+      } ${active ? "bg-nav-tab-active text-nav-text-active shadow-sm" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
     >
+      {active && (
+        <span className="absolute h-full left-0 w-1 rounded-full bg-accent" aria-hidden="true" />
+      )}
       <Icon size={18} strokeWidth={2} className="shrink-0" />
-      {collapsed ? <span className={TOOLTIP_CLASS}>{item.label}</span> : <span className="truncate">{item.label}</span>}
+      <span
+        className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+          collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+        }`}
+      >
+        {item.label}
+      </span>
+      {collapsed && <span className={TOOLTIP_CLASS}>{item.label}</span>}
     </Link>
   );
 }
@@ -120,9 +134,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const user = useAppSelector((state) => state.auth.user);
   const accessToken: string | undefined = user?.data?.accessToken;
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
+  // Governs the "Add account" row in the switcher below — a plan's
+  // QuickBooks slots are a hard backend limit (402 on connect once full), so
+  // this disables the row proactively instead of letting the OAuth round
+  // trip fail.
+  const subscription = useAppSelector((state) => state.subscription.subscription);
 
   const [connections, setConnections] = useState<QBConnection[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const collapsed = !pinned;
@@ -155,6 +176,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         setConnections(result.payload?.data?.connections ?? []);
       }
     })();
+  }, [accessToken, dispatch]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    dispatch(fetchMySubscription());
   }, [accessToken, dispatch]);
 
   // Read the persisted preference after mount rather than in useState's
@@ -236,28 +262,89 @@ export function AppShell({ children }: { children: ReactNode }) {
     await dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: connection._id }));
   };
 
+  // subscription is only null before fetchMySubscription resolves — don't
+  // disable the row on that brief gap, only once the real numbers say the
+  // plan's QuickBooks slots are actually full.
+  const qbSlotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  const addAccountTitle = qbSlotsFull
+    ? `All ${subscription!.maxSlots} QuickBooks slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+    : undefined;
+
+  // Opens the QB-slots modal instead of jumping straight into the OAuth
+  // redirect — lets the user see how many of their plan's slots are already
+  // used before leaving the app.
+  const handleOpenAddAccount = () => {
+    setSwitcherOpen(false);
+    setAddAccountModalOpen(true);
+  };
+
+  const handleAddAccount = async () => {
+    if (!accessToken || addingAccount || qbSlotsFull) return;
+    setAddAccountModalOpen(false);
+    setAddingAccount(true);
+    try {
+      const redirectAfter = `${window.location.origin}${pathname}`;
+      const result = await dispatch(connectQuickBooks({ accessToken, redirectAfter }));
+      if (connectQuickBooks.fulfilled.match(result)) {
+        const authUrl = result.payload?.data?.authUrl;
+        if (authUrl) {
+          window.location.href = authUrl;
+          return;
+        }
+        showToast("Could not start QuickBooks connection. Please try again.", "error");
+      } else {
+        showToast(typeof result.payload === "string" ? result.payload : "Could not start QuickBooks connection.", "error");
+      }
+    } finally {
+      setAddingAccount(false);
+    }
+  };
+
   const name = capitalizeWords(user?.data?.user?.firstName || user?.data?.user?.email?.split("@")[0] || "Account");
   const photoURL = normalizePhotoURL(user?.data?.user?.icon);
 
   return (
-    <div className="flex h-dvh bg-background-alt">
+    <div className="flex h-dvh bg-page">
       <aside
-        className={`hidden h-dvh shrink-0 flex-col border-r border-primary-800 bg-primary-900 transition-[width] duration-200 ease-in-out lg:flex ${
+        className={`relative hidden h-dvh shrink-0 flex-col border-r border-nav-hover bg-nav-bg transition-[width] duration-300 ease-in-out lg:flex ${
           collapsed ? "w-16" : "w-64"
         }`}
       >
-        <div className={`flex h-16 shrink-0 items-center ${collapsed ? "justify-center" : "px-[var(--space-lg)]"}`}>
+        <button
+          type="button"
+          onClick={togglePinned}
+          aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
+          // z-50: higher than any per-screen sticky sub-header (several v2
+          // screens use `sticky top-0 z-40` for their own back/title bar,
+          // which spans the full width of <main> and was painting over the
+          // right half of this button — it pokes -right-4 past the sidebar's
+          // own edge into that same area).
+          className="absolute -right-4 top-12 z-50 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-nav-bg bg-accent text-black shadow-md transition-colors hover:bg-accent-hover"
+        >
+          {collapsed ? (
+            <ChevronsRight size={16} strokeWidth={2.5} className="shrink-0" />
+          ) : (
+            <ChevronsLeft size={16} strokeWidth={2.5} className="shrink-0" />
+          )}
+        </button>
+
+        <div
+          className={`flex h-16 shrink-0 items-center overflow-hidden transition-[padding] duration-300 ease-in-out ${collapsed ? "justify-center" : "px-[var(--space-lg)]"}`}
+        >
           <Link
-            href="/dashboard"
+            href="/v2/dashboard"
             aria-label="Go to dashboard"
             className="group relative flex min-w-0 items-center gap-[var(--space-sm)]"
           >
             <Image src="/scantrix-icon.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
-            {collapsed ? (
-              <span className={TOOLTIP_CLASS}>Scantrix</span>
-            ) : (
-              <span className="truncate text-h3 font-bold text-white">Scantrix</span>
-            )}
+            <span
+              className={`truncate text-h3 font-bold text-white transition-[max-width,opacity] duration-300 ease-in-out ${
+                collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+              }`}
+            >
+              Scantrix
+            </span>
+            {collapsed && <span className={TOOLTIP_CLASS}>Scantrix</span>}
           </Link>
         </div>
 
@@ -271,26 +358,33 @@ export function AppShell({ children }: { children: ReactNode }) {
             part of NAV_ITEMS' active-link rendering. Jumps straight into
             create mode via a ?create=true param VendorsContent/
             GLTaxCodeContent watch for. */}
-        <div className={`shrink-0 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
+        <div className={`shrink-0 mt-5 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
           <div className="group relative">
             <div
-              className={`flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 group-hover:bg-white/10 group-hover:text-white ${
-                collapsed ? "justify-center" : "px-[var(--space-md)]"
+              className={`flex items-center gap-[var(--space-sm)] overflow-hidden bg-accent py-[var(--space-sm)] text-body-sm font-bold text-accent-ink shadow-sm transition-colors duration-300 ease-in-out hover:bg-accent-hover ${
+                collapsed ? "justify-center rounded-full" : "rounded-lg px-[var(--space-md)]"
               }`}
             >
-              <Plus size={18} strokeWidth={2} className="shrink-0" />
-              {collapsed ? <span className={TOOLTIP_CLASS}>Create</span> : <span className="truncate">Create</span>}
+              <Plus size={18} strokeWidth={2.5} className="shrink-0" />
+              <span
+                className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+                  collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+                }`}
+              >
+                Create
+              </span>
+              {collapsed && <span className={TOOLTIP_CLASS}>Create</span>}
             </div>
-            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-md border border-border bg-white opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
+            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-lg border border-border bg-surface opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
               <Link
-                href="/vendors?create=true"
-                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-text-primary hover:bg-background-alt"
+                href="/v2/vendors?create=true"
+                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
               >
                 Vendor
               </Link>
               <Link
-                href="/gl-tax-codes?create=true"
-                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-text-primary hover:bg-background-alt"
+                href="/v2/gl-tax-codes?create=true"
+                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
               >
                 GL Account
               </Link>
@@ -302,40 +396,21 @@ export function AppShell({ children }: { children: ReactNode }) {
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
           ))}
-
-          {/* Manual pin toggle, right after Subscription — the rest of the
-              sidebar already expands per-row on hover, but some users want
-              it pinned open (or closed) instead of relying on that. */}
-          <button
-            type="button"
-            onClick={togglePinned}
-            aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
-            className={`group relative flex items-center gap-[var(--space-sm)] rounded-md py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white ${
-              collapsed ? "justify-center" : "px-[var(--space-md)]"
-            }`}
-          >
-            {collapsed ? (
-              <ChevronsRight size={18} strokeWidth={2} className="shrink-0" />
-            ) : (
-              <ChevronsLeft size={18} strokeWidth={2} className="shrink-0" />
-            )}
-            {collapsed ? (
-              <span className={TOOLTIP_CLASS}>Pin sidebar open</span>
-            ) : (
-              <span className="truncate">Collapse sidebar</span>
-            )}
-          </button>
         </nav>
 
-        <div className={`shrink-0 border-t border-primary-800 ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
+        <div className={`shrink-0  ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
           <Link
-            href="/profile"
+            href="/v2/profile"
             aria-label={name}
-            className={`group relative mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-md py-[var(--space-xs)] text-body-sm font-semibold ${
+            className={`group relative mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] overflow-hidden truncate rounded-xl py-[var(--space-xs)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
               collapsed ? "justify-center" : "px-[var(--space-sm)]"
-            } ${pathname === "/profile" ? "bg-primary-500 text-text-primary" : "text-primary-100 hover:bg-white/10 hover:text-white"}`}
+            } ${
+              pathname === "/v2/profile"
+                ? "bg-accent text-accent-ink  shadow-sm"
+                : `text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${collapsed ? "" : ""}`
+            }`}
           >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-400 text-caption font-bold text-primary-900">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-caption font-bold text-accent-ink">
               {photoURL ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={photoURL} alt={name} className="h-full w-full object-cover" />
@@ -343,33 +418,48 @@ export function AppShell({ children }: { children: ReactNode }) {
                 name.charAt(0).toUpperCase()
               )}
             </span>
-            {collapsed ? <span className={TOOLTIP_CLASS}>{name}</span> : name}
+            <span
+              className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+                collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+              }`}
+            >
+              {name}
+            </span>
+            {collapsed && <span className={TOOLTIP_CLASS}>{name}</span>}
           </Link>
-          {/* Same near-black sidebar fill as everywhere else in this rail, so
-              logout keeps the light text-primary-100 treatment rather than
-              text-error — dark red on near-black falls under 4.5:1 (~3.6:1). */}
+          {/* Same dark sidebar fill as everywhere else in this rail, so
+              logout keeps the nav-text treatment rather than a status-danger
+              token — those are calibrated against light surfaces, not this
+              dark nav-bg fill. */}
           <button
             type="button"
             onClick={logout}
             aria-label="Logout"
-            className={`flex w-full items-center gap-[var(--space-sm)] rounded-md py-[var(--space-xs)] text-left text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white ${
+            className={`flex w-full items-center gap-[var(--space-sm)] overflow-hidden rounded-lg py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text transition-colors duration-300 ease-in-out hover:bg-nav-hover hover:text-nav-text-active ${
               collapsed ? "group relative justify-center" : "px-[var(--space-sm)]"
             }`}
           >
             <LogOut size={16} strokeWidth={2} className="shrink-0" />
-            {collapsed ? <span className={TOOLTIP_CLASS}>Logout</span> : "Logout"}
+            <span
+              className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+                collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+              }`}
+            >
+              Logout
+            </span>
+            {collapsed && <span className={TOOLTIP_CLASS}>Logout</span>}
           </button>
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-[var(--space-sm)] border-b border-border bg-white px-[var(--space-md)] lg:gap-[var(--space-md)] lg:px-[var(--space-lg)]">
+        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-[var(--space-sm)]  bg-surface px-[var(--space-md)] lg:gap-[var(--space-md)] lg:px-[var(--space-lg)]">
           <div className="flex min-w-0 items-center gap-[var(--space-sm)]">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
               aria-label="Open menu"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-background-alt lg:hidden"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-alt lg:hidden"
             >
               <Menu size={20} strokeWidth={2} />
             </button>
@@ -379,28 +469,28 @@ export function AppShell({ children }: { children: ReactNode }) {
                   type="button"
                   onClick={() => setSwitcherOpen((v) => !v)}
                   aria-expanded={switcherOpen}
-                  className={`flex min-w-0 items-center gap-[var(--space-sm)] rounded-md border px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm ${
+                  className={`flex min-w-0 items-center gap-[var(--space-sm)] rounded-lg border px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm ${
                     needsEntitySelection
-                      ? "animate-pulse border-primary bg-primary-50 ring-2 ring-primary/50"
-                      : "border-border bg-background-soft"
+                      ? "animate-pulse border-accent bg-accent-bg ring-2 ring-accent-soft"
+                      : "border-border bg-page"
                   }`}
                 >
-                  <span className="min-w-0 truncate font-semibold text-text-primary">
+                  <span className="min-w-0 truncate font-semibold text-content-primary">
                     {activeConnection?.name ?? "Select your company"}
                   </span>
                   <ChevronDown
                     size={16}
-                    className={`shrink-0 transition-transform ${needsEntitySelection ? "text-primary" : "text-text-secondary"} ${switcherOpen ? "rotate-180" : ""}`}
+                    className={`shrink-0 transition-transform ${needsEntitySelection ? "text-accent" : "text-content-secondary"} ${switcherOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 {switcherOpen && (
-                  <div className="absolute left-0 top-full z-10 mt-[var(--space-xs)] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-white p-[var(--space-xs)] shadow-md">
+                  <div className="absolute left-0 top-full z-10 mt-[var(--space-xs)] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-[var(--space-xs)] shadow-md">
                     {/* Caret is part of this panel, not separately positioned
                         against the trigger button — so it's welded to
                         wherever the dropdown itself ends up (its width is
                         capped by max-w-[calc(100vw-2rem)] on narrow screens),
                         instead of drifting out of sync with it. */}
-                    <span className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-border bg-white" />
+                    <span className="absolute -top-1.5 left-4 h-3 w-3 rotate-45 border-l border-t border-border bg-surface" />
                     {connectedAccounts.map((connection) => {
                       const isActive = connection._id === qbConnectionId;
                       return (
@@ -409,17 +499,37 @@ export function AppShell({ children }: { children: ReactNode }) {
                           type="button"
                           onClick={() => handleSwitch(connection)}
                           className={`flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-sm)] text-left text-body-sm ${
-                            isActive ? "bg-primary-50 font-bold text-primary-700" : "text-text-primary hover:bg-background-alt"
+                            isActive ? "bg-accent-bg font-bold text-accent-text-on-bg" : "text-content-primary hover:bg-surface-alt"
                           }`}
                         >
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-caption font-bold text-primary-700">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-bg text-caption font-bold text-accent-text-on-bg">
                             {connection.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="min-w-0 flex-1 truncate">{connection.name}</span>
-                          {isActive && <Check size={16} strokeWidth={2.5} className="shrink-0 text-primary-600" />}
+                          {isActive && <Check size={16} strokeWidth={2.5} className="shrink-0 text-accent" />}
                         </button>
                       );
                     })}
+
+                    {/* Same connect flow as the "Add account" row on the
+                        Integrations page — QuickBooks connection management
+                        used to live only there, this just offers the same
+                        action from wherever the switcher already is. */}
+                    <div className="mt-[var(--space-xs)] border-t border-border pt-[var(--space-xs)]">
+                      <button
+                        type="button"
+                        onClick={handleOpenAddAccount}
+                        disabled={addingAccount}
+                        className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-sm)] text-left text-body-sm font-semibold text-accent hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-content-secondary">
+                          <Plus size={14} strokeWidth={2.5} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {addingAccount ? "Connecting…" : "Add account"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -427,7 +537,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <h2
-            className={`hidden truncate text-center text-h3 font-bold text-trust-navy transition-opacity duration-200 sm:block ${
+            className={`hidden truncate text-center text-h3 font-bold text-content-primary transition-opacity duration-200 sm:block ${
               greetingFading ? "opacity-0" : "opacity-100"
             }`}
           >
@@ -438,6 +548,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <GlobalSearchBar />
 
             <ChatWidget companyName={activeConnection?.name} />
+
+            <ThemeToggle />
 
             <NotificationBell />
           </div>
@@ -451,11 +563,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileNavOpen(false)} />
           <div
-            className="relative flex h-full w-72 max-w-[85vw] flex-col bg-primary-900 shadow-xl"
+            className="relative flex h-full w-72 max-w-[85vw] flex-col bg-nav-bg shadow-xl"
             onClick={() => setMobileNavOpen(false)}
           >
-            <div className="flex h-16 shrink-0 items-center justify-between px-[var(--space-lg)]">
-              <Link href="/dashboard" aria-label="Go to dashboard" className="flex min-w-0 items-center gap-[var(--space-sm)]">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-nav-hover px-[var(--space-lg)]">
+              <Link href="/v2/dashboard" aria-label="Go to dashboard" className="flex min-w-0 items-center gap-[var(--space-sm)]">
                 <Image src="/scantrix-icon.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
                 <span className="truncate text-h3 font-bold text-white">Scantrix</span>
               </Link>
@@ -463,7 +575,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
                 aria-label="Close menu"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-primary-100 hover:bg-white/10 hover:text-white"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <X size={20} strokeWidth={2} />
               </button>
@@ -473,19 +585,19 @@ export function AppShell({ children }: { children: ReactNode }) {
                 touch equivalent — the two destinations are always-visible
                 links here instead. */}
             <div className="shrink-0 px-[var(--space-sm)] pb-[var(--space-xs)]">
-              <p className="px-[var(--space-md)] pb-[var(--space-xs)] text-caption font-bold uppercase tracking-wide text-primary-200">
+              <p className="px-[var(--space-md)] pb-[var(--space-xs)] text-caption font-bold uppercase tracking-wide text-nav-muted">
                 Create
               </p>
               <Link
-                href="/vendors?create=true"
-                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white"
+                href="/v2/vendors?create=true"
+                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <Plus size={16} strokeWidth={2} className="shrink-0" />
                 Vendor
               </Link>
               <Link
-                href="/gl-tax-codes?create=true"
-                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white"
+                href="/v2/gl-tax-codes?create=true"
+                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <Plus size={16} strokeWidth={2} className="shrink-0" />
                 GL Account
@@ -498,15 +610,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               ))}
             </nav>
 
-            <div className="shrink-0 border-t border-primary-800 p-[var(--space-md)]">
+            <div className="shrink-0 border-t border-nav-hover p-[var(--space-md)]">
               <Link
-                href="/profile"
+                href="/v2/profile"
                 aria-label={name}
-                className={`mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold ${
-                  pathname === "/profile" ? "bg-primary-500 text-text-primary" : "text-primary-100 hover:bg-white/10 hover:text-white"
+                className={`mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-xl border px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold ${
+                  pathname === "/v2/profile"
+                    ? "bg-accent text-accent-ink border-transparent shadow-sm"
+                    : "border-nav-hover text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
                 }`}
               >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-400 text-caption font-bold text-primary-900">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-caption font-bold text-accent-ink">
                   {photoURL ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={photoURL} alt={name} className="h-full w-full object-cover" />
@@ -520,7 +634,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={logout}
                 aria-label="Logout"
-                className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm font-semibold text-primary-100 hover:bg-white/10 hover:text-white"
+                className="flex w-full items-center gap-[var(--space-sm)] rounded-lg px-[var(--space-sm)] py-[var(--space-xs)] text-left text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <LogOut size={16} strokeWidth={2} className="shrink-0" />
                 Logout
@@ -529,6 +643,65 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
+
+      <Modal
+        open={addAccountModalOpen}
+        onClose={() => setAddAccountModalOpen(false)}
+        title="Add a QuickBooks account"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setAddAccountModalOpen(false)}
+              className="rounded-lg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-secondary hover:bg-surface-alt"
+            >
+              Cancel
+            </button>
+            {qbSlotsFull ? (
+              <Link
+                href="/v2/subscription"
+                onClick={() => setAddAccountModalOpen(false)}
+                className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover"
+              >
+                Upgrade plan
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={handleAddAccount}
+                disabled={addingAccount}
+                className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {addingAccount ? "Connecting…" : "Continue to QuickBooks"}
+              </button>
+            )}
+          </>
+        }
+      >
+        <p className="text-body-sm text-content-secondary">
+          Each connected QuickBooks company uses one slot on your plan.
+        </p>
+        <div className="mt-[var(--space-md)]">
+          {subscription ? (
+            <ModalDefinitionRow label="Plan">{subscription.planName}</ModalDefinitionRow>
+          ) : null}
+          <ModalDefinitionRow label="Slots used">
+            {subscription ? `${subscription.slotsUsed} / ${subscription.maxSlots}` : "—"}
+          </ModalDefinitionRow>
+        </div>
+        {subscription && (
+          <div className="mt-[var(--space-sm)]">
+            <ProgressBar
+              percent={(subscription.slotsUsed / Math.max(subscription.maxSlots, 1)) * 100}
+              colorClassName={qbSlotsFull ? "bg-status-danger" : "bg-accent"}
+              label="QuickBooks slots used"
+            />
+          </div>
+        )}
+        {qbSlotsFull && (
+          <p className="mt-[var(--space-md)] text-body-sm text-status-danger">{addAccountTitle}</p>
+        )}
+      </Modal>
     </div>
   );
 }

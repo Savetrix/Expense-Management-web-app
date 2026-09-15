@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -17,6 +17,8 @@ const DEBOUNCE_MS = 150;
 export function GlobalSearchBar() {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const pathname = usePathname();
+  const isV2 = pathname.startsWith("/v2");
 
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
@@ -106,7 +108,10 @@ export function GlobalSearchBar() {
     setMobileOpen(false);
     setRawQuery("");
     setQuery("");
-    router.push(result.href);
+    // searchAll's hrefs are all v1 paths (see src/lib/globalSearch.ts) — stay
+    // inside v2 when the search bar is invoked from a v2 screen instead of
+    // bouncing back to the legacy route.
+    router.push(isV2 ? `/v2${result.href}` : result.href);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

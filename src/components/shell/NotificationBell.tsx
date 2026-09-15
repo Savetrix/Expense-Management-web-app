@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, CheckCircle2, Info, XCircle } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, Info, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -15,12 +15,14 @@ import {
 const NOTIFICATION_ICON = {
   success: CheckCircle2,
   error: XCircle,
+  warning: AlertTriangle,
   info: Info,
 } as const;
 
 const NOTIFICATION_ICON_CLASS = {
   success: "text-success",
   error: "text-error",
+  warning: "text-warning",
   info: "text-trust-navy",
 } as const;
 

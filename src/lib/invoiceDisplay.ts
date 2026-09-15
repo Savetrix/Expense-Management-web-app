@@ -20,19 +20,19 @@ export const INVOICE_STATUS_THEME: Record<InvoiceStatus, InvoiceStatusTheme> = {
   auto: {
     label: "Auto-Posted",
     badgeClass: "bg-primary-100 text-primary-700",
-    cardBgClass: "bg-primary-50",
-    // Same dark green as the sidebar/pending-review card (--color-primary-900)
-    // rather than a separate success-green, so "auto-posted" reads as one
-    // consistent brand color everywhere instead of two different greens.
+    // Theme's success tokens — StatRow (Dashboard's Auto-posted/Manually
+    // Posted/Failed pills) reads cardBgClass/accentTextClass, which now
+    // stay correctly paired in dark mode instead of a fixed light tint.
+    cardBgClass: "bg-status-success-bg",
     accentHex: "#06332f",
-    accentTextClass: "text-primary-700",
+    accentTextClass: "text-status-success-text",
   },
   manual: {
     label: "Manually Posted",
     badgeClass: "bg-warning/10 text-warning",
-    cardBgClass: "bg-[#F8EEDC]",
+    cardBgClass: "bg-status-warning-bg",
     accentHex: "#EDA320",
-    accentTextClass: "text-[#EDA320]",
+    accentTextClass: "text-status-warning-text",
   },
   pending: {
     label: "Pending",
@@ -51,9 +51,9 @@ export const INVOICE_STATUS_THEME: Record<InvoiceStatus, InvoiceStatusTheme> = {
   failed: {
     label: "Failed",
     badgeClass: "bg-error/10 text-error",
-    cardBgClass: "bg-[#F8E7E8]",
+    cardBgClass: "bg-status-danger-bg",
     accentHex: "#E74949",
-    accentTextClass: "text-[#E74949]",
+    accentTextClass: "text-status-danger-text",
   },
 };
 

@@ -6,7 +6,7 @@
 import EventEmitter from "eventemitter3";
 
 export type DialogTone = "default" | "destructive";
-export type ToastTone = "success" | "error" | "info";
+export type ToastTone = "success" | "error" | "warning" | "info";
 
 export interface ConfirmRequest {
   id: number;
@@ -39,9 +39,9 @@ export const dialogEmitter = new EventEmitter();
 export const CONFIRM_REQUEST = "CONFIRM_REQUEST";
 export const NOTIFICATIONS_CHANGED = "NOTIFICATIONS_CHANGED";
 
-// showToast() only ever renders as a notification-bar entry (NotificationBell's
-// preview bubble + dropdown history) — there is no separate bottom-corner
-// toast anymore, so every call shows up exactly once. Capped, in-memory only
+// showToast() renders in two places off the one event: DialogHost paints it
+// as a bottom-center toast (the transient, auto-dismissing UI) and
+// NotificationBell logs it into the dropdown history. Capped, in-memory only
 // — no persistence across a page reload.
 const MAX_NOTIFICATIONS = 30;
 let notifications: NotificationItem[] = [];
@@ -86,10 +86,10 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<ConfirmRes
   });
 }
 
-// Replaces window.alert for non-confirmation notices (success/error/info).
-// Surfaces solely through NotificationBell's preview bubble + dropdown
-// history (auto-dismisses there same as a toast would), unlike a
-// confirmation which must stay until the user decides. See
+// Replaces window.alert for non-confirmation notices (success/error/warning/
+// info). Surfaces as a bottom-center toast via DialogHost (auto-dismisses),
+// unlike a confirmation which must stay until the user decides, and is
+// logged into NotificationBell's history at the same time. See
 // DESIGN_ASSUMPTIONS.md D1.3.
 export function showToast(message: string, tone: ToastTone = "info"): void {
   const id = ++nextId;

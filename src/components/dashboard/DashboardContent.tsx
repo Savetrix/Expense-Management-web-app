@@ -118,7 +118,7 @@ function InvoiceDropzone({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={`flex min-h-[280px] flex-1 cursor-pointer flex-col items-center justify-center gap-[var(--space-sm)] rounded-lg border-2 border-dashed p-[var(--space-xl)] text-center transition-colors ${
-        dragActive ? "border-primary-500 bg-primary-100" : "border-primary-300 bg-background-soft hover:border-primary-500 hover:bg-primary-100"
+        dragActive ? "border-accent bg-accent-bg" : "border-border-strong bg-surface-alt hover:border-accent hover:bg-accent-bg"
       } ${uploading ? "pointer-events-none opacity-70" : ""}`}
     >
       <input
@@ -130,8 +130,8 @@ function InvoiceDropzone({
         disabled={uploading}
         onChange={handleChange}
       />
-      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-100 shadow-sm">
-        {uploading ? <Spinner size="md" /> : <Upload size={26} strokeWidth={2} className="text-primary" />}
+      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-bg shadow-sm">
+        {uploading ? <Spinner size="md" /> : <Upload size={26} strokeWidth={2} className="text-accent-text-on-bg" />}
       </span>
       <p className="text-body font-bold text-trust-navy">
         {uploading ? progressLabel || "Uploading…" : "Drag & drop your invoices"}
@@ -145,16 +145,14 @@ function InvoiceDropzone({
 
 // Independent of INVOICE_STATUS_THEME (auto/manual/pending/processing/failed)
 // — this table collapses auto+manual into one "Posted" pill, matching the
-// simpler three-bucket view this specific table is going for. Posted reuses
-// the same dark-green primary tokens as the rest of the app's auto-posted
-// styling per the earlier color-unification pass.
+// simpler three-bucket view this specific table is going for. Each bucket
+// maps to one of the theme's status-* token groups so the pill stays
+// correctly paired (text/bg/border) in both light and dark mode.
 const RECENT_STATUS_STYLE = {
-  posted: { label: "Posted", dot: "bg-primary-600", text: "text-primary-700", bg: "bg-primary-50" },
-  // Matches INVOICE_STATUS_THEME.pending / InvoiceDetailContent's pending
-  // theme (trust-navy) instead of warning-yellow, for cross-page consistency.
-  pending: { label: "Pending", dot: "bg-trust-navy", text: "text-trust-navy", bg: "bg-trust-navy/10" },
-  processing: { label: "Processing", dot: "bg-warning", text: "text-warning", bg: "bg-warning/10" },
-  failed: { label: "Failed", dot: "bg-error", text: "text-error", bg: "bg-error/10" },
+  posted: { label: "Posted", dot: "bg-status-success-text", text: "text-status-success-text", bg: "bg-status-success-bg" },
+  pending: { label: "Pending", dot: "bg-status-info-text", text: "text-status-info-text", bg: "bg-status-info-bg" },
+  processing: { label: "Processing", dot: "bg-status-warning-text", text: "text-status-warning-text", bg: "bg-status-warning-bg" },
+  failed: { label: "Failed", dot: "bg-status-danger-text", text: "text-status-danger-text", bg: "bg-status-danger-bg" },
 } as const;
 
 function recentStatusKey(status: ReturnType<typeof getInvoiceStatus>): keyof typeof RECENT_STATUS_STYLE {
@@ -207,7 +205,7 @@ function RecentInvoiceRow({
         }
       }}
       className={`flex cursor-pointer flex-col gap-[var(--space-sm)] rounded-lg border border-border px-[var(--space-sm)] py-[var(--space-sm)] lg:grid lg:grid-cols-[auto_auto_2fr_1fr_0.9fr_0.9fr_20px] lg:items-center lg:gap-[var(--space-sm)] lg:border-0 ${
-        selected ? "bg-primary-50" : "hover:bg-background-alt"
+        selected ? "bg-accent-bg" : "hover:bg-background-alt"
       }`}
     >
       {/* lg:contents keeps these as direct grid items (same column order as
@@ -600,7 +598,7 @@ export function DashboardContent() {
         {/* Points back at the top-bar switcher itself, not at this text —
             positioned near the top-left of the page content, right under
             the header, rather than under the message below. */}
-        <ArrowUpLeft size={40} strokeWidth={2.25} className="absolute left-[var(--space-xs)] top-0 animate-bounce text-primary" />
+        <ArrowUpLeft size={40} strokeWidth={2.25} className="absolute left-[var(--space-xs)] top-0 animate-bounce text-accent" />
         <div className="mx-auto flex max-w-md flex-col items-center py-[var(--space-xl)] text-center">
           <p className="text-h2 font-bold text-trust-navy">Select a company</p>
           <p className="mt-[var(--space-sm)] text-body-sm text-text-secondary">
@@ -620,10 +618,10 @@ export function DashboardContent() {
           type="button"
           onClick={handleConnectQuickBooks}
           disabled={connectingQB}
-          className="flex items-center justify-between rounded-lg border border-[#F5D7A4] bg-[#FFF7E6] p-[var(--space-md)] text-left disabled:opacity-60"
+          className="flex items-center justify-between rounded-lg border border-status-warning-border bg-status-warning-bg p-[var(--space-md)] text-left disabled:opacity-60"
         >
           <div>
-            <p className="font-bold text-[#9A6700]">{needsReconnect ? "QuickBooks Needs Reconnecting" : "QuickBooks Not Connected"}</p>
+            <p className="font-bold text-status-warning-text">{needsReconnect ? "QuickBooks Needs Reconnecting" : "QuickBooks Not Connected"}</p>
             <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
               {connectingQB
                 ? "Connecting…"
@@ -632,26 +630,26 @@ export function DashboardContent() {
                   : "Connect QuickBooks to sync vendors and post invoices."}
             </p>
           </div>
-          <ArrowRight size={20} strokeWidth={2} className="shrink-0 text-primary" />
+          <ArrowRight size={20} strokeWidth={2} className="shrink-0 text-status-warning-text" />
         </button>
       )}
 
       <Link
         href="/invoices?type=pending"
-        className="flex items-center gap-[var(--space-md)] rounded-lg bg-primary-900 p-[var(--space-lg)] text-white shadow-md"
+        className="flex items-center gap-[var(--space-md)] rounded-lg bg-nav-bg p-[var(--space-lg)] text-white shadow-md"
       >
-        {/* Icon fill and count badge use dark text on their bright teal
-            backgrounds for the same contrast reason as the sidebar's active
-            pill — see DESIGN_ASSUMPTIONS.md D2.3. */}
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-primary-500">
-          <Clock size={22} strokeWidth={2} className="text-text-primary" />
+        {/* Icon fill uses dark text on its bright teal background for the
+            same contrast reason as the sidebar's active pill — see
+            DESIGN_ASSUMPTIONS.md D2.3. */}
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-accent">
+          <Clock size={22} strokeWidth={2} className="text-accent-ink" />
         </span>
         <div className="min-w-0">
           <p className="font-bold">Pending Review</p>
-          <p className="mt-[var(--space-xs)] text-body-sm font-medium text-primary-200">{pendingText}</p>
+          <p className="mt-[var(--space-xs)] text-body-sm font-medium text-nav-text">{pendingText}</p>
         </div>
         <div className="ml-auto flex items-center gap-[var(--space-sm)]">
-          <span className="flex h-7 min-w-7 items-center justify-center rounded-pill bg-primary-400 px-[var(--space-xs)] text-body-sm font-bold text-primary-900">
+          <span className="flex h-7 min-w-7 items-center justify-center rounded-pill bg-nav-hover px-[var(--space-xs)] text-body-sm font-bold text-white">
             {pendingInvoices.length}
           </span>
           <ArrowRight size={18} strokeWidth={2} className="shrink-0 text-white" />
@@ -682,7 +680,7 @@ export function DashboardContent() {
         </div>
       </div>
 
-      <div ref={recentCardRef} className="mt-[var(--space-md)] rounded-lg border border-border bg-white p-[var(--space-lg)]">
+      <div ref={recentCardRef} className="mt-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-lg)]">
         <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
           <div className="flex items-center gap-[var(--space-sm)]">
             <h2 className="text-h3 font-bold text-text-primary">Recent</h2>
@@ -697,7 +695,7 @@ export function DashboardContent() {
                   onClick={() => setRecentTab(tab)}
                   className={`rounded-pill border px-[var(--space-md)] py-[var(--space-xs)] text-body-sm font-semibold ${
                     recentTab === tab
-                      ? "border-primary-500 bg-primary-50 text-primary-700"
+                      ? "border-accent bg-accent-bg text-accent-text-on-bg"
                       : "border-border text-text-secondary hover:bg-background-alt"
                   }`}
                 >
@@ -708,7 +706,7 @@ export function DashboardContent() {
             <button
               type="button"
               onClick={handleViewAllInvoices}
-              className="flex items-center gap-[var(--space-xs)] rounded-pill bg-primary-50 px-[var(--space-md)] py-[var(--space-xs)] text-body-sm font-semibold text-primary-700 hover:bg-primary-100"
+              className="flex items-center gap-[var(--space-xs)] rounded-pill bg-accent-bg px-[var(--space-md)] py-[var(--space-xs)] text-body-sm font-semibold text-accent-text-on-bg hover:opacity-80"
             >
               View all
               <ArrowRight size={14} strokeWidth={2.25} />
@@ -717,12 +715,12 @@ export function DashboardContent() {
         </div>
 
         {selectedIds.size > 0 && (
-          <div className="mt-[var(--space-md)] flex flex-wrap items-center justify-between gap-[var(--space-sm)] rounded-lg bg-primary-50 px-[var(--space-md)] py-[var(--space-sm)]">
+          <div className="mt-[var(--space-md)] flex flex-wrap items-center justify-between gap-[var(--space-sm)] rounded-lg bg-accent-bg px-[var(--space-md)] py-[var(--space-sm)]">
             <div className="flex items-center gap-[var(--space-sm)]">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary-700 text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-ink">
                 <Check size={14} strokeWidth={3} />
               </span>
-              <span className="text-body-sm font-semibold text-primary-800">
+              <span className="text-body-sm font-semibold text-accent-text-on-bg">
                 {selectedIds.size} selected{selectedTotalLabel ? ` · ${selectedTotalLabel}` : ""}
               </span>
             </div>
@@ -807,8 +805,8 @@ export function DashboardContent() {
               qb
             </span>
             <h4 className="text-body font-bold text-text-primary">QuickBooks</h4>
-            <span className="ml-auto inline-flex shrink-0 items-center gap-[var(--space-xs)] rounded-pill bg-primary-100 px-[var(--space-sm)] py-[2px] text-caption font-bold text-primary-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary-500" />
+            <span className="ml-auto inline-flex shrink-0 items-center gap-[var(--space-xs)] rounded-pill bg-status-success-bg px-[var(--space-sm)] py-[2px] text-caption font-bold text-status-success-text">
+              <span className="h-1.5 w-1.5 rounded-full bg-status-success-text" />
               Synced
             </span>
           </div>
@@ -831,7 +829,7 @@ export function DashboardContent() {
       <TopVendorsCard invoices={invoices} />
 
       {weeklyScans.total > 0 && (
-        <div className="rounded-lg border border-border bg-white p-[var(--space-lg)]">
+        <div className="rounded-lg border border-border bg-surface p-[var(--space-lg)]">
           <div className="flex items-end justify-between gap-[var(--space-sm)]">
             <div>
               <h4 className="text-body font-bold text-text-primary">Weekly scans</h4>
@@ -850,11 +848,11 @@ export function DashboardContent() {
                 // one bar floating with nothing beside it.
                 <div
                   key={i}
-                  className="flex h-full flex-1 items-end rounded-t-sm bg-primary-50"
+                  className="flex h-full flex-1 items-end rounded-t-sm bg-surface-alt"
                   title={`${bucket.count} scanned`}
                 >
                   <div
-                    className={`w-full rounded-t-sm ${isRecent ? "bg-primary" : "bg-primary-200"}`}
+                    className={`w-full rounded-t-sm ${isRecent ? "bg-accent" : "bg-status-info-border"}`}
                     style={{ height: `${pct}%` }}
                   />
                 </div>
