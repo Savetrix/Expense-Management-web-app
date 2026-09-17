@@ -224,7 +224,14 @@ const quickBooksSlice = createSlice({
 
     // ── Settings (auto-post / line-item-wise entry) ───────────────────
     builder.addCase(updateQuickBooksSettings.fulfilled, (state, action) => {
-      const data = action.payload?.data;
+      // Same defensive probe as getQuickBooksStatus.fulfilled above: this
+      // backend has proven inconsistent about wrapping payloads in `data`
+      // per-endpoint (see the auth/refresh comment in lib/api.ts), and this
+      // PATCH was found to return the updated fields on the root object, not
+      // nested under `data` — reading only `action.payload?.data` meant the
+      // request succeeded (and the toast fired) but the toggle never
+      // actually flipped, since nothing here ever matched.
+      const data = action.payload?.data ?? action.payload;
       if (data?.autoPostEnabled !== undefined) state.autoPostEnabled = data.autoPostEnabled;
       if (data?.lineItemWiseEnabled !== undefined) state.lineItemWiseEnabled = data.lineItemWiseEnabled;
       if (data?.attachInvoiceCopyEnabled !== undefined) state.attachInvoiceCopyEnabled = data.attachInvoiceCopyEnabled;

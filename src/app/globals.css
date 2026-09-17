@@ -219,9 +219,9 @@
     --status-danger-border: 247 193 193; /* #F7C1C1 */
 
     /* Status - Info */
-    --status-info-text: 31 182 170;      /* #1FB6AA */
-    --status-info-bg: 225 245 238;       /* #E1F5EE */
-    --status-info-border: 197 235 217;   /* #C5EBD9 */
+    --status-info-text: 59 130 246;      /* #3B82F6 */
+    --status-info-bg: 239 246 255;       /* #EFF6FF */
+    --status-info-border: 191 219 254;   /* #BFDBFE */
 
     /* Charts & Progress Bars */
     --chart-1: 31 182 170;           /* #1FB6AA */
@@ -276,9 +276,9 @@
     --status-danger-border: 80 32 26;   /* #50201A */
 
     /* Status - Info */
-    --status-info-text: 159 225 203;    /* #9FE1CB */
-    --status-info-bg: 8 28 30;          /* #081C1E */
-    --status-info-border: 20 52 48;     /* #143430 */
+    --status-info-text: 147 197 253;    /* #93C5FD */
+    --status-info-bg: 11 27 46;         /* #0B1B2E */
+    --status-info-border: 30 58 95;     /* #1E3A5F */
 
     /* Charts & Progress Bars */
     --chart-1: 31 182 170;           /* #1FB6AA */

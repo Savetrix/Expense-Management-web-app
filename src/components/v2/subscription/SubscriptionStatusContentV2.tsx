@@ -177,7 +177,7 @@ export function SubscriptionStatusContentV2() {
         </div>
 
         {/* Plan Features */}
-        {planFeatures.length > 0 && (
+        {/* {planFeatures.length > 0 && (
           <div>
             <h3 className="mb-[var(--space-md)] text-h3 font-bold text-trust-navy">Plan features</h3>
             <div className="flex flex-wrap gap-[var(--space-sm)]">
@@ -189,7 +189,7 @@ export function SubscriptionStatusContentV2() {
               ))}
             </div>
           </div>
-        )}
+        )} */}
 
         {/* Connected Companies */}
         {subscription.slots.length > 0 && (

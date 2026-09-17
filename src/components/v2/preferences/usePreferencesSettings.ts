@@ -43,7 +43,19 @@ export function usePreferencesSettings() {
     if (!accessToken) return;
     setSaving(true);
     try {
-      const result = await dispatch(updateQuickBooksSettings({ accessToken, [field]: value }));
+      // The backend validates this PATCH as a full settings object, not a
+      // partial one — sending only the changed field rejects with
+      // "autoPostEnabled must be a boolean" (or whichever field was left
+      // out) because that field arrives as undefined. Always send all
+      // three current values, with just the toggled one overridden.
+      const result = await dispatch(
+        updateQuickBooksSettings({
+          accessToken,
+          autoPostEnabled: field === "autoPostEnabled" ? value : autoPostEnabled,
+          lineItemWiseEnabled: field === "lineItemWiseEnabled" ? value : lineItemWiseEnabled,
+          attachInvoiceCopyEnabled: field === "attachInvoiceCopyEnabled" ? value : attachInvoiceCopyEnabled,
+        }),
+      );
       if (updateQuickBooksSettings.fulfilled.match(result)) {
         showToast(`${successLabel} ${value ? "enabled" : "disabled"}.`, "success");
       } else {
@@ -53,6 +65,7 @@ export function usePreferencesSettings() {
       setSaving(false);
     }
   };
+  
 
   return {
     activeConnections,

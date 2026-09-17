@@ -32,8 +32,8 @@ const PLAN_META: Record<
       "Unlimited scans during trial",
       "Unlimited team members",
       "1 QuickBooks connection slot",
-      "Standard OCR text parsing",
-      "Email inbox intake",
+      // "Standard OCR text parsing",
+      // "Email inbox intake",
     ],
     priceNote: "No credit card required upfront",
   },
@@ -43,9 +43,9 @@ const PLAN_META: Record<
       "Unlimited scans & automated push",
       "Unlimited team members",
       "1 QuickBooks or Xero live slot",
-      "Automated GL codes & tax rules",
-      "High-speed OCR (99.2% accuracy)",
-      "Multi-currency CAD & USD support",
+      // "Automated GL codes & tax rules",
+      // "High-speed OCR (99.2% accuracy)",
+      // "Multi-currency CAD & USD support",
     ],
     priceNote: "Billed monthly, cancel anytime",
     highlight: true,
@@ -53,9 +53,9 @@ const PLAN_META: Record<
   enterprise: {
     tagline: "For multi-entity firms & franchises",
     features: [
-      "Unlimited entity consolidated view",
-      "Unlimited QuickBooks / Xero slots",
-      "Claude MCP & Custom ERP API sync",
+            "Unlimited scans during trial",
+      "Unlimited team members",
+       "3 QuickBooks or Xero live slot",
       "Custom audit logs & role permissions",
       "Dedicated CPA support & onboarding",
     ],
@@ -317,14 +317,14 @@ export function PlansContentV2() {
                 Contact for volume pricing
               </button>
             </p>
-            <p className="flex items-center gap-[var(--space-sm)] text-caption text-text-secondary">
+            {/* <p className="flex items-center gap-[var(--space-sm)] text-caption text-text-secondary">
               <span className="flex items-center gap-1">
                 <ShieldCheck size={14} strokeWidth={2.25} />
                 256-bit Bank-grade Encryption
               </span>
               <span aria-hidden="true">•</span>
               <span>Cancel or switch anytime</span>
-            </p>
+            </p> */}
           </div>
 
           <Link

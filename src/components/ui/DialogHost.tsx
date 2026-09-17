@@ -106,7 +106,7 @@ export function DialogHost() {
         // z-[110] deliberately beats the confirm dialog's z-[100] backdrop:
         // the most common source of an error toast is confirming an action.
         <div
-          className="pointer-events-none fixed bottom-[var(--space-lg)] left-1/2 z-[110] flex w-full max-w-sm -translate-x-1/2 flex-col gap-[var(--space-sm)] px-[var(--space-md)]"
+          className="pointer-events-none fixed top-[var(--space-lg)] right-[var(--space-lg)] left-[var(--space-lg)] z-[110] ml-auto flex max-w-sm flex-col gap-[var(--space-sm)]"
           aria-live="polite"
           aria-atomic="false"
         >
