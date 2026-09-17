@@ -331,7 +331,9 @@ button:not(:disabled),
   --lp-teal: #1fb6aa;
   --lp-teal-600: #17998f;
   /* teal-700 is the darkest teal used for *small* text — measures 4.8:1 on
-     white (WCAG AA). Brighter teals stay on fills, borders, dots and glows. */
+     white (WCAG AA). Brighter teals stay on fills, borders, dots and glows.
+     Dark mode gets a lighter teal instead (below) since this pairs with a
+     near-black background there, not white. */
   --lp-teal-700: #0f8074;
   --lp-teal-050: #eafaf8;
   --lp-navy: #1f3a5f;
@@ -354,6 +356,29 @@ button:not(:disabled),
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
+}
+
+/* Dark variant of the landing page's own token set above. Reuses the app's
+   existing dark semantic values (text/bg tokens from the "Ledger Navy & Teal"
+   theme) rather than inventing a second dark palette, so the marketing page
+   goes dark in step with the rest of the app when next-themes toggles .dark
+   on <html>. --lp-teal / --lp-navy / --lp-auto / --lp-manual / --lp-failed
+   are intentionally left as-is — they're saturated accent/status colors that
+   already read fine against a near-black surface. */
+.dark .lp-root {
+  --lp-teal-700: #6fe0ce;
+  --lp-teal-050: rgb(var(--accent-bg));
+  --lp-ink: rgb(var(--text-primary));
+  --lp-ink-2: rgb(var(--text-secondary));
+  --lp-border: rgb(var(--border));
+  --lp-soft: rgb(var(--bg-page));
+  --lp-alt: rgb(var(--bg-surface-alt));
+
+  background: rgb(var(--bg-page));
+}
+
+.dark .lp-dotgrid {
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, 0.06) 1px, transparent 1.4px);
 }
 
 /* Scroll-reveal: elements start slightly lowered + faded, settle when seen. */
