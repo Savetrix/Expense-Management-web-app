@@ -84,13 +84,10 @@ function NavLink({
     <Link
       href={item.href}
       aria-label={item.label}
-      className={`group relative flex items-center gap-[var(--space-sm)] overflow-hidden rounded-sm py-[var(--space-sm)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
+      className={`group relative flex items-center gap-[var(--space-sm)] overflow-hidden rounded-lg py-[var(--space-sm)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
         collapsed ? "justify-center" : "px-[var(--space-md)]"
-      } ${active ? "bg-nav-tab-active text-nav-text-active shadow-sm" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
+      } ${active ? "bg-accent text-accent-ink shadow-sm" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
     >
-      {active && (
-        <span className="absolute h-full left-0 w-1 rounded-full bg-accent" aria-hidden="true" />
-      )}
       <Icon size={18} strokeWidth={2} className="shrink-0" />
       <span
         className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
@@ -361,8 +358,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className={`shrink-0 mt-5 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
           <div className="group relative">
             <div
-              className={`flex items-center gap-[var(--space-sm)] overflow-hidden bg-accent py-[var(--space-sm)] text-body-sm font-bold text-accent-ink shadow-sm transition-colors duration-300 ease-in-out hover:bg-accent-hover ${
-                collapsed ? "justify-center rounded-full" : "rounded-lg px-[var(--space-md)]"
+              className={`flex items-center gap-[var(--space-sm)] overflow-hidden border border-accent bg-transparent py-[var(--space-sm)] text-body-sm font-bold text-accent transition-colors duration-300 ease-in-out group-hover:bg-accent group-hover:text-accent-ink ${
+                collapsed ? "justify-center rounded-full" : "rounded-full px-[var(--space-md)]"
               }`}
             >
               <Plus size={18} strokeWidth={2.5} className="shrink-0" />
@@ -392,7 +389,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className={`flex flex-1 flex-col gap-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)] overflow-y-auto"}`}>
+        <nav className={`flex flex-1 mt-4 flex-col gap-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)] overflow-y-auto"}`}>
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
           ))}

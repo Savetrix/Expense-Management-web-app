@@ -168,12 +168,17 @@
  */
 @layer base {
   :root {
-    /* Navigation (Sidebar) */
-    --nav-bg: 15 110 86;             /* #0F6E56 */
-    --nav-bg-hover: 26 77 64;        /* #1A4D40 */
+    /* Navigation (Sidebar) — dark navy panel, fixed across both themes (a
+       persistent sidebar identity rather than a surface that flips with
+       light/dark, same reasoning as TOOLTIP_CLASS in AppShell.tsx). Blue is
+       kept well clear of green here (not just nudged ahead of it) — at this
+       low a lightness a small R/G/B gap still reads as murky green, so the
+       gap has to be wide for it to read as navy instead. */
+    --nav-bg: 9,56,46;              /* #0A1122 */
+    --nav-bg-hover:11,41,35;        /* #111B32 */
     --nav-bg-active: 29 107 92;      /* #1D6B5C */
     --nav-tab-active: 34 129 95;     /* #22815F */
-    --nav-text: 159 225 203;         /* #9FE1CB */
+    --nav-text: 176 190 199;         /* #B0BEC7 */
     --nav-text-muted: 143 163 194;   /* #8FA3C2 */
     --nav-text-active: 255 255 255;  /* #FFFFFF */
 
@@ -219,9 +224,9 @@
     --status-danger-border: 247 193 193; /* #F7C1C1 */
 
     /* Status - Info */
-    --status-info-text: 31 182 170;      /* #1FB6AA */
-    --status-info-bg: 225 245 238;       /* #E1F5EE */
-    --status-info-border: 197 235 217;   /* #C5EBD9 */
+    --status-info-text: 59 130 246;      /* #3B82F6 */
+    --status-info-bg: 239 246 255;       /* #EFF6FF */
+    --status-info-border: 191 219 254;   /* #BFDBFE */
 
     /* Charts & Progress Bars */
     --chart-1: 31 182 170;           /* #1FB6AA */
@@ -232,12 +237,13 @@
 
   /* True Black dark theme */
   .dark {
-    /* Navigation (Sidebar) */
-    --nav-bg: 0 0 0;                 /* #000000 */
-    --nav-bg-hover: 15 23 20;        /* #0F1714 */
+    /* Navigation (Sidebar) — same dark navy identity as :root, a touch
+       deeper to sit against this theme's darker page background. */
+    --nav-bg: 6 11 24;               /* #060B18 */
+    --nav-bg-hover: 12 20 38;        /* #0C1426 */
     --nav-bg-active: 20 50 43;       /* #14322B */
     --nav-tab-active: 34 129 95;     /* #22815F */
-    --nav-text: 159 225 203;         /* #9FE1CB */
+    --nav-text: 176 190 199;         /* #B0BEC7 */
     --nav-text-muted: 107 128 120;   /* #6B8078 */
     --nav-text-active: 255 255 255;  /* #FFFFFF */
 
@@ -276,9 +282,9 @@
     --status-danger-border: 80 32 26;   /* #50201A */
 
     /* Status - Info */
-    --status-info-text: 159 225 203;    /* #9FE1CB */
-    --status-info-bg: 8 28 30;          /* #081C1E */
-    --status-info-border: 20 52 48;     /* #143430 */
+    --status-info-text: 147 197 253;    /* #93C5FD */
+    --status-info-bg: 11 27 46;         /* #0B1B2E */
+    --status-info-border: 30 58 95;     /* #1E3A5F */
 
     /* Charts & Progress Bars */
     --chart-1: 31 182 170;           /* #1FB6AA */
@@ -331,7 +337,9 @@ button:not(:disabled),
   --lp-teal: #1fb6aa;
   --lp-teal-600: #17998f;
   /* teal-700 is the darkest teal used for *small* text — measures 4.8:1 on
-     white (WCAG AA). Brighter teals stay on fills, borders, dots and glows. */
+     white (WCAG AA). Brighter teals stay on fills, borders, dots and glows.
+     Dark mode gets a lighter teal instead (below) since this pairs with a
+     near-black background there, not white. */
   --lp-teal-700: #0f8074;
   --lp-teal-050: #eafaf8;
   --lp-navy: #1f3a5f;
@@ -354,6 +362,29 @@ button:not(:disabled),
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
+}
+
+/* Dark variant of the landing page's own token set above. Reuses the app's
+   existing dark semantic values (text/bg tokens from the "Ledger Navy & Teal"
+   theme) rather than inventing a second dark palette, so the marketing page
+   goes dark in step with the rest of the app when next-themes toggles .dark
+   on <html>. --lp-teal / --lp-navy / --lp-auto / --lp-manual / --lp-failed
+   are intentionally left as-is — they're saturated accent/status colors that
+   already read fine against a near-black surface. */
+.dark .lp-root {
+  --lp-teal-700: #6fe0ce;
+  --lp-teal-050: rgb(var(--accent-bg));
+  --lp-ink: rgb(var(--text-primary));
+  --lp-ink-2: rgb(var(--text-secondary));
+  --lp-border: rgb(var(--border));
+  --lp-soft: rgb(var(--bg-page));
+  --lp-alt: rgb(var(--bg-surface-alt));
+
+  background: rgb(var(--bg-page));
+}
+
+.dark .lp-dotgrid {
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, 0.06) 1px, transparent 1.4px);
 }
 
 /* Scroll-reveal: elements start slightly lowered + faded, settle when seen. */

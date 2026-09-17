@@ -16,6 +16,7 @@ import { showToast } from "@/lib/dialogManager";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 import { GoogleSignInButton } from "../../auth/GoogleSignInButton";
+import { MicrosoftSignInButton } from "../../auth/MicrosoftSignInButton";
 
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
@@ -201,6 +202,7 @@ export function LoginFormV2() {
               </div>
 
               <GoogleSignInButton onSuccess={goToDashboard} onError={setFormError} />
+              <MicrosoftSignInButton onSuccess={goToDashboard} onError={setFormError} />
             </form>
           </Card>
         </div>
