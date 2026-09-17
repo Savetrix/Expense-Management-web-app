@@ -168,12 +168,17 @@
  */
 @layer base {
   :root {
-    /* Navigation (Sidebar) */
-    --nav-bg: 15 110 86;             /* #0F6E56 */
-    --nav-bg-hover: 26 77 64;        /* #1A4D40 */
+    /* Navigation (Sidebar) — dark navy panel, fixed across both themes (a
+       persistent sidebar identity rather than a surface that flips with
+       light/dark, same reasoning as TOOLTIP_CLASS in AppShell.tsx). Blue is
+       kept well clear of green here (not just nudged ahead of it) — at this
+       low a lightness a small R/G/B gap still reads as murky green, so the
+       gap has to be wide for it to read as navy instead. */
+    --nav-bg: 9,56,46;              /* #0A1122 */
+    --nav-bg-hover:11,41,35;        /* #111B32 */
     --nav-bg-active: 29 107 92;      /* #1D6B5C */
     --nav-tab-active: 34 129 95;     /* #22815F */
-    --nav-text: 159 225 203;         /* #9FE1CB */
+    --nav-text: 176 190 199;         /* #B0BEC7 */
     --nav-text-muted: 143 163 194;   /* #8FA3C2 */
     --nav-text-active: 255 255 255;  /* #FFFFFF */
 
@@ -232,12 +237,13 @@
 
   /* True Black dark theme */
   .dark {
-    /* Navigation (Sidebar) */
-    --nav-bg: 0 0 0;                 /* #000000 */
-    --nav-bg-hover: 15 23 20;        /* #0F1714 */
+    /* Navigation (Sidebar) — same dark navy identity as :root, a touch
+       deeper to sit against this theme's darker page background. */
+    --nav-bg: 6 11 24;               /* #060B18 */
+    --nav-bg-hover: 12 20 38;        /* #0C1426 */
     --nav-bg-active: 20 50 43;       /* #14322B */
     --nav-tab-active: 34 129 95;     /* #22815F */
-    --nav-text: 159 225 203;         /* #9FE1CB */
+    --nav-text: 176 190 199;         /* #B0BEC7 */
     --nav-text-muted: 107 128 120;   /* #6B8078 */
     --nav-text-active: 255 255 255;  /* #FFFFFF */
 
