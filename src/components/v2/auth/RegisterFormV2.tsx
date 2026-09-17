@@ -15,6 +15,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { COUNTRY_CODES } from "@/lib/countryCodes";
 
 import { GoogleSignInButton } from "../../auth/GoogleSignInButton";
+import { MicrosoftSignInButton } from "../../auth/MicrosoftSignInButton";
 
 type FieldName = "firstName" | "lastName" | "email" | "phone" | "password";
 
@@ -285,6 +286,7 @@ export function RegisterFormV2() {
               </div>
 
               <GoogleSignInButton onSuccess={() => router.push("/v2/dashboard")} onError={setFormError} />
+              <MicrosoftSignInButton onSuccess={() => router.push("/v2/dashboard")} onError={setFormError} />
             </form>
           </Card>
         </div>

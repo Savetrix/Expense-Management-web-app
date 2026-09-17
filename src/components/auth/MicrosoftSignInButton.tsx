@@ -42,7 +42,19 @@ export function MicrosoftSignInButton({ onSuccess, onError }: MicrosoftSignInBut
           auth: {
             clientId: clientId as string,
             authority: `https://login.microsoftonline.com/${tenantId}`,
-            redirectUri: typeof window !== "undefined" ? window.location.origin : undefined,
+            // This msal-browser version completes a popup flow via a
+            // BroadcastChannel "redirect bridge" rather than the opener
+            // polling the popup's location directly — the page at
+            // redirectUri must call broadcastResponseToMainFrame() (see
+            // src/app/v2/login/microsoft-callback/page.tsx). It's nested
+            // under /v2/login specifically so AuthGate's PUBLIC_ROUTES
+            // prefix match covers it — this page must render while
+            // unauthenticated, since it's what delivers the auth code that
+            // establishes auth in the first place.
+            redirectUri:
+              typeof window !== "undefined"
+                ? `${window.location.origin}/v2/login/microsoft-callback`
+                : undefined,
           },
         });
         await instance.initialize();
@@ -73,7 +85,30 @@ export function MicrosoftSignInButton({ onSuccess, onError }: MicrosoftSignInBut
     } catch (error: any) {
       // Fires when someone closes the popup themselves — not a real
       // failure, so it shouldn't surface as a form error.
-      if (error?.errorCode !== "user_cancelled") {
+      if (error?.errorCode === "user_cancelled") {
+        // no-op
+      } else if (error?.errorCode === "interaction_in_progress") {
+        // A prior popup attempt was interrupted (closed early, bridge
+        // timeout, etc.) before MSAL's own cleanup could clear its
+        // "interaction in progress" flag, which it tracks in sessionStorage
+        // (key `msal.interaction.status`) independently of this component's
+        // lifecycle. Every subsequent loginPopup() call is rejected before a
+        // new popup even opens until that flag is cleared, so clear it
+        // ourselves (only if it's our own clientId's flag — same guard MSAL
+        // uses internally) and let the user retry.
+        if (typeof window !== "undefined") {
+          try {
+            const raw = window.sessionStorage.getItem("msal.interaction.status");
+            const stuck = raw ? JSON.parse(raw) : null;
+            if (stuck?.clientId === clientId) {
+              window.sessionStorage.removeItem("msal.interaction.status");
+            }
+          } catch {
+            // malformed or inaccessible storage — nothing more we can do
+          }
+        }
+        onError("A previous Microsoft sign-in attempt didn't finish. Please try again.");
+      } else {
         onError(error?.errorMessage || error?.message || "Microsoft sign-in failed");
       }
     } finally {
