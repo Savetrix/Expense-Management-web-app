@@ -33,6 +33,14 @@ export interface ExtraCharge {
   taxCodeId?: string | null;
 }
 
+export interface Discount {
+  description: string;
+  /** Always a positive magnitude — the backend negates this when building
+   * the QuickBooks Bill line (see quickbooks.service.js buildBillPayload).
+   * Never send a negative value here. */
+  amount: number;
+}
+
 export interface ExtractedData {
   vendorName?: string;
   currency?: string;
@@ -46,6 +54,7 @@ export interface ExtractedData {
   taxCodeId?: string | null;
   lineItems?: LineItem[];
   extraCharges?: ExtraCharge[];
+  discounts?: Discount[];
   description?: string | null;
   vendorAddress?: string | null;
   /** API field: bankingDetails (not vendorBankDetails) */
@@ -122,6 +131,17 @@ export interface InvoiceRecord {
 
 interface InvoiceState {
   loading: boolean;
+  // `loading` above is shared across scanInvoice/getInvoiceDetails/getInvoices
+  // (and read for UI spinners in several places), so it can't safely gate a
+  // dedup `condition` on getInvoices/getInvoiceDetails — e.g. a getInvoices
+  // condition checking `loading` would wrongly skip if getInvoiceDetails
+  // merely happened to be in flight at the same moment. These two are
+  // dedicated, only ever toggled by their own thunk, and exist purely so
+  // invoiceApi.ts's `condition` can block a genuine duplicate in-flight
+  // request without touching `loading`'s existing (broader) meaning.
+  invoicesFetchPending: boolean;
+  /** Which invoiceId getInvoiceDetails currently has in flight, or null. */
+  invoiceDetailsFetchId: string | null;
   invoiceData: any;
   invoiceDetails: InvoiceRecord | null;
   invoices: InvoiceRecord[];
@@ -147,6 +167,8 @@ interface InvoiceState {
 
 const initialState: InvoiceState = {
   loading: false,
+  invoicesFetchPending: false,
+  invoiceDetailsFetchId: null,
   invoiceData: null,
   invoiceDetails: null,
   invoices: [],
@@ -217,13 +239,15 @@ const invoiceSlice = createSlice({
     // GET INVOICE DETAILS
     // ======================================
 
-    builder.addCase(getInvoiceDetails.pending, (state) => {
+    builder.addCase(getInvoiceDetails.pending, (state, action) => {
       state.loading = true;
       state.error = null;
+      state.invoiceDetailsFetchId = action.meta.arg;
     });
 
     builder.addCase(getInvoiceDetails.fulfilled, (state, action) => {
       state.loading = false;
+      state.invoiceDetailsFetchId = null;
       // Payload is already the unwrapped invoice object (see invoiceApi.ts)
       state.invoiceDetails = action.payload;
       // Also keep selectedInvoice in sync so InvoiceReviewScreen always has
@@ -233,6 +257,7 @@ const invoiceSlice = createSlice({
 
     builder.addCase(getInvoiceDetails.rejected, (state, action) => {
       state.loading = false;
+      state.invoiceDetailsFetchId = null;
       state.error = action.payload;
     });
 
@@ -242,11 +267,13 @@ const invoiceSlice = createSlice({
 
     builder.addCase(getInvoices.pending, (state) => {
       state.loading = true;
+      state.invoicesFetchPending = true;
       state.error = null;
     });
 
     builder.addCase(getInvoices.fulfilled, (state, action) => {
       state.loading = false;
+      state.invoicesFetchPending = false;
       state.invoices = action.payload || [];
 
       state.autoPostedInvoices = state.invoices.filter(
@@ -265,6 +292,7 @@ const invoiceSlice = createSlice({
 
     builder.addCase(getInvoices.rejected, (state, action) => {
       state.loading = false;
+      state.invoicesFetchPending = false;
       state.error = action.payload;
       // A failed fetch (e.g. token expiry, or a genuinely disconnected
       // account getting a 400 for missing X-QB-Id) must not leave a

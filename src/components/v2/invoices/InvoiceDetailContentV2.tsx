@@ -409,7 +409,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
             <DetailRow label="Due Date" value={dueDate} />
             <DetailRow label="Currency" value={currency} />
             <DetailRow label="GL Code / Category" value={glCode} />
-            <DetailRow label="Uploaded By" value={uploadedByName} isLast />
+            <DetailRow label="Posted By" value={uploadedByName} isLast />
           </SectionCard>
 
           {/* Financial Summary */}

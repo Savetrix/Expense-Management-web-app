@@ -18,7 +18,7 @@ export interface InvoiceStatusTheme {
 
 export const INVOICE_STATUS_THEME: Record<InvoiceStatus, InvoiceStatusTheme> = {
   auto: {
-    label: "Auto-Posted",
+    label: "Auto Posted",
     badgeClass: "bg-primary-100 text-primary-700",
     // Theme's success tokens — StatRow (Dashboard's Auto-posted/Manually
     // Posted/Failed pills) reads cardBgClass/accentTextClass, which now
@@ -54,6 +54,60 @@ export const INVOICE_STATUS_THEME: Record<InvoiceStatus, InvoiceStatusTheme> = {
     cardBgClass: "bg-status-danger-bg",
     accentHex: "#E74949",
     accentTextClass: "text-status-danger-text",
+  },
+};
+
+export interface InvoiceStatusPillStyle {
+  label: string;
+  /** Small status dot inside the pill. */
+  dot: string;
+  /** Colored text — unlike Badge's success/warning/error variants (dark
+   * text on a tinted bg, chosen there for WCAG contrast), this pill's
+   * design intentionally colors the text itself. */
+  text: string;
+  bg: string;
+}
+
+// Single source of truth for the colored status-dot pill (dot + colored
+// text + tinted bg) used by every screen that lists invoices — dashboard's
+// Recent list and the invoices list page must render this identically, so
+// it lives here once instead of each screen keeping its own copy that can
+// drift (which is exactly how they ended up showing different colors for
+// the same postedStatus before).
+export const INVOICE_STATUS_PILL_STYLE: Record<InvoiceStatus, InvoiceStatusPillStyle> = {
+  auto: {
+    label: "Auto Posted",
+    dot: "bg-status-success-text",
+    text: "text-status-success-text",
+    bg: "bg-status-success-bg",
+  },
+  manual: {
+    label: "Manually Posted",
+    dot: "bg-status-info-text",
+    text: "text-status-info-text",
+    bg: "bg-status-info-bg",
+  },
+  pending: {
+    label: "Pending",
+    dot: "bg-status-warning-text",
+    text: "text-status-warning-text",
+    bg: "bg-status-warning-bg",
+  },
+  processing: {
+    label: "Processing",
+    // A dedicated status-neutral token trio (globals.css) — true grey, dark
+    // mode aware, distinct from bg-border (which reads mint-tinted, not
+    // grey) and bg-background-alt (too close to the row's own background
+    // to read as a pill at all).
+    dot: "bg-status-neutral-text",
+    text: "text-status-neutral-text",
+    bg: "bg-status-neutral-bg",
+  },
+  failed: {
+    label: "Failed",
+    dot: "bg-status-danger-text",
+    text: "text-status-danger-text",
+    bg: "bg-status-danger-bg",
   },
 };
 

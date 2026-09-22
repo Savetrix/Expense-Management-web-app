@@ -109,6 +109,10 @@
   --color-status-info-bg: rgb(var(--status-info-bg));
   --color-status-info-border: rgb(var(--status-info-border));
 
+  --color-status-neutral-text: rgb(var(--status-neutral-text));
+  --color-status-neutral-bg: rgb(var(--status-neutral-bg));
+  --color-status-neutral-border: rgb(var(--status-neutral-border));
+
   --color-chart-1: rgb(var(--chart-1));
   --color-chart-2: rgb(var(--chart-2));
   --color-chart-3: rgb(var(--chart-3));
@@ -228,6 +232,12 @@
     --status-info-bg: 239 246 255;       /* #EFF6FF */
     --status-info-border: 191 219 254;   /* #BFDBFE */
 
+    /* Status - Neutral (e.g. "still processing" — no positive/negative
+       charge, so a true grey rather than any hue-tinted status color) */
+    --status-neutral-text: 91 97 105;    /* #5B6169 */
+    --status-neutral-bg: 233 234 236;    /* #E9EAEC */
+    --status-neutral-border: 211 213 216; /* #D3D5D8 */
+
     /* Charts & Progress Bars */
     --chart-1: 31 182 170;           /* #1FB6AA */
     --chart-2: 159 225 203;          /* #9FE1CB */
@@ -285,6 +295,11 @@
     --status-info-text: 147 197 253;    /* #93C5FD */
     --status-info-bg: 11 27 46;         /* #0B1B2E */
     --status-info-border: 30 58 95;     /* #1E3A5F */
+
+    /* Status - Neutral */
+    --status-neutral-text: 170 175 180;  /* #AAAFB4 */
+    --status-neutral-bg: 32 34 37;       /* #202225 */
+    --status-neutral-border: 58 61 65;   /* #3A3D41 */
 
     /* Charts & Progress Bars */
     --chart-1: 31 182 170;           /* #1FB6AA */

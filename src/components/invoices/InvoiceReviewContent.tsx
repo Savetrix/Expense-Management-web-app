@@ -972,7 +972,7 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                   </div>
                 )}
               </EditableRow>
-              <EditableRow label="Uploaded By" labelColor={theme.primaryText} dividerColor={theme.divider} isLast>
+              <EditableRow label="Posted By" labelColor={theme.primaryText} dividerColor={theme.divider} isLast>
                 <span className="block w-full text-right text-body-sm font-bold text-text-primary">
                   {getUserDisplayName(invoiceObject?.uploadedBy) || "—"}
                 </span>

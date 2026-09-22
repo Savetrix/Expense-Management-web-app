@@ -22,6 +22,10 @@ interface InlineEditFieldProps {
   formatDisplay?: (value: string) => string;
   ariaLabel: string;
   className?: string;
+  /** "right" (default) suits amounts/numbers, which is most of what this
+   *  field is used for. Free-text fields (a line item's own description,
+   *  not its qty/price/amount) read more naturally left-aligned. */
+  align?: "left" | "right";
 }
 
 // Real controlled-component version of the Stitch invoice-review mockup's
@@ -40,6 +44,7 @@ export function InlineEditField({
   formatDisplay,
   ariaLabel,
   className = "",
+  align = "right",
 }: InlineEditFieldProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -100,6 +105,7 @@ export function InlineEditField({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleKeyDown}
+              onBlur={() => void commitEdit()}
               rows={3}
               className={sharedClassName}
             />
@@ -113,12 +119,18 @@ export function InlineEditField({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleKeyDown}
+              onBlur={() => void commitEdit()}
               className={sharedClassName}
             />
           )}
+          {/* onMouseDown preventDefault keeps focus on the input instead of
+              shifting it to the button — otherwise the input's onBlur above
+              would fire (and commit) BEFORE this button's own onClick runs,
+              which would make Cancel silently save instead of discarding. */}
           <button
             type="button"
             aria-label={`Save ${ariaLabel}`}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => void commitEdit()}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-status-success-text hover:bg-status-success-bg"
           >
@@ -127,6 +139,7 @@ export function InlineEditField({
           <button
             type="button"
             aria-label={`Cancel editing ${ariaLabel}`}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={cancelEdit}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-muted hover:bg-surface-alt"
           >
@@ -146,9 +159,9 @@ export function InlineEditField({
         type="button"
         onClick={startEdit}
         aria-label={`Edit ${ariaLabel}`}
-        className={`group flex w-full items-center justify-end gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] text-right hover:bg-accent-bg/40 ${
-          justSaved ? "v2-highlight-flash" : ""
-        } ${error ? "border border-status-danger-border bg-status-danger-bg/40" : ""}`}
+        className={`group flex w-full items-center gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] hover:bg-accent-bg/40 ${
+          align === "left" ? "justify-start text-left" : "justify-end text-right"
+        } ${justSaved ? "v2-highlight-flash" : ""} ${error ? "border border-status-danger-border bg-status-danger-bg/40" : ""}`}
       >
         <span
           className={`min-w-0 truncate text-body-sm group-hover:text-accent ${

@@ -18,6 +18,8 @@ import {
   getInvoiceTitle,
   getUserDisplayName,
 } from "@/lib/invoiceDisplay";
+import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
+import { showToast } from "@/lib/dialogManager";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { OutcomeMixCard } from "@/components/invoices/OutcomeMixCard";
@@ -215,8 +217,17 @@ export function InvoiceListContent() {
   // PendingInvoicesContent's handleOpenInvoice) since a pending invoice has
   // no posted data yet worth showing read-only.
   const handleOpenFullDetails = (invoice: InvoiceRecord) => {
+    // The pipeline can finish and auto-post a "processing" invoice at any
+    // moment in the background — opening /review right as that happens would
+    // land the user on a review screen for an invoice that's already been
+    // posted out from under them. Block navigation entirely until it settles
+    // into pending/auto/manual/failed, rather than guessing where to send it.
+    if (invoice.postedStatus === "processing") {
+      showToast("This invoice is still processing — please wait a moment.", "neutral");
+      return;
+    }
     dispatch(setSelectedInvoice(invoice));
-    if (invoice.postedStatus === "pending") {
+    if (resolveInvoiceDetailType(invoice.postedStatus) === "pending") {
       router.push(`/invoices/${invoice._id}/review`);
       return;
     }
@@ -366,7 +377,7 @@ export function InvoiceListContent() {
                 <span />
                 <span>Vendor / Invoice</span>
                 <span>Received</span>
-                <span>Uploaded By</span>
+                <span>Posted By</span>
                 <span>Status</span>
                 <span className="text-right">Amount</span>
                 <span />

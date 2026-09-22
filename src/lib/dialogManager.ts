@@ -6,7 +6,7 @@
 import EventEmitter from "eventemitter3";
 
 export type DialogTone = "default" | "destructive";
-export type ToastTone = "success" | "error" | "warning" | "info";
+export type ToastTone = "success" | "error" | "warning" | "info" | "neutral";
 
 export interface ConfirmRequest {
   id: number;

@@ -23,6 +23,7 @@ import {
 } from "@/store/quickBooks/quickBooksApi";
 import { showToast } from "@/lib/dialogManager";
 import { getInvoiceAmount, getInvoiceFailureReason, getInvoiceStatus } from "@/lib/invoiceDisplay";
+import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
 import { requestExpandTransition } from "@/lib/pageTransition";
 import { setSelectedInvoice } from "@/store/invoice/invoiceSlice";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
@@ -429,8 +430,15 @@ export function DashboardContent() {
   // PendingInvoicesContent's handleOpenInvoice) since a pending invoice has
   // no posted data yet worth showing read-only.
   const handleOpenInvoice = (invoice: InvoiceRecord) => {
+    // See InvoiceListContent's handleOpenFullDetails — the pipeline can
+    // auto-post a "processing" invoice at any moment, so navigation is
+    // blocked entirely until it settles rather than guessing a destination.
+    if (invoice.postedStatus === "processing") {
+      showToast("This invoice is still processing — please wait a moment.", "neutral");
+      return;
+    }
     dispatch(setSelectedInvoice(invoice));
-    const suffix = invoice.postedStatus === "pending" ? "/review" : "";
+    const suffix = resolveInvoiceDetailType(invoice.postedStatus) === "pending" ? "/review" : "";
     router.push(`/invoices/${invoice._id}${suffix}`);
   };
 

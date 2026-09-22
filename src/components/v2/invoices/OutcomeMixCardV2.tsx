@@ -34,8 +34,8 @@ export function OutcomeMixCardV2({ invoices }: { invoices: InvoiceRecord[] }) {
   if (totals.total === 0) return null;
 
   const segments: Segment[] = [
-    { key: "auto", label: "Auto", count: totals.auto, colorClass: "text-accent" },
-    { key: "manual", label: "Manual", count: totals.manual, colorClass: "text-status-warning-text" },
+    { key: "auto", label: "Auto", count: totals.auto, colorClass: "text-status-success-text" },
+    { key: "manual", label: "Manual", count: totals.manual, colorClass: "text-status-info-text" },
     { key: "failed", label: "Failed", count: totals.failed, colorClass: "text-status-danger-text" },
   ];
 
@@ -135,8 +135,8 @@ export function OutcomeMixCardV2({ invoices }: { invoices: InvoiceRecord[] }) {
                   className="flex h-16 w-full flex-col-reverse overflow-hidden rounded-sm bg-page"
                   title={`Week ${i + 1}: ${bucket.total} invoice${bucket.total === 1 ? "" : "s"} (${bucket.auto} auto, ${bucket.manual} manual, ${bucket.failed} failed)`}
                 >
-                  <div className="w-full bg-accent" style={{ height: `${autoHeight}%` }} />
-                  <div className="w-full bg-status-warning-text" style={{ height: `${manualHeight}%` }} />
+                  <div className="w-full bg-status-success-text" style={{ height: `${autoHeight}%` }} />
+                  <div className="w-full bg-status-info-text" style={{ height: `${manualHeight}%` }} />
                   <div className="w-full bg-status-danger-text" style={{ height: `${failedHeight}%` }} />
                 </div>
                 <span className="text-tiny font-semibold text-content-secondary">W{i + 1}</span>

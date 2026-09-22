@@ -37,15 +37,25 @@ export function useVendorResolution(invoiceId: string, onResolved: () => void) {
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
 
   useEffect(() => {
-    dispatch(getInvoiceDetails(invoiceId));
+    // VendorResolutionDialogV2 mounts this hook nested inside
+    // InvoiceReviewContentV2, which already dispatches this for the same
+    // invoiceId — skip the duplicate there. VendorResolutionContentV2 (the
+    // standalone page) has no such parent, so it still gets a fresh fetch.
+    if (selectedInvoice?._id !== invoiceId) dispatch(getInvoiceDetails(invoiceId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceId]);
 
   useEffect(() => {
     if (!accessToken) return;
-    dispatch(fetchQuickBooksVendors({ accessToken }));
-    dispatch(fetchQuickBooksAccounts({ accessToken }));
-    dispatch(fetchQuickBooksTaxCodes({ accessToken }));
+    // Same guard as InvoiceReviewContentV2/GlobalSearchBar — this hook is
+    // mounted every time its dialog/page mounts, so without checking
+    // existing data it re-fetches all three lists again on top of whatever
+    // already loaded them, which was tripling up the request count on the
+    // invoice review page (dialog is always mounted alongside the page,
+    // just hidden until opened).
+    if (vendors.length === 0 && !vendorsLoading) dispatch(fetchQuickBooksVendors({ accessToken }));
+    if (glAccounts.length === 0 && !glAccountsLoading) dispatch(fetchQuickBooksAccounts({ accessToken }));
+    if (taxCodes.length === 0 && !taxCodesLoading) dispatch(fetchQuickBooksTaxCodes({ accessToken }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 

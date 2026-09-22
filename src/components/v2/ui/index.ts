@@ -13,3 +13,4 @@ export { Avatar } from "./Avatar";
 export { PageHeader } from "./PageHeader";
 export { RoleInfoBanner } from "./RoleInfoBanner";
 export { InlineEditField } from "./InlineEditField";
+export { StatusPill } from "./StatusPill";

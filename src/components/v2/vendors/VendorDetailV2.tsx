@@ -5,23 +5,15 @@ import { Ban, Pencil, RotateCcw } from "lucide-react";
 import { useMemo } from "react";
 
 import { Badge } from "@/components/ui/Badge";
-import { formatInvoiceDate, getInvoiceAmount, getInvoiceStatus, INVOICE_STATUS_THEME } from "@/lib/invoiceDisplay";
+import { formatInvoiceDate, getInvoiceAmount, getInvoiceStatus } from "@/lib/invoiceDisplay";
+import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
+import { showToast } from "@/lib/dialogManager";
 import { taxCodeId as getTaxCodeId } from "@/lib/quickbooks/taxCode";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import type { GLAccount, TaxCode, Vendor } from "@/store/quickBooks/quickBooksSlice";
-import { Avatar } from "@/components/v2/ui";
+import { Avatar, StatusPill } from "@/components/v2/ui";
 
 const RECENT_INVOICES_LIMIT = 5;
-
-// Mirrors InvoiceListContentV2's local status→Badge-variant mapping — kept
-// per-screen rather than shared, same as that file does.
-const STATUS_BADGE_VARIANT: Record<ReturnType<typeof getInvoiceStatus>, "success" | "warning" | "error"> = {
-  auto: "success",
-  manual: "warning",
-  pending: "warning",
-  processing: "warning",
-  failed: "error",
-};
 
 function vendorInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -153,12 +145,8 @@ export function VendorDetailV2({
           <div className="mt-[var(--space-sm)] flex flex-col divide-y divide-border">
             {recentInvoices.map((invoice) => {
               const status = getInvoiceStatus(invoice.postedStatus);
-              return (
-                <Link
-                  key={invoice._id}
-                  href={`/v2/invoices/${invoice._id}${invoice.postedStatus === "pending" ? "/review" : ""}`}
-                  className="flex items-center justify-between gap-[var(--space-sm)] py-[var(--space-sm)] hover:bg-surface-alt"
-                >
+              const rowContent = (
+                <>
                   <div className="min-w-0">
                     <p className="truncate text-body-sm font-semibold text-content-primary">
                       {invoice.extractedData?.invoiceNumber || "Invoice"}
@@ -167,8 +155,32 @@ export function VendorDetailV2({
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-[var(--space-xs)]">
                     <p className="text-body-sm font-semibold text-content-primary">{getInvoiceAmount(invoice)}</p>
-                    <Badge variant={STATUS_BADGE_VARIANT[status]}>{INVOICE_STATUS_THEME[status].label}</Badge>
+                    <StatusPill status={status} />
                   </div>
+                </>
+              );
+              // The pipeline can finish and auto-post a "processing" invoice
+              // at any moment in the background — no navigation at all until
+              // it settles, rather than guessing a destination that might be
+              // stale by the time the page loads.
+              if (invoice.postedStatus === "processing") {
+                return (
+                  <div
+                    key={invoice._id}
+                    onClick={() => showToast("This invoice is still processing — please wait a moment.", "neutral")}
+                    className="flex cursor-not-allowed items-center justify-between gap-[var(--space-sm)] py-[var(--space-sm)] opacity-60"
+                  >
+                    {rowContent}
+                  </div>
+                );
+              }
+              return (
+                <Link
+                  key={invoice._id}
+                  href={`/v2/invoices/${invoice._id}${resolveInvoiceDetailType(invoice.postedStatus) === "pending" ? "/review" : ""}`}
+                  className="flex items-center justify-between gap-[var(--space-sm)] py-[var(--space-sm)] hover:bg-surface-alt"
+                >
+                  {rowContent}
                 </Link>
               );
             })}

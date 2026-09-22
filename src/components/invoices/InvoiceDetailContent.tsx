@@ -343,7 +343,7 @@ export function InvoiceDetailContent({ invoiceId }: { invoiceId: string }) {
               <DetailRow label="Due Date" value={dueDate} labelColor={theme.labelColor} dividerColor={theme.divider} />
               <DetailRow label="Currency" value={currency} labelColor={theme.labelColor} dividerColor={theme.divider} />
               <DetailRow label="GL Code / Category" value={glCode} labelColor={theme.labelColor} dividerColor={theme.divider} />
-              <DetailRow label="Uploaded By" value={uploadedByName} labelColor={theme.labelColor} dividerColor={theme.divider} isLast />
+              <DetailRow label="Posted By" value={uploadedByName} labelColor={theme.labelColor} dividerColor={theme.divider} isLast />
             </div>
 
             {/* Financial Summary */}
