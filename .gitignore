@@ -47,3 +47,5 @@ next-env.d.ts
 # console logs and screenshots of authenticated sessions. Never commit either.
 .savetrix-mcp/
 .playwright-mcp/
+
+.claude/

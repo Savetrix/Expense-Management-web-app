@@ -1,16 +1,16 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
-import { GoogleDriveCallbackContent } from "@/components/accounting/GoogleDriveCallbackContent";
+import { GoogleDriveCallbackContentV2 } from "@/components/v2/accounting/GoogleDriveCallbackContentV2";
 
 export const metadata: Metadata = {
   title: "Connecting Google Drive — Scantrix",
 };
 
-export default function GoogleDriveCallbackPage() {
+export default function GoogleDriveCallbackV2Page() {
   return (
     <Suspense fallback={null}>
-      <GoogleDriveCallbackContent />
+      <GoogleDriveCallbackContentV2 />
     </Suspense>
   );
 }

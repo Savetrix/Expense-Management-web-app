@@ -1,16 +1,16 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
-import { LoginForm } from "@/components/auth/LoginForm";
+import { LoginFormV2 } from "@/components/v2/auth/LoginFormV2";
 
 export const metadata: Metadata = {
   title: "Log in — Scantrix",
 };
 
-export default function LoginPage() {
+export default function LoginV2Page() {
   return (
     <Suspense fallback={null}>
-      <LoginForm />
+      <LoginFormV2 />
     </Suspense>
   );
 }

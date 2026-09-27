@@ -48,7 +48,7 @@ function PrimaryCta({ href, children, className = "" }: { href: string; children
     <Link
       href={href}
       onClick={trackSignupClick}
-      className={`group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-trust-navy px-6 text-[15px] font-semibold text-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${className}`}
+      className={`group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--lp-navy)] px-6 text-[15px] font-semibold text-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${className}`}
     >
       {children}
       <ArrowRight size={17} strokeWidth={2.25} className="transition-transform group-hover:translate-x-0.5" />
@@ -60,7 +60,7 @@ function GhostCta({ href, children, className = "" }: { href: string; children: 
   return (
     <a
       href={href}
-      className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-border bg-white px-6 text-[15px] font-semibold text-trust-navy transition-all hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${className}`}
+      className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-6 text-[15px] font-semibold text-trust-navy transition-all hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${className}`}
     >
       {children}
     </a>
@@ -77,12 +77,12 @@ function Hero() {
         className="lp-glow pointer-events-none absolute -right-24 -top-24 h-[520px] w-[520px] rounded-full"
         aria-hidden
       />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-white" aria-hidden />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-[color:var(--lp-alt)]" aria-hidden />
 
       <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-8 lg:grid-cols-[1fr_1.06fr] lg:gap-10">
         <div className="max-w-xl">
           <LoadIn>
-            <span className="inline-flex items-center gap-2 rounded-pill border border-border bg-white px-3 py-1.5 text-[12.5px] font-semibold text-trust-navy shadow-sm">
+            <span className="inline-flex items-center gap-2 rounded-pill border border-border bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-trust-navy shadow-sm">
               <BrandIcon name="quickbooks" size={14} />
               Built for QuickBooks Online
             </span>
@@ -158,11 +158,11 @@ function IntegrationStrip() {
         <div className="flex flex-wrap items-center justify-center gap-x-7 gap-y-3">
           <span className="inline-flex items-center gap-2 text-[14px] font-semibold text-trust-navy">
             <BrandIcon name="quickbooks" size={18} /> QuickBooks
-            <span className="rounded-pill bg-[#E8F7F1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[color:var(--lp-auto)]">Live</span>
+            <span className="rounded-pill bg-status-success-bg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-status-success-text">Live</span>
           </span>
           <span className="inline-flex items-center gap-2 text-[14px] font-semibold text-trust-navy">
             <BrandIcon name="google-drive" size={17} /> Google Drive
-            <span className="rounded-pill bg-[#E8F7F1] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[color:var(--lp-auto)]">Live</span>
+            <span className="rounded-pill bg-status-success-bg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-status-success-text">Live</span>
           </span>
           <span className="inline-flex items-center gap-2 text-[14px] font-semibold text-text-secondary opacity-70">
             <BrandIcon name="zoho" size={17} /> Zoho Books
@@ -219,7 +219,7 @@ function Problem() {
             const Icon = p.icon;
             return (
               <Reveal key={p.title} delay={i * 90}>
-                <div className="flex gap-4 rounded-2xl border border-border bg-white p-5 shadow-sm">
+                <div className="flex gap-4 rounded-2xl border border-border bg-surface p-5 shadow-sm">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-background-alt text-text-secondary">
                     <Icon size={20} strokeWidth={2} />
                   </span>
@@ -276,7 +276,7 @@ function HowItWorks() {
           {STEPS.map((s, i) => (
             <Reveal key={s.n} delay={i * 110} className="relative flex flex-col">
               <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-white text-[13px] font-bold text-[color:var(--lp-teal-700)] shadow-sm">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-[13px] font-bold text-[color:var(--lp-teal-700)] shadow-sm">
                   {s.n}
                 </span>
                 <h3 className="text-[18px] font-bold text-trust-navy">{s.title}</h3>
@@ -438,7 +438,7 @@ function CapabilityTile({
 }) {
   return (
     <div
-      className={`group flex flex-col rounded-2xl border border-border bg-white p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-[color:var(--lp-teal)]/40 hover:shadow-md ${className}`}
+      className={`group flex flex-col rounded-2xl border border-border bg-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-[color:var(--lp-teal)]/40 hover:shadow-md ${className}`}
     >
       <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
         {icon}
@@ -556,7 +556,7 @@ function Capabilities() {
         </Reveal>
 
         <Reveal delay={245} className="md:col-span-2 lg:col-span-3">
-          <div className="flex flex-col items-start gap-5 rounded-2xl border border-border bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col items-start gap-5 rounded-2xl border border-border bg-surface p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-4">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
                 <UserPlus size={20} strokeWidth={2} />
@@ -573,13 +573,13 @@ function Capabilities() {
               {["S", "A", "R", "M"].map((initial, i) => (
                 <span
                   key={initial}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white text-[12px] font-bold text-white shadow-sm"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-surface text-[12px] font-bold text-white shadow-sm"
                   style={{ background: i % 2 === 0 ? "var(--lp-navy)" : "var(--lp-teal-600)" }}
                 >
                   {initial}
                 </span>
               ))}
-              <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-background-alt text-[12px] font-bold text-text-secondary shadow-sm">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-surface bg-background-alt text-[12px] font-bold text-text-secondary shadow-sm">
                 +
               </span>
             </div>
@@ -859,7 +859,7 @@ function Differentiation() {
         <Reveal delay={110} className="h-full">
           <div
             className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-[color:var(--lp-teal)]/30 p-7 shadow-md"
-            style={{ background: "linear-gradient(160deg, #ffffff 0%, var(--lp-teal-050) 100%)" }}
+            style={{ background: "linear-gradient(160deg, rgb(var(--bg-surface)) 0%, var(--lp-teal-050) 100%)" }}
           >
             <div className="lp-glow pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-60" aria-hidden />
             <span className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--lp-teal-700)]">
@@ -977,14 +977,14 @@ function Pricing() {
             // pixel-identical — only the element differs.
             const ctaClass = `mt-7 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl text-[14.5px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${
               plan.highlight || isCustom
-                ? "bg-trust-navy text-white shadow-sm hover:-translate-y-0.5 hover:shadow-md"
-                : "border border-border bg-white text-trust-navy hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
+                ? "bg-[color:var(--lp-navy)] text-white shadow-sm hover:-translate-y-0.5 hover:shadow-md"
+                : "border border-border bg-surface text-trust-navy hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
             }`;
 
             return (
               <Reveal key={plan.name} delay={i * 90} className="h-full">
                 <div
-                  className={`relative flex h-full flex-col rounded-2xl border bg-white p-6 ${
+                  className={`relative flex h-full flex-col rounded-2xl border bg-surface p-6 ${
                     plan.highlight
                       ? "border-[color:var(--lp-teal)] shadow-lg"
                       : isCustom
@@ -993,7 +993,7 @@ function Pricing() {
                   }`}
                 >
                   {plan.highlight && (
-                    <span className="absolute -top-3 right-6 rounded-pill bg-[color:var(--lp-teal)] px-3 py-1 text-[10.5px] font-bold uppercase tracking-wide text-trust-navy">
+                    <span className="absolute -top-3 right-6 rounded-pill bg-[color:var(--lp-teal)] px-3 py-1 text-[10.5px] font-bold uppercase tracking-wide text-accent-ink">
                       Most popular
                     </span>
                   )}
@@ -1153,7 +1153,7 @@ function About() {
             posting bills automatically, so people spend their time on judgment calls
             instead of data entry.
           </p>
-          <span className="mt-6 inline-flex items-center gap-2 rounded-pill border border-border bg-white px-3 py-1.5 text-[12.5px] font-semibold text-trust-navy shadow-sm">
+          <span className="mt-6 inline-flex items-center gap-2 rounded-pill border border-border bg-surface px-3 py-1.5 text-[12.5px] font-semibold text-trust-navy shadow-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--lp-teal)]" aria-hidden />
             Founded in 2025
           </span>
@@ -1164,7 +1164,7 @@ function About() {
             const Icon = v.icon;
             return (
               <Reveal key={v.title} delay={i * 90}>
-                <div className="flex gap-4 rounded-2xl border border-border bg-white p-5 shadow-sm">
+                <div className="flex gap-4 rounded-2xl border border-border bg-surface p-5 shadow-sm">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-600)]">
                     <Icon size={20} strokeWidth={2} />
                   </span>
@@ -1205,7 +1205,7 @@ function FinalCta() {
             <Link
               href="/register"
               onClick={trackSignupClick}
-              className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-7 text-[15px] font-semibold text-trust-navy shadow-lg transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--lp-navy)]"
+              className="group inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-7 text-[15px] font-semibold text-[color:var(--lp-navy)] shadow-lg transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--lp-navy)]"
             >
               Start free — 14 days
               <ArrowRight size={17} strokeWidth={2.25} className="transition-transform group-hover:translate-x-0.5" />
@@ -1227,7 +1227,7 @@ function FinalCta() {
 
 function Footer() {
   return (
-    <footer className="border-t border-border bg-white">
+    <footer className="border-t border-border bg-surface">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <div className="max-w-xs">
           <Wordmark />

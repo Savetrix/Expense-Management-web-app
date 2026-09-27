@@ -940,18 +940,11 @@ export const appleLogin = createAsyncThunk(
 // ================================
 // MICROSOFT LOGIN
 // ================================
-// NOTE: this endpoint does not exist on the backend yet — MicrosoftSignInButton
+// POST /auth/microsoft with { idToken: <MSAL ID token (JWT)> }, mirroring
+// googleLogin/appleLogin. Responds with the same { data: { user,
+// accessToken, refreshToken } } shape as /auth/google. MicrosoftSignInButton
 // stays in its "Coming Soon" state until NEXT_PUBLIC_MICROSOFT_CLIENT_ID is
-// set and this endpoint is implemented. Contract this assumes, mirroring
-// googleLogin/appleLogin: POST /auth/microsoft with { idToken: <MSAL ID
-// token (JWT)> }, expected to respond with the same { data: { accessToken,
-// refreshToken, ...user } } shape as /auth/google. The token is a standard
-// OIDC ID token from Microsoft's "common" authority (works for both Azure AD
-// work/school accounts and personal Outlook.com/Hotmail accounts) — the
-// backend should verify it against Microsoft's JWKS
-// (https://login.microsoftonline.com/common/discovery/v2.0/keys), same idea
-// as verifying Google's ID token. No separate name/email fields are needed
-// from the client since those are already claims on the idToken itself.
+// set in this environment.
 
 interface MicrosoftLoginPayload {
   idToken: string; // Microsoft/Azure AD ID token from @azure/msal-browser's loginPopup()

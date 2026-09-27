@@ -41,7 +41,7 @@ export function LandingNav() {
       <div
         className={`transition-all duration-300 ${
           scrolled
-            ? "border-b border-border bg-white/85 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-md"
+            ? "border-b border-border bg-surface/85 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-md"
             : "border-b border-transparent bg-transparent"
         }`}
       >
@@ -72,7 +72,7 @@ export function LandingNav() {
             <Link
               href="/register"
               onClick={trackSignupClick}
-              className="rounded-lg bg-trust-navy px-4 py-2 text-[14px] font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="rounded-lg bg-[color:var(--lp-navy)] px-4 py-2 text-[14px] font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
               Start free
             </Link>
@@ -92,7 +92,7 @@ export function LandingNav() {
 
       {/* Mobile sheet */}
       {open && (
-        <div className="border-b border-border bg-white px-5 pb-6 pt-2 shadow-lg lg:hidden">
+        <div className="border-b border-border bg-surface px-5 pb-6 pt-2 shadow-lg lg:hidden">
           <div className="flex flex-col">
             {LINKS.map((link) => (
               <a
@@ -109,7 +109,7 @@ export function LandingNav() {
             <Link
               href="/register"
               onClick={trackSignupClick}
-              className="rounded-lg bg-trust-navy py-3 text-center text-[15px] font-semibold text-white"
+              className="rounded-lg bg-[color:var(--lp-navy)] py-3 text-center text-[15px] font-semibold text-white"
             >
               Start free — 14 days
             </Link>

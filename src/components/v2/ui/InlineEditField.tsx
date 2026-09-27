@@ -1,0 +1,208 @@
+"use client";
+
+import { Check, Pencil, X } from "lucide-react";
+import { KeyboardEvent, forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+
+interface InlineEditFieldProps {
+  value: string;
+  onCommit: (nextValue: string) => void | Promise<void>;
+  multiline?: boolean;
+  /** "text" (default) or "date" — date swaps in a native date picker input
+   *  (still committed as a plain YYYY-MM-DD string) instead of a free-text
+   *  field. Added for invoice review's Invoice Date/Due Date fields. */
+  type?: "text" | "date";
+  /** Passed straight through to the underlying <input> (e.g. "decimal" for
+   *  amount fields) — irrelevant for multiline/date. */
+  inputMode?: "text" | "decimal" | "numeric";
+  placeholder?: string;
+  /** Required-field message shown under the field, matching SelectDropdown's
+   *  error styling — invoice review needs this for the same "GL account is
+   *  required" style validation the old form used. */
+  error?: string;
+  formatDisplay?: (value: string) => string;
+  ariaLabel: string;
+  className?: string;
+  /** "right" (default) suits amounts/numbers, which is most of what this
+   *  field is used for. Free-text fields (a line item's own description,
+   *  not its qty/price/amount) read more naturally left-aligned. */
+  align?: "left" | "right";
+  /** Called after a single-line field is committed with Enter (not on blur or
+   *  the Save button) — lets a form move straight on to its next field. */
+  onEnter?: () => void;
+}
+
+/** Imperative handle — lets a parent open another field for editing, e.g.
+ *  jump from a line item's description to its unit price on Enter. */
+export interface InlineEditFieldHandle {
+  startEdit: () => void;
+}
+
+// Real controlled-component version of the Stitch invoice-review mockup's
+// click-to-edit-in-place pattern (startInlineEdit/commitInlineEdit/
+// cancelInlineEdit, keyed off global DOM ids). Here the caller owns `value`
+// and receives the new value via `onCommit` — no document.getElementById
+// lookups, no module-level "which field is open" state.
+export const InlineEditField = forwardRef<InlineEditFieldHandle, InlineEditFieldProps>(function InlineEditField({
+  value,
+  onCommit,
+  multiline = false,
+  type = "text",
+  inputMode,
+  placeholder,
+  error,
+  formatDisplay,
+  ariaLabel,
+  className = "",
+  align = "right",
+  onEnter,
+}, ref) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [justSaved, setJustSaved] = useState(false);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const startEdit = () => {
+    setDraft(value);
+    setEditing(true);
+  };
+
+  useImperativeHandle(ref, () => ({ startEdit }));
+
+  const cancelEdit = () => {
+    setDraft(value);
+    setEditing(false);
+  };
+
+  // inputMode alone is only a mobile-keyboard hint — it doesn't stop letters
+  // being typed or pasted. For numeric fields, reject any edit that wouldn't
+  // leave a valid positive number-in-progress: "decimal" = digits + one dot;
+  // "numeric" = digits only. No minus sign anywhere — negatives aren't
+  // entered by hand (e.g. a discount is typed positive and subtracted for you). Pasted thousands separators
+  // ("1,299.00") are stripped rather than rejecting the whole paste.
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.value;
+    if (type === "date" || (inputMode !== "decimal" && inputMode !== "numeric")) {
+      setDraft(next);
+      return;
+    }
+    const cleaned = next.replace(/,/g, "");
+    const pattern = inputMode === "numeric" ? /^\d*$/ : /^\d*\.?\d*$/;
+    if (pattern.test(cleaned)) setDraft(cleaned);
+  };
+
+  const commitEdit = async () => {
+    setEditing(false);
+    if (draft !== value) {
+      await onCommit(draft);
+      setJustSaved(true);
+      window.setTimeout(() => setJustSaved(false), 1200);
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelEdit();
+      return;
+    }
+    // Plain Enter commits single-line fields; multiline fields need Enter
+    // for newlines, so they commit on Ctrl/Cmd+Enter instead.
+    const isCommitKey = multiline ? (event.key === "Enter" && (event.metaKey || event.ctrlKey)) : event.key === "Enter";
+    if (isCommitKey) {
+      event.preventDefault();
+      void commitEdit();
+      if (!multiline) onEnter?.();
+    }
+  };
+
+  if (editing) {
+    const sharedClassName =
+      "w-full rounded-md border border-accent bg-surface px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40";
+    return (
+      <div className={className}>
+        <div className="flex items-start gap-[var(--space-xs)]">
+          {multiline ? (
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+              aria-label={ariaLabel}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={() => void commitEdit()}
+              rows={3}
+              className={sharedClassName}
+            />
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              aria-label={ariaLabel}
+              type={type}
+              inputMode={type === "date" ? undefined : inputMode}
+              placeholder={placeholder}
+              value={draft}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onBlur={() => void commitEdit()}
+              className={sharedClassName}
+            />
+          )}
+          {/* onMouseDown preventDefault keeps focus on the input instead of
+              shifting it to the button — otherwise the input's onBlur above
+              would fire (and commit) BEFORE this button's own onClick runs,
+              which would make Cancel silently save instead of discarding. */}
+          <button
+            type="button"
+            aria-label={`Save ${ariaLabel}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void commitEdit()}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-status-success-text hover:bg-status-success-bg"
+          >
+            <Check size={16} strokeWidth={2.5} />
+          </button>
+          <button
+            type="button"
+            aria-label={`Cancel editing ${ariaLabel}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={cancelEdit}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-muted hover:bg-surface-alt"
+          >
+            <X size={16} strokeWidth={2.5} />
+          </button>
+        </div>
+        {error && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{error}</p>}
+      </div>
+    );
+  }
+
+  const isEmpty = !value.trim();
+
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={startEdit}
+        aria-label={`Edit ${ariaLabel}`}
+        className={`group flex w-full items-center gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] hover:bg-accent-bg/40 ${
+          align === "left" ? "justify-start text-left" : "justify-end text-right"
+        } ${justSaved ? "v2-highlight-flash" : ""} ${error ? "border border-status-danger-border bg-status-danger-bg/40" : ""}`}
+      >
+        <span
+          className={`min-w-0 truncate text-body-sm group-hover:text-accent ${
+            isEmpty ? "text-content-muted" : "text-content-primary"
+          }`}
+        >
+          {isEmpty ? placeholder || "—" : formatDisplay ? formatDisplay(value) : value}
+        </span>
+        <Pencil size={14} strokeWidth={2} className="shrink-0 text-content-muted opacity-0 group-hover:opacity-100" />
+      </button>
+      {error && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{error}</p>}
+    </div>
+  );
+});

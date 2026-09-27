@@ -93,6 +93,19 @@ export const getInvoiceDetails = createAsyncThunk(
       return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
   },
+  {
+    // InvoiceReviewContentV2 and useVendorResolution's hook (nested inside
+    // it, via VendorResolutionDialogV2) both dispatch this for the same
+    // invoiceId on mount — each checks `selectedInvoice` in its own render
+    // closure, so on a fresh page load both see it unset and both fire.
+    // `condition` runs against live state at dispatch time, so the second
+    // call sees the first one's synchronous `pending` update
+    // (invoiceDetailsFetchId already === this invoiceId) and bails out for
+    // real. A different invoiceId, or the same one once the in-flight fetch
+    // has resolved (e.g. the deliberate post-save refresh in
+    // InvoiceReviewContentV2), still goes through.
+    condition: (invoiceId, { getState }) => (getState() as RootState).invoice.invoiceDetailsFetchId !== invoiceId,
+  },
 );
 
 // ======================================
@@ -148,6 +161,15 @@ export const getInvoices = createAsyncThunk(
       console.log(error);
       return thunkAPI.rejectWithValue(getErrorMessage(error));
     }
+  },
+  {
+    // Same sibling-mount race as getInvoiceDetails above — GlobalSearchBar
+    // and InvoiceReviewContentV2 both check `invoices.length === 0` in their
+    // own render closure before dispatching, so both fire on a cold store.
+    // `invoicesFetchPending` is dedicated to this thunk (unlike the shared
+    // `loading` flag), so this can't falsely block on an unrelated
+    // getInvoiceDetails call that happens to be in flight at the same time.
+    condition: (_, { getState }) => !(getState() as RootState).invoice.invoicesFetchPending,
   },
 );
 

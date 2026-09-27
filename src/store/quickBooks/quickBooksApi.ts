@@ -70,6 +70,12 @@ export const getMyQBConnections = createAsyncThunk(
       return thunkAPI.rejectWithValue({ message, statusCode });
     }
   },
+  // Deliberately NO dedup `condition` here: AppShell, Dashboard, Vendors,
+  // GL/Tax Codes and Team all dispatch this on mount and several of them
+  // (AppShell's company switcher included) read the connections list from
+  // the RESOLVED action. A skipped duplicate resolves as not-fulfilled, so
+  // whichever caller lost the race got no list — that's what made the
+  // company switcher vanish on the dashboard.
 );
 
 // ================================
@@ -475,6 +481,22 @@ export const fetchQuickBooksVendors = createAsyncThunk(
       return thunkAPI.rejectWithValue(message);
     }
   },
+  {
+    // Several sibling components (GlobalSearchBar, InvoiceReviewContentV2,
+    // useVendorResolution) each check `vendorsLoading` in their own mount
+    // effect before dispatching this — but every one of those checks reads a
+    // closure value captured at render time, all BEFORE any of them has
+    // actually dispatched, so a length/loading check inside the component
+    // can't stop them from all firing in the same tick. `condition` runs
+    // against the live store via getState() at the moment each dispatch call
+    // is made, so the second and third calls in that same tick see the first
+    // one's synchronous `pending` update and bail out for real. Deliberately
+    // NOT also checking vendors.length here — call sites that need a forced
+    // refetch after an already-loaded list (e.g. right after creating a
+    // vendor, see useVendorResolution.ts) rely on this thunk still running
+    // even when the list is non-empty.
+    condition: (_, { getState }) => !(getState() as RootState).quickBooks.vendorsLoading,
+  },
 );
 
 // ================================
@@ -543,6 +565,12 @@ export const fetchQuickBooksAccounts = createAsyncThunk(
         "Failed to fetch GL accounts";
       return thunkAPI.rejectWithValue(message);
     }
+  },
+  {
+    // See the matching condition on fetchQuickBooksVendors above — same
+    // same-tick sibling-mount race, same reason it has to be a live getState
+    // check rather than a component-level closure check.
+    condition: (_, { getState }) => !(getState() as RootState).quickBooks.accountsLoading,
   },
 );
 
@@ -662,6 +690,12 @@ export const fetchQuickBooksTaxCodes = createAsyncThunk(
         "Failed to fetch tax codes";
       return thunkAPI.rejectWithValue(message);
     }
+  },
+  {
+    // See the matching condition on fetchQuickBooksVendors above — same
+    // same-tick sibling-mount race, same reason it has to be a live getState
+    // check rather than a component-level closure check.
+    condition: (_, { getState }) => !(getState() as RootState).quickBooks.taxCodesLoading,
   },
 );
 

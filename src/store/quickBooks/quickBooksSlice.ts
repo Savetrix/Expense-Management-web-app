@@ -50,7 +50,10 @@ export interface TaxCode {
   Name?: string;
   description?: string;
   isDeleted?: boolean;
-  taxRateIds?: { name: string; value: string }[];
+  /** `value` is the QB TaxRate ID, not a percentage — `rate` is the percentage. */
+  taxRateIds?: { name: string; value: string; rate?: number | null }[];
+  /** Combined purchase rate % (e.g. GST 5 + PST 7 = 12). null = unknown/compound — don't compute from it. */
+  totalRate?: number | null;
 }
 
 interface QuickBooksState {
@@ -224,7 +227,14 @@ const quickBooksSlice = createSlice({
 
     // ── Settings (auto-post / line-item-wise entry) ───────────────────
     builder.addCase(updateQuickBooksSettings.fulfilled, (state, action) => {
-      const data = action.payload?.data;
+      // Same defensive probe as getQuickBooksStatus.fulfilled above: this
+      // backend has proven inconsistent about wrapping payloads in `data`
+      // per-endpoint (see the auth/refresh comment in lib/api.ts), and this
+      // PATCH was found to return the updated fields on the root object, not
+      // nested under `data` — reading only `action.payload?.data` meant the
+      // request succeeded (and the toast fired) but the toggle never
+      // actually flipped, since nothing here ever matched.
+      const data = action.payload?.data ?? action.payload;
       if (data?.autoPostEnabled !== undefined) state.autoPostEnabled = data.autoPostEnabled;
       if (data?.lineItemWiseEnabled !== undefined) state.lineItemWiseEnabled = data.lineItemWiseEnabled;
       if (data?.attachInvoiceCopyEnabled !== undefined) state.attachInvoiceCopyEnabled = data.attachInvoiceCopyEnabled;
