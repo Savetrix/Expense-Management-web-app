@@ -13,7 +13,7 @@ import { useVendorResolution } from "./useVendorResolution";
 // In-place counterpart of VendorResolutionContentV2 — same
 // useVendorResolution hook (same store reads, thunks, and QuickBooks API
 // calls), rendered inside the shared Modal shell instead of navigating to
-// /v2/invoices/[id]/vendor. Used from InvoiceReviewContentV2 so resolving a
+// /invoices/[id]/vendor. Used from InvoiceReviewContentV2 so resolving a
 // vendor doesn't lose the reviewer's place on the invoice.
 export function VendorResolutionDialogV2({
   invoiceId,

@@ -1,16 +1,16 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
-import { GLTaxCodeContent } from "@/components/glTaxCode/GLTaxCodeContent";
+import { GLTaxCodeContentV2 } from "@/components/v2/glTaxCode/GLTaxCodeContentV2";
 
 export const metadata: Metadata = {
   title: "GL Account & TaxCode — Scantrix",
 };
 
-export default function GLTaxCodePage() {
+export default function GLTaxCodeV2Page() {
   return (
     <Suspense fallback={null}>
-      <GLTaxCodeContent />
+      <GLTaxCodeContentV2 />
     </Suspense>
   );
 }

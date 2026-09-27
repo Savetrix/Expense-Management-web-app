@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { TeamMembersContent } from "@/components/team/TeamMembersContent";
+import { TeamMembersContentV2 } from "@/components/v2/team/TeamMembersContentV2";
 
 export const metadata: Metadata = {
   title: "Team Members — Scantrix",
 };
 
-export default function TeamPage() {
-  return <TeamMembersContent />;
+export default function TeamV2Page() {
+  return <TeamMembersContentV2 />;
 }

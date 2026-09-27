@@ -77,9 +77,9 @@ export function SubscriptionStatusContentV2() {
           );
         }
       });
-      router.replace("/v2/subscription");
+      router.replace("/subscription");
     } else if (checkoutStatus === "cancelled") {
-      router.replace("/v2/subscription");
+      router.replace("/subscription");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -220,7 +220,7 @@ export function SubscriptionStatusContentV2() {
         {/* Actions */}
         <div className="flex flex-col gap-[var(--space-sm)]">
           <Link
-            href="/v2/plans"
+            href="/plans"
             className="flex items-center justify-center gap-[var(--space-sm)] rounded-lg bg-primary px-[var(--space-md)] py-[var(--space-md)] font-semibold text-white transition-opacity hover:opacity-90"
           >
             View all plans <ArrowRight size={18} strokeWidth={2} />

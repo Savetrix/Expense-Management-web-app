@@ -227,7 +227,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
   useEffect(() => {
     if (!fetchError || invoiceObject) return;
     showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
-    router.replace("/v2/invoices");
+    router.replace("/invoices");
   }, [fetchError, invoiceObject, router]);
 
   const rawData = invoiceObject?.extractedData;
@@ -265,7 +265,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
     const result = await dispatch(deleteInvoice({ invoiceId }));
     if (deleteInvoice.fulfilled.match(result)) {
       showToast("Invoice deleted successfully.", "success");
-      router.push("/v2/invoices?type=failed");
+      router.push("/invoices?type=failed");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to delete invoice.", "error");
@@ -327,7 +327,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
           {(type === "auto" || type === "manual") && (
             <button
               type="button"
-              onClick={() => router.push(`/v2/invoices/${invoiceId}/review`)}
+              onClick={() => router.push(`/invoices/${invoiceId}/review`)}
               className="inline-flex h-9 items-center gap-[var(--space-xs)] rounded-md border border-border bg-surface px-[var(--space-sm)] text-caption font-bold text-content-primary hover:bg-surface-alt"
             >
               <Pencil size={14} strokeWidth={2.25} />

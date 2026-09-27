@@ -46,14 +46,14 @@ export function MicrosoftSignInButton({ onSuccess, onError }: MicrosoftSignInBut
             // BroadcastChannel "redirect bridge" rather than the opener
             // polling the popup's location directly — the page at
             // redirectUri must call broadcastResponseToMainFrame() (see
-            // src/app/v2/login/microsoft-callback/page.tsx). It's nested
-            // under /v2/login specifically so AuthGate's PUBLIC_ROUTES
+            // src/app/(app)/login/microsoft-callback/page.tsx). It's nested
+            // under /login specifically so AuthGate's PUBLIC_ROUTES
             // prefix match covers it — this page must render while
             // unauthenticated, since it's what delivers the auth code that
             // establishes auth in the first place.
             redirectUri:
               typeof window !== "undefined"
-                ? `${window.location.origin}/v2/login/microsoft-callback`
+                ? `${window.location.origin}/login/microsoft-callback`
                 : undefined,
           },
         });

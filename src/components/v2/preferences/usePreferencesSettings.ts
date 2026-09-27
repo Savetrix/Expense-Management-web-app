@@ -7,7 +7,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { updateQuickBooksSettings } from "@/store/quickBooks/quickBooksApi";
 import { useQuickBooksConnections } from "@/store/quickBooks/useQuickBooksConnections";
 
-// Shared by PreferencesContentV2 (the /v2/preferences route) and
+// Shared by PreferencesContentV2 (the /preferences route) and
 // PreferencesDialogV2 (opened in place from ProfileContentV2) — same store
 // reads, connection resolution, and QuickBooks settings thunk either way.
 export function usePreferencesSettings() {
@@ -22,7 +22,7 @@ export function usePreferencesSettings() {
   const [savingAttachInvoiceCopy, setSavingAttachInvoiceCopy] = useState(false);
 
   const { activeConnections, activeConnectionId, checkingStatus, connecting, handleConnect } =
-    useQuickBooksConnections("/v2/preferences");
+    useQuickBooksConnections("/preferences");
 
   // With exactly one connected company there's nothing to choose, so use it
   // directly. With 2+, only use a match for an id the user actually

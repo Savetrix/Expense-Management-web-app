@@ -15,7 +15,7 @@ import { useQuickBooksConnections } from "@/store/quickBooks/useQuickBooksConnec
 
 // v2 redesign of src/components/quickbooks/QuickBooksConnectContent.tsx — the
 // dedicated QuickBooks route the OAuth callback can land on. Full connection
-// management lives on /v2/accounting-software; this stays the focused
+// management lives on /accounting-software; this stays the focused
 // companies-only view, sharing the same useQuickBooksConnections hook so the
 // two surfaces never drift apart.
 const ROW_ACTION_CLASS =
@@ -38,7 +38,7 @@ export function QuickBooksConnectContentV2() {
     handleConnect,
     handleReconnect,
     handleDisconnect,
-  } = useQuickBooksConnections("/v2/quickbooks");
+  } = useQuickBooksConnections("/quickbooks");
 
   // Backend's QB OAuth callback redirects errors back here as ?error=<code>
   // (success carries no query param — the hook's own checkStatus already
@@ -48,7 +48,7 @@ export function QuickBooksConnectContentV2() {
     const error = searchParams.get("error");
     if (!error) return;
     showToast(error, "error");
-    router.replace("/v2/quickbooks");
+    router.replace("/quickbooks");
   }, [searchParams, router]);
 
   return (

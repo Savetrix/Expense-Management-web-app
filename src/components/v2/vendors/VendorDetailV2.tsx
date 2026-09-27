@@ -178,7 +178,7 @@ export function VendorDetailV2({
               return (
                 <Link
                   key={invoice._id}
-                  href={`/v2/invoices/${invoice._id}${resolveInvoiceDetailType(invoice.postedStatus) === "pending" ? "/review" : ""}`}
+                  href={`/invoices/${invoice._id}${resolveInvoiceDetailType(invoice.postedStatus) === "pending" ? "/review" : ""}`}
                   className="flex items-center justify-between gap-[var(--space-sm)] py-[var(--space-sm)] hover:bg-surface-alt"
                 >
                   {rowContent}

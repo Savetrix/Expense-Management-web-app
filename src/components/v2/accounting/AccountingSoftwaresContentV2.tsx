@@ -275,7 +275,7 @@ export function AccountingSoftwaresContentV2() {
     handleSwitch,
     handleReconnect,
     handleDisconnect,
-  } = useQuickBooksConnections("/v2/accounting-software");
+  } = useQuickBooksConnections("/accounting-software");
 
   const selectedConnection: QBConnection | null =
     detail?.type === "connection" ? connections.find((c) => c._id === detail.id) || null : null;
@@ -311,15 +311,18 @@ export function AccountingSoftwaresContentV2() {
     setDriveStatusLoading(false);
   }, [dispatch]);
 
+  // Re-runs on activeConnectionId too — Drive is linked per QB workspace (the
+  // backend keys off the X-QB-Id header), so switching company must re-check
+  // or the previous workspace's Drive state keeps showing.
   useEffect(() => {
     checkDriveStatus();
     // Re-check on focus: covers returning from the Google OAuth redirect (the
-    // /v2/google-drive landing page bounces back here) and a disconnect done in
+    // /google-drive landing page bounces back here) and a disconnect done in
     // another tab.
     const onFocus = () => checkDriveStatus();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [checkDriveStatus]);
+  }, [checkDriveStatus, activeConnectionId]);
 
   useEffect(() => {
     dispatch(fetchMySubscription());
@@ -905,14 +908,20 @@ export function AccountingSoftwaresContentV2() {
                   panel, not just owner/admin: reconnecting re-runs OAuth for
                   THIS connection to rotate its tokens, which is how an active
                   account gets refreshed. The backend still enforces whatever
-                  role it enforces. */}
+                  role it enforces.
+                  A fully disconnected connection (isDeleted: true) is the
+                  exception: re-auth-by-id 404s on it, so it goes through the
+                  plain connect flow — Intuit's callback upserts by
+                  (ownerId, realmId), reviving this same record. */}
               <button
                 type="button"
-                onClick={() => handleReconnect(selectedConnection)}
-                disabled={reconnectingId === selectedConnection._id}
+                onClick={() => (isSelectedDisconnected ? handleConnect() : handleReconnect(selectedConnection))}
+                disabled={isSelectedDisconnected ? connecting : reconnectingId === selectedConnection._id}
                 className={MODAL_GHOST_BUTTON_CLASS}
               >
-                {reconnectingId === selectedConnection._id ? "Reconnecting…" : "Reconnect"}
+                {(isSelectedDisconnected ? connecting : reconnectingId === selectedConnection._id)
+                  ? "Reconnecting…"
+                  : "Reconnect"}
               </button>
               {!isSelectedDisconnected && (
                 <button

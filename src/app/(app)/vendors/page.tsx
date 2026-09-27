@@ -1,16 +1,16 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
-import { VendorsContent } from "@/components/vendors/VendorsContent";
+import { VendorsContentV2 } from "@/components/v2/vendors/VendorsContentV2";
 
 export const metadata: Metadata = {
   title: "Vendors — Scantrix",
 };
 
-export default function VendorsPage() {
+export default function VendorsV2Page() {
   return (
     <Suspense fallback={null}>
-      <VendorsContent />
+      <VendorsContentV2 />
     </Suspense>
   );
 }

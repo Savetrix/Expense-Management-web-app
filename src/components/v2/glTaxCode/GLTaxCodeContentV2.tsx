@@ -151,7 +151,7 @@ export function GLTaxCodeContentV2() {
   };
 
   // Lets the sidebar's "Create → GL Account" shortcut land straight in
-  // create mode via /v2/gl-tax-codes?create=true — also forces the accounts
+  // create mode via /gl-tax-codes?create=true — also forces the accounts
   // tab active since the create button only ever shows there. Waits for
   // loadingConnections to resolve so canManage reflects the real role
   // before deciding whether to open it; runs at most once per page load.
@@ -164,7 +164,7 @@ export function GLTaxCodeContentV2() {
     autoOpenedCreateRef.current = true;
     setActiveTab("accounts");
     openCreateSheet();
-    router.replace("/v2/gl-tax-codes");
+    router.replace("/gl-tax-codes");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, loadingConnections, canManage]);
 

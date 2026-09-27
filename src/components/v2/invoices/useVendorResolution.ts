@@ -18,7 +18,7 @@ import { showToast } from "@/lib/dialogManager";
 export type VendorResolutionTab = "suggested" | "all" | "create";
 
 // Shared brain behind both VendorResolutionContentV2 (the standalone
-// /v2/invoices/[id]/vendor page) and VendorResolutionDialogV2 (the modal
+// /invoices/[id]/vendor page) and VendorResolutionDialogV2 (the modal
 // opened in place from InvoiceReviewContentV2) — same store reads, same
 // thunks, same validation/fallback logic in both, so the two surfaces never
 // drift apart. `onResolved` fires once a vendor is selected/created and

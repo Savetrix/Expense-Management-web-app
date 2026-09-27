@@ -8,7 +8,7 @@ import { Modal, RoleInfoBanner } from "@/components/v2/ui";
 import { PreferenceRow } from "./PreferenceRow";
 import { usePreferencesSettings } from "./usePreferencesSettings";
 
-// In-place counterpart of PreferencesContentV2 (the /v2/preferences route) —
+// In-place counterpart of PreferencesContentV2 (the /preferences route) —
 // same usePreferencesSettings hook, rendered inside the shared Modal shell
 // instead of navigating away. Mirrors VendorResolutionDialogV2's
 // relationship to VendorResolutionContentV2.

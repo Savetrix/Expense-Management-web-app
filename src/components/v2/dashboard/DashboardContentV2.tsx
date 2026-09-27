@@ -504,12 +504,12 @@ export function DashboardContentV2() {
     }
     dispatch(setSelectedInvoice(invoice));
     const suffix = resolveInvoiceDetailType(invoice.postedStatus) === "pending" ? "/review" : "";
-    router.push(`/v2/invoices/${invoice._id}${suffix}`);
+    router.push(`/invoices/${invoice._id}${suffix}`);
   };
 
   const handleViewAllInvoices = () => {
     if (recentCardRef.current) requestExpandTransition(recentCardRef.current);
-    router.push("/v2/invoices");
+    router.push("/invoices");
   };
 
   const toggleSelected = (id: string) => {
@@ -719,19 +719,19 @@ export function DashboardContentV2() {
             <StatRowV2
               count={autoPostedInvoices.length}
               label="Auto-posted"
-              href="/v2/invoices?type=auto"
+              href="/invoices?type=auto"
               colorClass="text-status-success-text"
             />
             <StatRowV2
               count={manualPostedInvoices.length}
               label="Manually Posted"
-              href="/v2/invoices?type=manual"
+              href="/invoices?type=manual"
               colorClass="text-status-warning-text"
             />
             <StatRowV2
               count={failedInvoices.length}
               label="Failed"
-              href="/v2/invoices?type=failed"
+              href="/invoices?type=failed"
               colorClass="text-status-danger-text"
               last
             />
@@ -741,7 +741,7 @@ export function DashboardContentV2() {
 
       <div className="flex min-w-0 flex-col gap-[var(--space-md)] sm:col-span-2 lg:col-span-2">
         <Link
-          href="/v2/invoices?type=pending"
+          href="/invoices?type=pending"
           className="flex items-center gap-[var(--space-sm)] rounded-lg bg-nav-bg p-[var(--space-md)] text-white shadow-md"
         >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-accent">

@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/Spinner";
 
 // Backend's Google Drive OAuth callback (public route on Scantrix_API)
 // redirects the browser here after the user grants/denies access — this page
-// only exists to read that result and bounce back to /v2/accounting-software;
+// only exists to read that result and bounce back to /accounting-software;
 // it never calls the API itself.
 //
 // v2 redesign of src/components/accounting/GoogleDriveCallbackContent.tsx.
@@ -21,7 +21,7 @@ export function GoogleDriveCallbackContentV2() {
   const error = searchParams.get("error");
 
   useEffect(() => {
-    const timer = setTimeout(() => router.replace("/v2/accounting-software"), 1800);
+    const timer = setTimeout(() => router.replace("/accounting-software"), 1800);
     return () => clearTimeout(timer);
   }, [router]);
 

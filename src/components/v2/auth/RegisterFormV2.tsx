@@ -285,15 +285,15 @@ export function RegisterFormV2() {
                 <div className="h-px flex-1 bg-border" />
               </div>
 
-              <GoogleSignInButton onSuccess={() => router.push("/v2/dashboard")} onError={setFormError} />
-              <MicrosoftSignInButton onSuccess={() => router.push("/v2/dashboard")} onError={setFormError} />
+              <GoogleSignInButton onSuccess={() => router.push("/dashboard")} onError={setFormError} />
+              <MicrosoftSignInButton onSuccess={() => router.push("/dashboard")} onError={setFormError} />
             </form>
           </Card>
         </div>
 
         <div className="mt-[var(--space-lg)] flex items-center gap-[var(--space-xs)] border-t border-border pt-[var(--space-lg)] text-body-sm">
           <span className="text-content-secondary">Already have an account?</span>
-          <Link href="/v2/login" className="font-bold text-accent">
+          <Link href="/login" className="font-bold text-accent">
             Log in
           </Link>
         </div>

@@ -34,7 +34,7 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
   useEffect(() => {
     if (!fetchError || selectedInvoice) return;
     showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
-    router.replace("/v2/invoices");
+    router.replace("/invoices");
   }, [fetchError, selectedInvoice, router]);
 
   const {

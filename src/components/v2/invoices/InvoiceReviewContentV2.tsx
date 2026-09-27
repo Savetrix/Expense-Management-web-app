@@ -528,7 +528,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   useEffect(() => {
     if (!fetchError || invoiceObject) return;
     showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
-    router.replace("/v2/invoices");
+    router.replace("/invoices");
   }, [fetchError, invoiceObject, router]);
 
   useEffect(() => {
@@ -1031,7 +1031,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     const result = await dispatch(rejectInvoice({ invoiceId }));
     if (rejectInvoice.fulfilled.match(result)) {
       showToast("The invoice has been moved to the Failed section.", "success");
-      router.push("/v2/invoices?type=pending");
+      router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to reject the invoice.", "error");
@@ -1056,7 +1056,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
     if (postInvoiceToQuickBooks.fulfilled.match(result)) {
       showToast("Invoice posted to QuickBooks successfully.", "success");
-      router.push("/v2/invoices?type=pending");
+      router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(
@@ -1200,7 +1200,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
     if (updateInvoiceExtractedData.fulfilled.match(result)) {
       showToast("Invoice updated and synced to QuickBooks.", "success");
-      router.push(`/v2/invoices/${invoiceId}`);
+      router.push(`/invoices/${invoiceId}`);
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to update invoice.", "error");

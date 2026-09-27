@@ -219,7 +219,7 @@ export function VendorsContentV2() {
   };
 
   // Lets the sidebar's "Create → Vendor" shortcut land straight in create
-  // mode via /v2/vendors?create=true, instead of just the plain list. Waits
+  // mode via /vendors?create=true, instead of just the plain list. Waits
   // for loadingConnections to resolve so canManageVendors reflects the real
   // role before deciding whether to open it; runs at most once per page load.
   const autoOpenedCreateRef = useRef(false);
@@ -230,7 +230,7 @@ export function VendorsContentV2() {
     if (!canManageVendors) return;
     autoOpenedCreateRef.current = true;
     openCreateSheet();
-    router.replace("/v2/vendors");
+    router.replace("/vendors");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, loadingConnections, canManageVendors]);
 

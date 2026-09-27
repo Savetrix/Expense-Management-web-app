@@ -199,10 +199,10 @@ export function InvoiceListContentV2() {
     }
     dispatch(setSelectedInvoice(invoice));
     if (resolveInvoiceDetailType(invoice.postedStatus) === "pending") {
-      router.push(`/v2/invoices/${invoice._id}/review`);
+      router.push(`/invoices/${invoice._id}/review`);
       return;
     }
-    router.push(`/v2/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
+    router.push(`/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
   };
 
   const tabCounts: Record<ListType, number> = {
@@ -325,7 +325,7 @@ export function InvoiceListContentV2() {
           <div className="grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-4">
             <button
               type="button"
-              onClick={() => router.replace("/v2/invoices?type=all")}
+              onClick={() => router.replace("/invoices?type=all")}
               className="flex flex-col justify-between rounded-lg border border-nav-bg bg-nav-bg px-[var(--space-sm)] py-[10px] text-left"
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
@@ -343,7 +343,7 @@ export function InvoiceListContentV2() {
                 <button
                   key={t}
                   type="button"
-                  onClick={() => router.replace(`/v2/invoices?type=${t}`)}
+                  onClick={() => router.replace(`/invoices?type=${t}`)}
                   className={`flex flex-col justify-between rounded-lg border px-[var(--space-sm)] py-[10px] text-left ${tileTheme.cardBgClass} ${
                     t === "auto"
                       ? "border-status-success-border"
@@ -397,7 +397,7 @@ export function InvoiceListContentV2() {
                 <SelectDropdown
                   uiSize="sm"
                   value={statusFilter}
-                  onChange={(event) => router.replace(`/v2/invoices?type=${event.target.value}`)}
+                  onChange={(event) => router.replace(`/invoices?type=${event.target.value}`)}
                 >
                   {STATUS_ORDER.map((s) => (
                     <option key={s} value={s}>

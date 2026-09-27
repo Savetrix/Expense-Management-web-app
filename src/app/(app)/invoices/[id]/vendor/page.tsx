@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 
-import { VendorResolutionContent } from "@/components/invoices/VendorResolutionContent";
+import { VendorResolutionContentV2 } from "@/components/v2/invoices/VendorResolutionContentV2";
 
 export const metadata: Metadata = {
   title: "Resolve Vendor — Scantrix",
 };
 
-export default async function VendorResolutionPage({
+export default async function VendorResolutionV2Page({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <VendorResolutionContent invoiceId={id} />;
+  return <VendorResolutionContentV2 invoiceId={id} />;
 }

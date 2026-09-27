@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { AccountingSoftwaresContent } from "@/components/accounting/AccountingSoftwaresContent";
+import { AccountingSoftwaresContentV2 } from "@/components/v2/accounting/AccountingSoftwaresContentV2";
 
 export const metadata: Metadata = {
   title: "Integrations — Scantrix",
 };
 
-export default function AccountingSoftwarePage() {
-  return <AccountingSoftwaresContent />;
+export default function AccountingSoftwareV2Page() {
+  return <AccountingSoftwaresContentV2 />;
 }
