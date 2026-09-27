@@ -10,6 +10,7 @@ import {
   Copy,
   ExternalLink,
   FolderOpen,
+  Mail,
   Plug,
   Receipt,
   RefreshCw,
@@ -247,6 +248,7 @@ export function AccountingSoftwaresContentV2() {
   const [driveDisconnecting, setDriveDisconnecting] = useState(false);
   // Client-side only — see the storage.ts comment on setDriveConnectedAt.
   const [driveConnectedAt, setDriveConnectedAt] = useState<string | null>(null);
+  const [driveEmail, setDriveEmail] = useState<string | null>(null);
 
   const [detail, setDetail] = useState<DetailView>(null);
   const [disconnectedExpanded, setDisconnectedExpanded] = useState(false);
@@ -289,15 +291,25 @@ export function AccountingSoftwaresContentV2() {
   };
 
   const checkDriveStatus = useCallback(async () => {
+    // Drive is linked per QB workspace (the backend reads the X-QB-Id header),
+    // so with no company selected it can only ever answer "not connected" —
+    // skip the round trip. Storage is left alone: this isn't a real disconnect.
+    if (!activeConnectionId) {
+      setDriveConnected(false);
+      setDriveEmail(null);
+      setDriveStatusLoading(false);
+      return;
+    }
     setDriveStatusLoading(true);
     const result = await dispatch(getGoogleDriveStatus());
     if (getGoogleDriveStatus.fulfilled.match(result)) {
-      // The backend only ever returns {connected} here (see AccountingSoftwaresScreen.tsx's
-      // matching comment on the mobile side) — no email/connectedAt/folderUrl exist server-side,
-      // so "Connected on" is stamped client-side the first time a connection is observed.
+      // The backend returns {connected, email} — no connectedAt/folderUrl
+      // exist server-side, so "Connected on" is still stamped client-side
+      // the first time a connection is observed.
       const data = result.payload?.data;
       const nowConnected = Boolean(data?.connected);
       setDriveConnected(nowConnected);
+      setDriveEmail(nowConnected ? data?.email ?? null : null);
       if (nowConnected) {
         const stored = getStoredDriveConnectedAt();
         const stampedAt = stored ?? new Date().toISOString();
@@ -309,29 +321,30 @@ export function AccountingSoftwaresContentV2() {
       }
     }
     setDriveStatusLoading(false);
-  }, [dispatch]);
+  }, [dispatch, activeConnectionId]);
 
-  // Re-runs on activeConnectionId too — Drive is linked per QB workspace (the
-  // backend keys off the X-QB-Id header), so switching company must re-check
-  // or the previous workspace's Drive state keeps showing.
+  // checkDriveStatus changes identity with activeConnectionId, so switching
+  // company re-checks — otherwise the previous workspace's Drive state keeps
+  // showing. The Google OAuth return is a full page load (via /google-drive),
+  // so mount covers it; tab visibility covers a disconnect in another tab.
   useEffect(() => {
     checkDriveStatus();
-    // Re-check on focus: covers returning from the Google OAuth redirect (the
-    // /google-drive landing page bounces back here) and a disconnect done in
-    // another tab.
-    const onFocus = () => checkDriveStatus();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [checkDriveStatus, activeConnectionId]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkDriveStatus();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [checkDriveStatus]);
 
   useEffect(() => {
     dispatch(fetchMySubscription());
-    // Re-check on focus too — slotsUsed changes after adding/disconnecting a
-    // QuickBooks account, including ones done from the header company
-    // switcher or a QuickBooks OAuth redirect in this same tab.
-    const onFocus = () => dispatch(fetchMySubscription());
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    // slotsUsed changes after adding/disconnecting a QuickBooks account in
+    // another tab; the QuickBooks OAuth return is a full page load.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") dispatch(fetchMySubscription());
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [dispatch]);
 
   const handleDriveDisconnect = async () => {
@@ -639,7 +652,7 @@ export function AccountingSoftwaresContentV2() {
                 <IntegrationRow
                   icon={<BrandIcon name="google-drive" size={22} />}
                   name="Google Drive"
-                  description="Posted invoices are copied to your Drive automatically."
+                  description={driveEmail || "Posted invoices are copied to your Drive automatically."}
                   selected={detail?.type === "drive"}
                   onOpen={() => setDetail({ type: "drive" })}
                   openLabel="Manage Google Drive"
@@ -972,6 +985,9 @@ export function AccountingSoftwaresContentV2() {
         </p>
 
         <div className="mt-[var(--space-md)] rounded-md border border-border bg-surface-alt px-[var(--space-md)] py-[var(--space-xs)]">
+          <ModalDefinitionRow label="Google account" icon={<Mail size={14} strokeWidth={2} />}>
+            <span className="truncate">{driveEmail || "—"}</span>
+          </ModalDefinitionRow>
           <ModalDefinitionRow label="Connected on" icon={<CalendarDays size={14} strokeWidth={2} />}>
             {formatConnectedDate(driveConnectedAt)}
           </ModalDefinitionRow>

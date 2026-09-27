@@ -47,6 +47,9 @@ interface SubscriptionState {
   subscription: MySubscription | null;
   subscriptionLoading: boolean;
   subscriptionError: string | null;
+  // Only the most recently started fetch may write — a forced fetch can run
+  // alongside an older one, and the older response must not land last.
+  latestSubscriptionRequestId: string | null;
 
   choosingPlan: boolean;
   checkingOut: boolean;
@@ -61,6 +64,7 @@ const initialState: SubscriptionState = {
   subscription: null,
   subscriptionLoading: false,
   subscriptionError: null,
+  latestSubscriptionRequestId: null,
 
   choosingPlan: false,
   checkingOut: false,
@@ -88,15 +92,18 @@ const subscriptionSlice = createSlice({
       });
 
     builder
-      .addCase(fetchMySubscription.pending, (state) => {
+      .addCase(fetchMySubscription.pending, (state, action) => {
         state.subscriptionLoading = true;
         state.subscriptionError = null;
+        state.latestSubscriptionRequestId = action.meta?.requestId ?? null;
       })
       .addCase(fetchMySubscription.fulfilled, (state, action) => {
+        if (action.meta?.requestId && action.meta.requestId !== state.latestSubscriptionRequestId) return;
         state.subscriptionLoading = false;
         state.subscription = action.payload?.data ?? null;
       })
       .addCase(fetchMySubscription.rejected, (state, action) => {
+        if (action.meta?.requestId && action.meta.requestId !== state.latestSubscriptionRequestId) return;
         state.subscriptionLoading = false;
         const payload = action.payload as { message?: string } | undefined;
         state.subscriptionError = payload?.message || "Failed to fetch subscription";

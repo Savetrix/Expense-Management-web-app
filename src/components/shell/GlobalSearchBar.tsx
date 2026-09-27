@@ -28,6 +28,9 @@ export function GlobalSearchBar() {
   const accountsLoading = useAppSelector((state) => state.quickBooks.accountsLoading);
   const taxCodes = useAppSelector((state) => state.quickBooks.taxCodes);
   const taxCodesLoading = useAppSelector((state) => state.quickBooks.taxCodesLoading);
+  const vendorsConnectionId = useAppSelector((state) => state.quickBooks.vendorsConnectionId);
+  const accountsConnectionId = useAppSelector((state) => state.quickBooks.accountsConnectionId);
+  const taxCodesConnectionId = useAppSelector((state) => state.quickBooks.taxCodesConnectionId);
 
   const [rawQuery, setRawQuery] = useState("");
   const [query, setQuery] = useState("");
@@ -57,14 +60,52 @@ export function GlobalSearchBar() {
   // InvoiceReviewContentV2 loads vendors/accounts/taxCodes itself). That
   // doubling was real: it's what was tripping the global rate limiter on a
   // single page load, not repeated user activity.
+  //
+  // "Loaded" means loaded for THIS company, not merely non-empty: after a
+  // company switch the old company's lists are still in the store, and an
+  // emptiness check alone kept searching them. Invoices aren't tagged by
+  // company, so a switch refetches them explicitly.
+  const lastQbConnectionIdRef = useRef(qbConnectionId);
   useEffect(() => {
     if (!accessToken || !qbConnectionId) return;
-    if (invoices.length === 0 && !invoicesLoading) dispatch(getInvoices());
-    if (vendors.length === 0 && !vendorsLoading) dispatch(fetchQuickBooksVendors({ accessToken }));
-    if (accounts.length === 0 && !accountsLoading) dispatch(fetchQuickBooksAccounts({ accessToken }));
-    if (taxCodes.length === 0 && !taxCodesLoading) dispatch(fetchQuickBooksTaxCodes({ accessToken }));
+    const switchedCompany =
+      lastQbConnectionIdRef.current !== "" && lastQbConnectionIdRef.current !== qbConnectionId;
+    lastQbConnectionIdRef.current = qbConnectionId;
+    if ((invoices.length === 0 || switchedCompany) && !invoicesLoading) dispatch(getInvoices());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, qbConnectionId]);
+
+  // Also re-checked when each list's loading settles: a fetch still in flight
+  // for the previous company (dropped by the slice when it lands) would
+  // otherwise leave this company's list never requested. At most one attempt
+  // per list per company, so a failing fetch can't loop.
+  const requestedForRef = useRef({ vendors: "", accounts: "", taxCodes: "" });
+  useEffect(() => {
+    if (!accessToken || !qbConnectionId) return;
+    const requested = requestedForRef.current;
+    if (vendorsConnectionId !== qbConnectionId && !vendorsLoading && requested.vendors !== qbConnectionId) {
+      requested.vendors = qbConnectionId;
+      dispatch(fetchQuickBooksVendors({ accessToken }));
+    }
+    if (accountsConnectionId !== qbConnectionId && !accountsLoading && requested.accounts !== qbConnectionId) {
+      requested.accounts = qbConnectionId;
+      dispatch(fetchQuickBooksAccounts({ accessToken }));
+    }
+    if (taxCodesConnectionId !== qbConnectionId && !taxCodesLoading && requested.taxCodes !== qbConnectionId) {
+      requested.taxCodes = qbConnectionId;
+      dispatch(fetchQuickBooksTaxCodes({ accessToken }));
+    }
+  }, [
+    accessToken,
+    qbConnectionId,
+    vendorsConnectionId,
+    accountsConnectionId,
+    taxCodesConnectionId,
+    vendorsLoading,
+    accountsLoading,
+    taxCodesLoading,
+    dispatch,
+  ]);
 
   useEffect(() => {
     if (!open) return;

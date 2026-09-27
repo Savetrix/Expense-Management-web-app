@@ -23,9 +23,16 @@ export const fetchPlans = createAsyncThunk("subscription/fetchPlans", async (_: 
 // ================================
 // GET MY SUBSCRIPTION
 // ================================
+export interface FetchMySubscriptionOptions {
+  /** Bypass the in-flight dedup: a fetch already running may have started
+   *  before a change (e.g. a just-confirmed checkout) and return stale data. */
+  force?: boolean;
+}
+
 export const fetchMySubscription = createAsyncThunk(
   "subscription/fetchMySubscription",
-  async (_: void, thunkAPI) => {
+  // Options are read by `condition` below, not here.
+  async (_options: FetchMySubscriptionOptions | void, thunkAPI) => {
     try {
       console.log("========== FETCH MY SUBSCRIPTION REQUEST ==========");
       const response = await api.get("/subscription");
@@ -48,7 +55,8 @@ export const fetchMySubscription = createAsyncThunk(
     // mount effects. The various onFocus/retry-button callers elsewhere
     // (SubscriptionStatusContentV2 etc.) all fire well after the initial
     // fetch has settled, so gating on the in-flight flag doesn't block them.
-    condition: (_, { getState }) => !(getState() as RootState).subscription.subscriptionLoading,
+    condition: (options, { getState }) =>
+      Boolean(options?.force) || !(getState() as RootState).subscription.subscriptionLoading,
   },
 );
 

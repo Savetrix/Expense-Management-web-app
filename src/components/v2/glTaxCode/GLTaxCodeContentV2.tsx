@@ -17,21 +17,12 @@ import {
   createQuickBooksAccount,
   fetchQuickBooksAccounts,
   fetchQuickBooksTaxCodes,
-  getMyQBConnections,
   syncQuickBooksAccounts,
   syncQuickBooksTaxCodes,
 } from "@/store/quickBooks/quickBooksApi";
 import type { GLAccount, TaxCode } from "@/store/quickBooks/quickBooksSlice";
 import { DataTable, Modal, PageHeader, RoleInfoBanner, SearchInput, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
-
-interface QBConnection {
-  _id: string;
-  name: string;
-  realmId: string;
-  role: string;
-  createdAt: string;
-}
 
 type GLTab = "accounts" | "taxCodes";
 
@@ -76,8 +67,9 @@ export function GLTaxCodeContentV2() {
   const taxCodesLoading = useAppSelector((state) => state.quickBooks.taxCodesLoading);
   const taxCodesError = useAppSelector((state) => state.quickBooks.taxCodesError);
 
-  const [loadingConnections, setLoadingConnections] = useState(true);
-  const [connections, setConnections] = useState<QBConnection[]>([]);
+  // Loaded once by AppShell into the quickBooks slice — no per-page fetch.
+  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [activeTab, setActiveTab] = useState<GLTab>("accounts");
   const [searchText, setSearchText] = useState("");
 
@@ -95,25 +87,6 @@ export function GLTaxCodeContentV2() {
   const currentRole = activeConnection?.role || "";
   // Mirrors PERMISSIONS.REVIEW_EDIT_GL on the backend.
   const canManage = currentRole !== "" && currentRole !== "contributor";
-
-  const fetchConnections = useCallback(async () => {
-    if (!accessToken) {
-      setLoadingConnections(false);
-      return;
-    }
-    setLoadingConnections(true);
-    const result = await dispatch(getMyQBConnections({ accessToken }));
-    if (getMyQBConnections.fulfilled.match(result)) {
-      setConnections(result.payload?.data?.connections ?? []);
-    } else {
-      setConnections([]);
-    }
-    setLoadingConnections(false);
-  }, [accessToken, dispatch]);
-
-  useEffect(() => {
-    fetchConnections();
-  }, [fetchConnections]);
 
   const refetchAccounts = useCallback(() => {
     if (!accessToken) return;
@@ -322,9 +295,11 @@ export function GLTaxCodeContentV2() {
     );
   }
 
-  const currentLoading = activeTab === "accounts" ? accountsLoading : taxCodesLoading;
   const currentError = activeTab === "accounts" ? accountsError : taxCodesError;
   const currentCount = activeTab === "accounts" ? accounts.length : taxCodes.length;
+  // Skeleton only when empty — a refetch (every visit, create, Refresh)
+  // keeps rows mounted; the slice clears a list first when the company changed.
+  const currentLoading = (activeTab === "accounts" ? accountsLoading : taxCodesLoading) && currentCount === 0;
   const currentFilteredCount = activeTab === "accounts" ? filteredAccounts.length : filteredTaxCodes.length;
 
   return (

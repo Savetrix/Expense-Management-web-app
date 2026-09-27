@@ -12,7 +12,7 @@ import {
   UserX,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
@@ -25,20 +25,11 @@ import { Avatar, PageHeader } from "@/components/v2/ui";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchQBMembers,
-  getMyQBConnections,
   inviteQBMember,
   removeQBMember,
   type QBMemberRole,
 } from "@/store/quickBooks/quickBooksApi";
 import { fetchInboundOverview } from "@/store/inboundEmail/inboundEmailApi";
-
-interface QBConnection {
-  _id: string;
-  name: string;
-  realmId: string;
-  role: string;
-  createdAt: string;
-}
 
 interface QBMember {
   _id: string;
@@ -127,8 +118,9 @@ export function TeamMembersContentV2() {
   );
   const inboundAliases = useAppSelector((state) => state.inboundEmail.aliases);
 
-  const [loadingConnections, setLoadingConnections] = useState(true);
-  const [connections, setConnections] = useState<QBConnection[]>([]);
+  // Loaded once by AppShell into the quickBooks slice — no per-page fetch.
+  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [members, setMembers] = useState<QBMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState("");
@@ -214,35 +206,34 @@ export function TeamMembersContentV2() {
     }
   };
 
-  const fetchConnections = useCallback(async () => {
-    if (!accessToken) {
-      setLoadingConnections(false);
-      return;
-    }
-    setLoadingConnections(true);
-    const result = await dispatch(getMyQBConnections({ accessToken }));
-    if (getMyQBConnections.fulfilled.match(result)) {
-      setConnections(result.payload?.data?.connections ?? []);
-    } else {
-      setConnections([]);
-    }
-    setLoadingConnections(false);
-  }, [accessToken, dispatch]);
-
+  // The overview lives in the store, so a visit only fetches it when it isn't
+  // loaded yet or the last attempt failed (retried once per visit, as before).
+  const inboundLoaded = useAppSelector((state) => state.inboundEmail.loaded);
+  const inboundLoading = useAppSelector((state) => state.inboundEmail.loading);
+  const inboundError = useAppSelector((state) => state.inboundEmail.error);
   useEffect(() => {
-    fetchConnections();
-  }, [fetchConnections]);
+    if (inboundLoading) return;
+    if (!inboundLoaded || inboundError) dispatch(fetchInboundOverview());
+    // Mount only — re-running on these would retry a failing fetch in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  useEffect(() => {
-    dispatch(fetchInboundOverview());
-  }, [dispatch]);
+  // Which company `members` belongs to — a refetch for the same company (e.g.
+  // after an invite) keeps the list on screen instead of a skeleton, while a
+  // company switch still clears it first.
+  const membersForIdRef = useRef<string | null>(null);
 
   const fetchMembers = useCallback(
     async (qbId: string) => {
+      if (membersForIdRef.current !== qbId) {
+        membersForIdRef.current = null;
+        setMembers([]);
+      }
       setMembersLoading(true);
       setMembersError("");
       const result = await dispatch(fetchQBMembers({ qbId }));
       if (fetchQBMembers.fulfilled.match(result)) {
+        membersForIdRef.current = qbId;
         setMembers(result.payload?.data?.members ?? []);
       } else {
         const payload = result.payload as { message?: string } | undefined;
@@ -420,7 +411,7 @@ export function TeamMembersContentV2() {
             Members
             {displayMembers.length > 0 ? ` (${displayMembers.length})` : ""}
           </p>
-          {membersLoading ? (
+          {membersLoading && members.length === 0 ? (
             <SkeletonListRows count={3} />
           ) : membersError ? (
             <ErrorState

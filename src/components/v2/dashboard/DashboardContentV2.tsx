@@ -36,7 +36,9 @@ import {
 } from "@/store/invoice/invoiceApi";
 import {
   connectQuickBooks,
-  getMyQBConnections,
+  fetchQuickBooksAccounts,
+  fetchQuickBooksTaxCodes,
+  fetchQuickBooksVendors,
   getQuickBooksStatus,
   syncQuickBooksAccounts,
   syncQuickBooksTaxCodes,
@@ -345,6 +347,14 @@ export function DashboardContentV2() {
     useAppSelector((state) => state.quickBooks);
   const needsReconnect = disconnectReason === "reconnect_required";
 
+  // Holds the last settled decision while a status/connections check is in
+  // flight — every such check (Sync now, the shell's connections refresh)
+  // flips statusLoading, which made the Connect banner blink out and back in.
+  const [showConnectBanner, setShowConnectBanner] = useState(!statusLoading && !connected);
+  if (!statusLoading && showConnectBanner !== !connected) {
+    setShowConnectBanner(!connected);
+  }
+
   const needsEntitySelection = connected && !qbConnectionId;
 
   useEffect(() => {
@@ -388,6 +398,12 @@ export function DashboardContentV2() {
       ).length;
 
       await syncInvoices();
+
+      // Sync only updates the backend's copy — reload the store's lists so
+      // the review dropdowns, vendor dialog and search see what just synced.
+      if (vendorsOk) dispatch(fetchQuickBooksVendors({ accessToken }));
+      if (accountsOk) dispatch(fetchQuickBooksAccounts({ accessToken }));
+      if (taxCodesOk) dispatch(fetchQuickBooksTaxCodes({ accessToken }));
 
       if (okCount === 3) {
         const vendorCount = vendorsOk
@@ -452,24 +468,25 @@ export function DashboardContentV2() {
   };
 
   useEffect(() => {
-    if (accessToken) dispatch(getMyQBConnections({ accessToken }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     if (!qbConnectionId) return;
     syncInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qbConnectionId]);
 
+  // Keyed on the boolean, not the invoices array, so each poll's new array
+  // doesn't tear the interval down and rebuild it every tick.
+  const hasProcessing = invoices.some((invoice) => invoice.postedStatus === "processing");
   useEffect(() => {
-    const hasProcessing = invoices.some(
-      (invoice) => invoice.postedStatus === "processing",
-    );
     if (!hasProcessing) return;
-    const interval = setInterval(syncInvoices, 3000);
+    const interval = setInterval(async () => {
+      // Nobody's looking at a hidden tab — pick back up on the next tick
+      // after it's visible again.
+      if (document.visibilityState === "hidden") return;
+      await dispatch(getInvoices({ background: true }));
+      setLastSyncedAt(Date.now());
+    }, 3000);
     return () => clearInterval(interval);
-  }, [invoices, syncInvoices]);
+  }, [hasProcessing, dispatch]);
 
   const pendingText =
     pendingInvoices.length === 1
@@ -673,7 +690,7 @@ export function DashboardContentV2() {
   return (
     <div className="mx-auto grid w-full grid-cols-1 gap-[var(--space-lg)] p-[var(--space-lg)] sm:grid-cols-2 lg:grid-cols-6 lg:items-start">
       <div className="flex min-w-0 flex-col gap-[var(--space-md)] sm:col-span-2 lg:col-span-4">
-        {!statusLoading && !connected && (
+        {showConnectBanner && (
           <button
             type="button"
             onClick={handleConnectQuickBooks}

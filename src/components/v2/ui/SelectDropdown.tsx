@@ -61,7 +61,10 @@ export const SelectDropdown = forwardRef<HTMLSelectElement, SelectDropdownProps>
         ref={ref}
         id={selectId}
         name={name}
-        className={`h-[50px] rounded-md border bg-surface px-[var(--space-md)] text-body text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40 ${
+        // truncate: a selected option's text is otherwise clipped raw mid-glyph
+        // by the browser when it's wider than a caller-constrained width (e.g.
+        // a country-code picker next to a phone input) — ellipsize instead.
+        className={`h-[50px] truncate rounded-md border bg-surface px-[var(--space-md)] text-body text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40 ${
           error ? "border-status-danger-border bg-status-danger-bg" : "border-border"
         } ${className}`}
         {...props}

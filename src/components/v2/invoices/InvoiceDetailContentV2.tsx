@@ -131,7 +131,12 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
 
-  const invoiceObject = useAppSelector((state) => state.invoice.selectedInvoice);
+  // Only this page's invoice — on back/forward between invoices the store
+  // still holds the previous one until the fetch lands, and showing it here
+  // displayed (and on the vendor page, could leave) the wrong invoice.
+  const invoiceObject = useAppSelector((state) =>
+    state.invoice.selectedInvoice?._id === invoiceId ? state.invoice.selectedInvoice : null,
+  );
   const fetchError = useAppSelector((state) => state.invoice.error);
   const type = resolveInvoiceDetailType(invoiceObject?.postedStatus) as DetailType;
   const theme = TYPE_CLASSES[type];
@@ -217,18 +222,28 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceId]);
 
+  // Only needed to label the GL account, so skip it when this company's
+  // accounts are already in the store instead of refetching on every open.
+  const accountsLoadedForCompany = useAppSelector(
+    (state) => state.quickBooks.accountsConnectionId === state.quickBooks.qbConnectionId,
+  );
   useEffect(() => {
-    if (accessToken) dispatch(fetchQuickBooksAccounts({ accessToken }));
+    if (accessToken && !accountsLoadedForCompany) dispatch(fetchQuickBooksAccounts({ accessToken }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
+  }, [accessToken, accountsLoadedForCompany]);
 
   // Deleted/missing invoice (e.g. a stale link after deletion) — bounce back
   // to the list instead of leaving the user stuck on an infinite spinner.
+  // Keyed on THIS invoice's detail fetch failing, not the shared `error` —
+  // a stale error from another invoice thunk would otherwise bounce a valid
+  // invoice back to the list before its own fetch even ran.
+  const detailsFailed = useAppSelector((state) => state.invoice.invoiceDetailsErrorFor === invoiceId);
   useEffect(() => {
-    if (!fetchError || invoiceObject) return;
+    if (!detailsFailed || invoiceObject) return;
     showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
     router.replace("/invoices");
-  }, [fetchError, invoiceObject, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchError is only the toast text
+  }, [detailsFailed, invoiceObject, router]);
 
   const rawData = invoiceObject?.extractedData;
   const statusHistory = invoiceObject?.statusHistory ?? [];

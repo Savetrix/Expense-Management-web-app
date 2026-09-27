@@ -225,7 +225,7 @@ export function RegisterFormV2() {
                 <div className="mt-[var(--space-xs)] flex gap-[var(--space-xs)]">
                   <SelectDropdown
                     aria-label="Country code"
-                    className="w-28"
+                    className="w-36 shrink-0"
                     value={countryCode}
                     disabled={loading}
                     onChange={(e) => setCountryCode(e.target.value)}
