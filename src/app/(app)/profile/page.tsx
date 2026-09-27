@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { ProfileContent } from "@/components/profile/ProfileContent";
+import { ProfileContentV2 } from "@/components/v2/profile/ProfileContentV2";
 
 export const metadata: Metadata = {
   title: "Account — Scantrix",
 };
 
-export default function ProfilePage() {
-  return <ProfileContent />;
+export default function ProfileV2Page() {
+  return <ProfileContentV2 />;
 }

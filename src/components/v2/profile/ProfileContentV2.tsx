@@ -151,13 +151,13 @@ export function ProfileContentV2() {
       <SectionLabel>Settings</SectionLabel>
       <div className="grid grid-cols-1 gap-[var(--space-lg)] sm:grid-cols-2">
         <SettingsRow
-          href="/v2/accounting-software"
+          href="/accounting-software"
           icon={<Link2 size={18} strokeWidth={2} className="text-accent" />}
           iconClassName="bg-accent-bg"
           label="Integrations"
         />
         <SettingsRow
-          href="/v2/team"
+          href="/team"
           icon={<Users size={18} strokeWidth={2} className="text-status-info-text" />}
           iconClassName="bg-status-info-bg"
           label="Team Members"
@@ -169,7 +169,7 @@ export function ProfileContentV2() {
           label="Preferences"
         />
         <SettingsRow
-          href="/v2/subscription"
+          href="/subscription"
           icon={<Gem size={18} strokeWidth={2} className="text-status-warning-text" />}
           iconClassName="bg-status-warning-bg"
           label="Subscription"

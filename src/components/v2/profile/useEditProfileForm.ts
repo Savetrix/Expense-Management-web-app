@@ -10,7 +10,7 @@ import { normalizePhotoURL } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { updateProfileIcon, updateUserProfile } from "@/store/auth/authApi";
 
-// Shared by EditProfileContentV2 (the /v2/profile/edit route) and
+// Shared by EditProfileContentV2 (the /profile/edit route) and
 // EditProfileDialogV2 (opened in place from ProfileContentV2) — same
 // store reads, thunks, and Firebase best-effort sync either way. Only
 // what happens after a successful save differs (navigate back vs. close

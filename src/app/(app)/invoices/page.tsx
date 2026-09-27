@@ -1,16 +1,16 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
-import { InvoiceListContent } from "@/components/invoices/InvoiceListContent";
+import { InvoiceListContentV2 } from "@/components/v2/invoices/InvoiceListContentV2";
 
 export const metadata: Metadata = {
   title: "Invoices — Scantrix",
 };
 
-export default function InvoicesPage() {
+export default function InvoicesV2Page() {
   return (
     <Suspense fallback={null}>
-      <InvoiceListContent />
+      <InvoiceListContentV2 />
     </Suspense>
   );
 }

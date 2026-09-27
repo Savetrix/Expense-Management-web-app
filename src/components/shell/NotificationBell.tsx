@@ -17,6 +17,7 @@ const NOTIFICATION_ICON = {
   error: XCircle,
   warning: AlertTriangle,
   info: Info,
+  neutral: Info,
 } as const;
 
 const NOTIFICATION_ICON_CLASS = {
@@ -24,6 +25,7 @@ const NOTIFICATION_ICON_CLASS = {
   error: "text-error",
   warning: "text-warning",
   info: "text-trust-navy",
+  neutral: "text-content-secondary",
 } as const;
 
 function formatRelativeTime(timestamp: number, now: number): string {

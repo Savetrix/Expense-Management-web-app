@@ -26,6 +26,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { TopVendorsCardV2 } from "@/components/v2/invoices/TopVendorsCardV2";
+import { Avatar, StatusPill } from "@/components/v2/ui";
+import { vendorInitials } from "@/components/invoices/SelectedInvoiceCard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   getInvoices,
@@ -45,7 +47,9 @@ import {
   getInvoiceAmount,
   getInvoiceFailureReason,
   getInvoiceStatus,
+  getUserDisplayName,
 } from "@/lib/invoiceDisplay";
+import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
 import { requestExpandTransition } from "@/lib/pageTransition";
 import { setSelectedInvoice } from "@/store/invoice/invoiceSlice";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
@@ -206,42 +210,6 @@ function StatRowV2({
   );
 }
 
-const RECENT_STATUS_STYLE = {
-  posted: {
-    label: "Posted",
-    dot: "bg-status-success-text",
-    text: "text-status-success-text",
-    bg: "bg-status-success-bg",
-  },
-  pending: {
-    label: "Pending",
-    dot: "bg-status-warning-text",
-    text: "text-status-warning-text",
-    bg: "bg-status-warning-bg",
-  },
-  processing: {
-    label: "Processing",
-    dot: "bg-status-info-text",
-    text: "text-status-info-text",
-    bg: "bg-status-info-bg",
-  },
-  failed: {
-    label: "Failed",
-    dot: "bg-status-danger-text",
-    text: "text-status-danger-text",
-    bg: "bg-status-danger-bg",
-  },
-} as const;
-
-function recentStatusKey(
-  status: ReturnType<typeof getInvoiceStatus>,
-): keyof typeof RECENT_STATUS_STYLE {
-  if (status === "auto" || status === "manual") return "posted";
-  if (status === "processing") return "processing";
-  if (status === "failed") return "failed";
-  return "pending";
-}
-
 function receivedLabel(dateStr?: string): string {
   if (!dateStr) return "—";
   const date = new Date(dateStr);
@@ -265,8 +233,7 @@ function RecentInvoiceRowV2({
   onToggleSelect: () => void;
   onOpen: () => void;
 }) {
-  const statusKey = recentStatusKey(getInvoiceStatus(invoice.postedStatus));
-  const style = RECENT_STATUS_STYLE[statusKey];
+  const status = getInvoiceStatus(invoice.postedStatus);
   const vendorName =
     invoice.extractedData?.vendorName ||
     invoice.file?.originalName?.replace(/\.pdf$/i, "") ||
@@ -275,7 +242,7 @@ function RecentInvoiceRowV2({
     ? `#${invoice.extractedData.invoiceNumber}`
     : null;
   const failureReason =
-    statusKey === "failed" ? getInvoiceFailureReason(invoice) : "";
+    status === "failed" ? getInvoiceFailureReason(invoice) : "";
 
   return (
     <tr
@@ -302,20 +269,24 @@ function RecentInvoiceRowV2({
         />
       </td>
       <td className="w-12 px-[var(--space-xs)] py-[var(--space-sm)] align-middle">
-        <span className="flex h-8 w-8 items-center justify-center rounded-md text-caption font-bold text-text-secondary">
-          {vendorName.slice(0, 2).toUpperCase()}
-        </span>
+        <Avatar
+          name={vendorName}
+          initials={vendorInitials(invoice)}
+          shape="square"
+          size="sm"
+          toneClassName={status === "auto" ? "bg-accent-bg text-status-success-text" : "bg-border text-nav-bg"}
+        />
       </td>
       <td className="min-w-0 px-[var(--space-sm)] py-[var(--space-sm)] align-middle">
-        <p className="max-w-[280px] truncate font-bold text-text-primary">
+        <p className="max-w-[180px] truncate font-bold text-text-primary">
           {vendorName}
         </p>
         {failureReason ? (
-          <p className="max-w-[280px] truncate text-caption text-error">
+          <p className="max-w-[180px] truncate text-caption text-error">
             {failureReason}
           </p>
         ) : reference ? (
-          <p className="truncate text-caption text-text-secondary">
+          <p className="max-w-[180px] truncate text-caption text-text-secondary">
             {reference}
           </p>
         ) : null}
@@ -323,13 +294,11 @@ function RecentInvoiceRowV2({
       <td className="whitespace-nowrap px-[var(--space-sm)] py-[var(--space-sm)] text-caption text-text-secondary align-middle">
         {receivedLabel(invoice.createdAt)}
       </td>
+      <td className="truncate px-[var(--space-sm)] py-[var(--space-sm)] text-caption text-text-secondary align-middle">
+        {getUserDisplayName(invoice.uploadedBy) || "—"}
+      </td>
       <td className="px-[var(--space-sm)] py-[var(--space-sm)] align-middle">
-        <span
-          className={`inline-flex w-fit items-center gap-[6px] rounded-pill px-[var(--space-sm)] py-[2px] text-caption font-bold ${style.bg} ${style.text}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-          {style.label}
-        </span>
+        <StatusPill status={status} />
       </td>
       <td className="whitespace-nowrap px-[var(--space-sm)] py-[var(--space-sm)] text-right font-bold text-text-primary align-middle">
         {getInvoiceAmount(invoice)}
@@ -526,14 +495,21 @@ export function DashboardContentV2() {
   ]);
 
   const handleOpenInvoice = (invoice: InvoiceRecord) => {
+    // See InvoiceListContentV2's handleOpenFullDetails — the pipeline can
+    // auto-post a "processing" invoice at any moment, so navigation is
+    // blocked entirely until it settles rather than guessing a destination.
+    if (invoice.postedStatus === "processing") {
+      showToast("This invoice is still processing — please wait a moment.", "neutral");
+      return;
+    }
     dispatch(setSelectedInvoice(invoice));
-    const suffix = invoice.postedStatus === "pending" ? "/review" : "";
-    router.push(`/v2/invoices/${invoice._id}${suffix}`);
+    const suffix = resolveInvoiceDetailType(invoice.postedStatus) === "pending" ? "/review" : "";
+    router.push(`/invoices/${invoice._id}${suffix}`);
   };
 
   const handleViewAllInvoices = () => {
     if (recentCardRef.current) requestExpandTransition(recentCardRef.current);
-    router.push("/v2/invoices");
+    router.push("/invoices");
   };
 
   const toggleSelected = (id: string) => {
@@ -743,19 +719,19 @@ export function DashboardContentV2() {
             <StatRowV2
               count={autoPostedInvoices.length}
               label="Auto-posted"
-              href="/v2/invoices?type=auto"
+              href="/invoices?type=auto"
               colorClass="text-status-success-text"
             />
             <StatRowV2
               count={manualPostedInvoices.length}
               label="Manually Posted"
-              href="/v2/invoices?type=manual"
+              href="/invoices?type=manual"
               colorClass="text-status-warning-text"
             />
             <StatRowV2
               count={failedInvoices.length}
               label="Failed"
-              href="/v2/invoices?type=failed"
+              href="/invoices?type=failed"
               colorClass="text-status-danger-text"
               last
             />
@@ -765,7 +741,7 @@ export function DashboardContentV2() {
 
       <div className="flex min-w-0 flex-col gap-[var(--space-md)] sm:col-span-2 lg:col-span-2">
         <Link
-          href="/v2/invoices?type=pending"
+          href="/invoices?type=pending"
           className="flex items-center gap-[var(--space-sm)] rounded-lg bg-nav-bg p-[var(--space-md)] text-white shadow-md"
         >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-accent">
@@ -904,7 +880,7 @@ export function DashboardContentV2() {
           )}
 
           <div className="mt-[var(--space-md)] min-h-0 overflow-auto lg:flex-1">
-            <table className="w-full min-w-[760px] border-collapse text-left">
+            <table className="w-full min-w-[800px] border-collapse text-left">
               <thead className="sticky top-0 z-10 border-b border-border bg-background text-caption font-bold uppercase tracking-wide text-text-secondary">
                 <tr>
                   <th scope="col" className="w-10 px-[var(--space-xs)] pb-[var(--space-sm)]" />
@@ -914,6 +890,9 @@ export function DashboardContentV2() {
                   </th>
                   <th scope="col" className="px-[var(--space-sm)] pb-[var(--space-sm)]">
                     Received
+                  </th>
+                  <th scope="col" className="px-[var(--space-sm)] pb-[var(--space-sm)]">
+                    Posted By
                   </th>
                   <th scope="col" className="px-[var(--space-sm)] pb-[var(--space-sm)]">
                     Status
@@ -927,7 +906,7 @@ export function DashboardContentV2() {
               <tbody>
                 {invoiceLoading && recentTabInvoices.length === 0 && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <SkeletonListRows count={3} className="mt-[var(--space-sm)]" />
                     </td>
                   </tr>
@@ -935,7 +914,7 @@ export function DashboardContentV2() {
 
                 {!invoiceLoading && invoiceError && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <ErrorState
                         message={
                           typeof invoiceError === "string"
@@ -952,7 +931,7 @@ export function DashboardContentV2() {
                   !invoiceError &&
                   recentTabInvoices.length === 0 && (
                     <tr>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <div className="flex flex-col items-center py-[var(--space-lg)] text-center">
                           <p className="font-bold text-text-primary">
                             No invoices here

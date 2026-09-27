@@ -37,7 +37,7 @@ export function EditProfileContentV2() {
   return (
     <div className="w-full max-w-2xl p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <p className="mb-[var(--space-xs)] flex items-center gap-[var(--space-xs)] text-tiny font-bold uppercase tracking-[0.08em] text-accent-text-on-bg">
-        <Link href="/v2/profile" className="hover:underline">
+        <Link href="/profile" className="hover:underline">
           Account
         </Link>
         <ChevronRight size={11} strokeWidth={2.5} className="text-content-muted" />

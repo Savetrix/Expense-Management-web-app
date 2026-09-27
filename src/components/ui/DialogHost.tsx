@@ -34,9 +34,9 @@ import { Button } from "@/components/ui/Button";
 //
 // So the toast renders above dialogs, from a host mounted on every route, and
 // error-tone messages stay up longer and must be dismissed deliberately.
-const TOAST_MS = { error: 9000, warning: 6000, success: 4500, info: 4500 } as const;
+const TOAST_MS = { error: 9000, warning: 6000, success: 4500, info: 4500, neutral: 4500 } as const;
 
-const TOAST_ICON = { success: CheckCircle2, error: XCircle, warning: AlertTriangle, info: Info } as const;
+const TOAST_ICON = { success: CheckCircle2, error: XCircle, warning: AlertTriangle, info: Info, neutral: Info } as const;
 
 // Each tone maps to one status token triple (see globals.css) so the whole
 // card reads as one color — tinted background, matching border, colored
@@ -48,6 +48,10 @@ const TOAST_TONE_CLASSES = {
   error: "border-status-danger-border bg-status-danger-bg text-status-danger-text",
   warning: "border-status-warning-border bg-status-warning-bg text-status-warning-text",
   info: "border-status-info-border bg-status-info-bg text-status-info-text",
+  // For messages with no positive/negative charge (e.g. "still processing,
+  // please wait") — grey rather than blue, matching the same status-neutral
+  // token used for the "Processing" status pill elsewhere.
+  neutral: "border-status-neutral-border bg-status-neutral-bg text-status-neutral-text",
 } as const;
 
 export function DialogHost() {
@@ -106,7 +110,7 @@ export function DialogHost() {
         // z-[110] deliberately beats the confirm dialog's z-[100] backdrop:
         // the most common source of an error toast is confirming an action.
         <div
-          className="pointer-events-none fixed top-[var(--space-lg)] right-[var(--space-lg)] left-[var(--space-lg)] z-[110] ml-auto flex max-w-sm flex-col gap-[var(--space-sm)]"
+          className="pointer-events-none fixed bottom-[var(--space-lg)] right-[var(--space-lg)] left-[var(--space-lg)] z-[110] ml-auto flex max-w-sm flex-col gap-[var(--space-sm)]"
           aria-live="polite"
           aria-atomic="false"
         >

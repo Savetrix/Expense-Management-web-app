@@ -176,7 +176,7 @@ export function PlansContentV2() {
           </span>
           <span className="hidden text-border sm:inline">|</span>
           <Link
-            href="/v2/subscription"
+            href="/subscription"
             className="flex shrink-0 items-center gap-[var(--space-xs)] text-caption font-bold text-primary"
           >
             View usage details <ChevronRight size={14} strokeWidth={2.25} />

@@ -8,7 +8,7 @@ const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 const FIELD_INPUT_CLASS =
   "mt-[var(--space-xs)] h-[50px] w-full rounded-md border border-border bg-page px-[var(--space-md)] text-body text-content-primary placeholder:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-60";
 
-// In-place counterpart of EditProfileContentV2 (the /v2/profile/edit route) —
+// In-place counterpart of EditProfileContentV2 (the /profile/edit route) —
 // same useEditProfileForm hook, rendered inside the shared Modal shell
 // instead of navigating away, so editing your profile doesn't lose your
 // place on the Account page. Mirrors VendorResolutionDialogV2's relationship

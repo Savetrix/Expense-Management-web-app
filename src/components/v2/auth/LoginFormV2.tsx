@@ -66,7 +66,7 @@ export function LoginFormV2() {
         );
       }
     }
-    router.push("/v2/dashboard");
+    router.push("/dashboard");
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -209,7 +209,7 @@ export function LoginFormV2() {
 
         <div className="mt-[var(--space-lg)] flex items-center gap-[var(--space-xs)] border-t border-border pt-[var(--space-lg)] text-body-sm">
           <span className="text-content-secondary">Don&apos;t have an account?</span>
-          <Link href="/v2/register" className="font-bold text-accent">
+          <Link href="/register" className="font-bold text-accent">
             Sign Up
           </Link>
         </div>

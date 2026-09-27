@@ -2,7 +2,7 @@
 
 import { Building2 } from "lucide-react";
 
-import { taxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { Badge } from "@/components/ui/Badge";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Modal, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
@@ -13,7 +13,7 @@ import { useVendorResolution } from "./useVendorResolution";
 // In-place counterpart of VendorResolutionContentV2 — same
 // useVendorResolution hook (same store reads, thunks, and QuickBooks API
 // calls), rendered inside the shared Modal shell instead of navigating to
-// /v2/invoices/[id]/vendor. Used from InvoiceReviewContentV2 so resolving a
+// /invoices/[id]/vendor. Used from InvoiceReviewContentV2 so resolving a
 // vendor doesn't lose the reviewer's place on the invoice.
 export function VendorResolutionDialogV2({
   invoiceId,
@@ -236,7 +236,7 @@ export function VendorResolutionDialogV2({
                 <option value="">{taxCodesLoading ? "Loading tax codes…" : "Select tax code (optional)"}</option>
                 {taxCodes.map((code) => (
                   <option key={taxCodeId(code)} value={taxCodeId(code)}>
-                    {taxCodeName(code)}
+                    {taxCodeLabel(code)}
                   </option>
                 ))}
               </SelectDropdown>

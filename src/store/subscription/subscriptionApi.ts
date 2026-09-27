@@ -1,5 +1,6 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../../lib/api";
+import { RootState } from "..";
 
 // ================================
 // GET PLANS (public catalog)
@@ -40,6 +41,14 @@ export const fetchMySubscription = createAsyncThunk(
         "Failed to fetch subscription";
       return thunkAPI.rejectWithValue({ message, statusCode: error?.response?.status });
     }
+  },
+  {
+    // AppShell's mount effect is the only automatic caller — this only
+    // double-fires under React Strict Mode's dev-only double-invoke of
+    // mount effects. The various onFocus/retry-button callers elsewhere
+    // (SubscriptionStatusContentV2 etc.) all fire well after the initial
+    // fetch has settled, so gating on the in-flight flag doesn't block them.
+    condition: (_, { getState }) => !(getState() as RootState).subscription.subscriptionLoading,
   },
 );
 

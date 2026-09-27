@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -17,15 +17,17 @@ const DEBOUNCE_MS = 150;
 export function GlobalSearchBar() {
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const pathname = usePathname();
-  const isV2 = pathname.startsWith("/v2");
 
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
   const invoices = useAppSelector((state) => state.invoice.invoices);
+  const invoicesLoading = useAppSelector((state) => state.invoice.loading);
   const vendors = useAppSelector((state) => state.quickBooks.vendors);
+  const vendorsLoading = useAppSelector((state) => state.quickBooks.vendorsLoading);
   const accounts = useAppSelector((state) => state.quickBooks.accounts);
+  const accountsLoading = useAppSelector((state) => state.quickBooks.accountsLoading);
   const taxCodes = useAppSelector((state) => state.quickBooks.taxCodes);
+  const taxCodesLoading = useAppSelector((state) => state.quickBooks.taxCodesLoading);
 
   const [rawQuery, setRawQuery] = useState("");
   const [query, setQuery] = useState("");
@@ -47,12 +49,20 @@ export function GlobalSearchBar() {
   // needs all four regardless of which page it's mounted on — so it fetches
   // them itself, gated the same way every other QB-scoped fetch in this app
   // is: on accessToken + qbConnectionId being present.
+  //
+  // Each one only fires if that list is BOTH empty and not already loading —
+  // this bar is mounted on every page (it lives in AppShell), so without
+  // this guard it re-requests all four lists a second time on every single
+  // page load, on top of whatever the page itself already fetched (e.g.
+  // InvoiceReviewContentV2 loads vendors/accounts/taxCodes itself). That
+  // doubling was real: it's what was tripping the global rate limiter on a
+  // single page load, not repeated user activity.
   useEffect(() => {
     if (!accessToken || !qbConnectionId) return;
-    dispatch(getInvoices());
-    dispatch(fetchQuickBooksVendors({ accessToken }));
-    dispatch(fetchQuickBooksAccounts({ accessToken }));
-    dispatch(fetchQuickBooksTaxCodes({ accessToken }));
+    if (invoices.length === 0 && !invoicesLoading) dispatch(getInvoices());
+    if (vendors.length === 0 && !vendorsLoading) dispatch(fetchQuickBooksVendors({ accessToken }));
+    if (accounts.length === 0 && !accountsLoading) dispatch(fetchQuickBooksAccounts({ accessToken }));
+    if (taxCodes.length === 0 && !taxCodesLoading) dispatch(fetchQuickBooksTaxCodes({ accessToken }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, qbConnectionId]);
 
@@ -108,10 +118,7 @@ export function GlobalSearchBar() {
     setMobileOpen(false);
     setRawQuery("");
     setQuery("");
-    // searchAll's hrefs are all v1 paths (see src/lib/globalSearch.ts) — stay
-    // inside v2 when the search bar is invoked from a v2 screen instead of
-    // bouncing back to the legacy route.
-    router.push(isV2 ? `/v2${result.href}` : result.href);
+    router.push(result.href);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

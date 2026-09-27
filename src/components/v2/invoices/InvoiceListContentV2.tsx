@@ -18,12 +18,13 @@ import {
   getInvoiceTitle,
   getUserDisplayName,
 } from "@/lib/invoiceDisplay";
-import { Badge } from "@/components/ui/Badge";
+import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
+import { showToast } from "@/lib/dialogManager";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { vendorInitials } from "@/components/invoices/SelectedInvoiceCard";
-import { Avatar, DataTable, SearchInput, SelectDropdown } from "@/components/v2/ui";
+import { Avatar, DataTable, SearchInput, SelectDropdown, StatusPill } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { OutcomeMixCardV2 } from "@/components/v2/invoices/OutcomeMixCardV2";
 import { TopVendorsCardV2 } from "@/components/v2/invoices/TopVendorsCardV2";
@@ -54,19 +55,6 @@ const SORT_OPTIONS: { by: "date" | "amount"; dir: "asc" | "desc"; label: string 
   { by: "amount", dir: "desc", label: "Amount: high to low" },
   { by: "amount", dir: "asc", label: "Amount: low to high" },
 ];
-
-// Status → Badge variant. "manual" and "pending" both read as the same
-// amber "needs attention" tone in the reference design (its Pending pill
-// and Manually Posted stat tile share one color), unlike the legacy /invoices
-// screen where pending is a separate navy tone — an intentional v2 restyle,
-// not a functional change (still driven by the same postedStatus value).
-const STATUS_BADGE_VARIANT: Record<ReturnType<typeof getInvoiceStatus>, "success" | "warning" | "error"> = {
-  auto: "success",
-  manual: "warning",
-  pending: "warning",
-  processing: "warning",
-  failed: "error",
-};
 
 function isListType(value: string | null): value is ListType {
   return value === "auto" || value === "manual" || value === "failed";
@@ -200,12 +188,21 @@ export function InvoiceListContentV2() {
   }, [statusFilteredInvoices, vendorFilter, currencyFilter, searchText, sort]);
 
   const handleOpenFullDetails = (invoice: InvoiceRecord) => {
-    dispatch(setSelectedInvoice(invoice));
-    if (invoice.postedStatus === "pending") {
-      router.push(`/v2/invoices/${invoice._id}/review`);
+    // The pipeline can finish and auto-post a "processing" invoice at any
+    // moment in the background — opening /review right as that happens would
+    // land the user on a review screen for an invoice that's already been
+    // posted out from under them. Block navigation entirely until it settles
+    // into pending/auto/manual/failed, rather than guessing where to send it.
+    if (invoice.postedStatus === "processing") {
+      showToast("This invoice is still processing — please wait a moment.", "neutral");
       return;
     }
-    router.push(`/v2/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
+    dispatch(setSelectedInvoice(invoice));
+    if (resolveInvoiceDetailType(invoice.postedStatus) === "pending") {
+      router.push(`/invoices/${invoice._id}/review`);
+      return;
+    }
+    router.push(`/invoices/${invoice._id}${statusFilter !== "all" ? `?type=${statusFilter}` : ""}`);
   };
 
   const tabCounts: Record<ListType, number> = {
@@ -234,7 +231,11 @@ export function InvoiceListContentV2() {
       render: (invoice) => {
         const status = getInvoiceStatus(invoice.postedStatus);
         const failureReason = getInvoiceFailureReason(invoice);
-        const confidence = invoice.confidenceScore != null ? `${Math.round(Number(invoice.confidenceScore))}%` : null;
+        const invoiceNumber = invoice.extractedData?.invoiceNumber;
+        const vendorName =
+          invoice.extractedData?.vendorName ||
+          invoice.file?.originalName?.replace(/\.pdf$/i, "").replace(/%20/g, " ") ||
+          "Unknown Vendor";
         const fromEmail = emailSourced.has(invoice._id);
         return (
           <div className="flex items-center gap-[var(--space-xs)]">
@@ -246,11 +247,11 @@ export function InvoiceListContentV2() {
               toneClassName={status === "auto" ? "bg-accent-bg text-status-success-text" : "bg-border text-nav-bg"}
             />
             <div className="min-w-0">
-              <p className="truncate text-caption font-bold text-content-primary">{getInvoiceTitle(invoice)}</p>
+              <p className="truncate text-caption font-bold text-content-primary">{vendorName}</p>
               {failureReason ? (
                 <p className="truncate text-tiny text-status-danger-text">{failureReason}</p>
-              ) : confidence ? (
-                <p className="truncate text-tiny text-content-secondary">{confidence} confidence</p>
+              ) : invoiceNumber ? (
+                <p className="truncate text-tiny text-content-secondary">#{invoiceNumber}</p>
               ) : null}
               {fromEmail && (
                 <span className="mt-[2px] inline-flex w-fit items-center gap-[2px] rounded-pill bg-surface-alt px-[var(--space-xs)] py-[1px] text-tiny font-bold text-content-secondary">
@@ -273,8 +274,8 @@ export function InvoiceListContentV2() {
     },
     {
       key: "uploadedBy",
-      header: "Uploaded By",
-      width: "20%",
+      header: "Posted By",
+      width: "17%",
       render: (invoice) => (
         <span className="block truncate text-content-secondary">{getUserDisplayName(invoice.uploadedBy) || "—"}</span>
       ),
@@ -282,12 +283,12 @@ export function InvoiceListContentV2() {
     {
       key: "status",
       header: "Status",
-      width: "14%",
+      width: "17%",
       render: (invoice) => {
         const status = getInvoiceStatus(invoice.postedStatus);
         return (
           <span className="block truncate whitespace-nowrap">
-            <Badge variant={STATUS_BADGE_VARIANT[status]}>{INVOICE_STATUS_THEME[status].label}</Badge>
+            <StatusPill status={status} />
           </span>
         );
       },
@@ -324,7 +325,7 @@ export function InvoiceListContentV2() {
           <div className="grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-4">
             <button
               type="button"
-              onClick={() => router.replace("/v2/invoices?type=all")}
+              onClick={() => router.replace("/invoices?type=all")}
               className="flex flex-col justify-between rounded-lg border border-nav-bg bg-nav-bg px-[var(--space-sm)] py-[10px] text-left"
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
@@ -342,7 +343,7 @@ export function InvoiceListContentV2() {
                 <button
                   key={t}
                   type="button"
-                  onClick={() => router.replace(`/v2/invoices?type=${t}`)}
+                  onClick={() => router.replace(`/invoices?type=${t}`)}
                   className={`flex flex-col justify-between rounded-lg border px-[var(--space-sm)] py-[10px] text-left ${tileTheme.cardBgClass} ${
                     t === "auto"
                       ? "border-status-success-border"
@@ -396,7 +397,7 @@ export function InvoiceListContentV2() {
                 <SelectDropdown
                   uiSize="sm"
                   value={statusFilter}
-                  onChange={(event) => router.replace(`/v2/invoices?type=${event.target.value}`)}
+                  onChange={(event) => router.replace(`/invoices?type=${event.target.value}`)}
                 >
                   {STATUS_ORDER.map((s) => (
                     <option key={s} value={s}>

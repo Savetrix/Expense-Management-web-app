@@ -31,7 +31,9 @@ import { BrandIcon } from "@/components/icons/BrandIcon";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { InlineEditField, SelectDropdown } from "@/components/v2/ui";
+import type { InlineEditFieldHandle } from "@/components/v2/ui";
 import { VendorResolutionDialogV2 } from "@/components/v2/invoices/VendorResolutionDialogV2";
+import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   getInvoiceDetails,
@@ -40,7 +42,7 @@ import {
   rejectInvoice,
   updateInvoiceExtractedData,
 } from "@/store/invoice/invoiceApi";
-import type { ExtraCharge, LineItem } from "@/store/invoice/invoiceSlice";
+import type { Discount, ExtraCharge, LineItem } from "@/store/invoice/invoiceSlice";
 import {
   fetchQuickBooksAccounts,
   fetchQuickBooksTaxCodes,
@@ -51,7 +53,8 @@ import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { formatDetailAmount, formatDetailDateTime, resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
 import { getUserDisplayName, translateInvoiceReason } from "@/lib/invoiceDisplay";
-import { taxCodeId as getTaxCodeId, taxCodeName as getTaxCodeName } from "@/lib/quickbooks/taxCode";
+import { formatTaxRate, taxCodeId as getTaxCodeId, taxCodeLabel as getTaxCodeLabel } from "@/lib/quickbooks/taxCode";
+import type { TaxCode } from "@/store/quickBooks/quickBooksSlice";
 
 // Zoom only applies to the <img> case — a PDF's own embedded viewer already
 // has native zoom/scroll. Ported from InvoiceReviewContent (v1) so the two
@@ -71,11 +74,6 @@ const SCAN_PANEL_MAX_HEIGHT = 1000;
 const ASIDE_DEFAULT_WIDTH = 400;
 const ASIDE_MIN_WIDTH = 300;
 const ASIDE_MAX_WIDTH = 680;
-
-// Same radius-with-pathLength(100) technique OutcomeMixCardV2 uses for its
-// donut — lets stroke-dasharray/offset be plain percentages regardless of
-// the actual circle radius.
-const RING_RADIUS = 15.9155;
 
 interface NormalizedInvoiceData {
   vendor: string;
@@ -101,6 +99,80 @@ function safeValue(value?: string | number | null): string {
 function cleanValue(value?: string | null): string {
   if (!value || !String(value).trim()) return "";
   return String(value).trim();
+}
+
+// A line item's amount is always quantity × unit price — never the raw
+// extracted "amount" field, which is a separate LLM guess that can disagree
+// with qty×unitPrice (the two are independently extracted, so nothing
+// guarantees they agree). Applied both on load (so a stale/wrong extracted
+// amount never even shows up) and on every quantity/unitPrice edit.
+function computeLineItemAmount(quantity: number, unitPrice: number): number {
+  return parseFloat(((Number(quantity) || 0) * (Number(unitPrice) || 0)).toFixed(2));
+}
+
+function withComputedLineItemAmounts(items: LineItem[]): LineItem[] {
+  return items.map((item) => ({ ...item, amount: computeLineItemAmount(item.quantity, item.unitPrice) }));
+}
+
+// Fills each line's GL/tax code from the invoice-level (vendor) ones where
+// the line has none yet, so every line shows — and saves — an explicit value.
+// Lines that already carry their own value are left alone.
+function withLineDefaults(items: LineItem[], glAccountId: string, taxCodeId: string): LineItem[] {
+  return items.map((item) => ({
+    ...item,
+    glAccountId: item.glAccountId || glAccountId || undefined,
+    taxCodeId: item.taxCodeId || taxCodeId || null,
+  }));
+}
+
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+// Tax is computed from line items only — never extra charges or discounts
+// (both post to QuickBooks as non-taxable). Each line uses its own taxCodeId,
+// else the invoice-level (vendor) one, else 0%. Mirrors how QuickBooks itself
+// computes a Bill's tax: taxable amounts are pooled per tax RATE (so GST on
+// a "GST" line and a "GST/PST BC" line is one pool) and each pool is rounded
+// once — rounding per line instead would drift from QB by a cent here and
+// there. hasUnknownRate = some line's code has no synced rate (or isn't in
+// the list at all); that line contributes 0 and the UI flags it.
+function computeLineItemsTax(
+  items: LineItem[],
+  fallbackTaxCodeId: string,
+  taxCodeById: Map<string, TaxCode>,
+): {
+  tax: number;
+  hasUnknownRate: boolean;
+  usedCodeIds: string[];
+  /** One entry per QuickBooks tax rate actually charged (0% rates omitted). */
+  breakdown: { rateId: string; name: string; rate: number; amount: number }[];
+} {
+  const pools = new Map<string, { name: string; rate: number; base: number }>();
+  const usedCodeIds = new Set<string>();
+  let hasUnknownRate = false;
+
+  for (const item of items) {
+    const codeId = item.taxCodeId || fallbackTaxCodeId;
+    if (!codeId) continue;
+    usedCodeIds.add(codeId);
+    const code = taxCodeById.get(codeId);
+    if (!code || code.totalRate == null) {
+      hasUnknownRate = true;
+      continue;
+    }
+    for (const component of code.taxRateIds ?? []) {
+      if (component.rate == null) continue;
+      const pool = pools.get(component.value) ?? { name: component.name, rate: component.rate, base: 0 };
+      pool.base += Number(item.amount) || 0;
+      pools.set(component.value, pool);
+    }
+  }
+
+  const breakdown = [...pools.entries()]
+    .map(([rateId, { name, rate, base }]) => ({ rateId, name, rate, amount: roundMoney((base * rate) / 100) }))
+    .filter((entry) => entry.rate > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const tax = breakdown.reduce((sum, entry) => sum + entry.amount, 0);
+  return { tax: roundMoney(tax), hasUnknownRate, usedCodeIds: [...usedCodeIds], breakdown };
 }
 
 // Extracted dates can arrive in whatever format the scan produced. Normalizes
@@ -135,7 +207,22 @@ function normalizeInvoiceData(data: {
   glAccountId?: string | null;
   taxCodeId?: string | null;
   description?: string | null;
+  lineItems?: LineItem[];
+  extraCharges?: ExtraCharge[];
+  discounts?: Discount[];
 }): NormalizedInvoiceData {
+  // When the subtotal wasn't extracted but line items were, derive it from
+  // the line items' own sum — NOT netting extraCharges/discounts in here,
+  // since those are separate, total-level adjustments (see computedTotal
+  // below); folding them into amountBeforeTax too would make it disagree
+  // with the line items sum it was just derived from.
+  let amountBeforeTax = data.amountBeforeTax;
+  if (amountBeforeTax == null && Array.isArray(data.lineItems) && data.lineItems.length > 0) {
+    amountBeforeTax = parseFloat(
+      data.lineItems.reduce((s, i) => s + (Number(i.amount) || i.quantity * i.unitPrice || 0), 0).toFixed(2),
+    );
+  }
+
   return {
     vendor: safeValue(data.vendorName),
     vendorAddress: safeValue(data.vendorAddress),
@@ -143,7 +230,7 @@ function normalizeInvoiceData(data: {
     invoiceNumber: safeValue(data.invoiceNumber),
     invoiceDate: safeValue(data.invoiceDate),
     dueDate: safeValue(data.dueDate),
-    amountBeforeTax: safeValue(data.amountBeforeTax),
+    amountBeforeTax: safeValue(amountBeforeTax),
     taxAmount: safeValue(data.taxAmount),
     totalAfterTax: safeValue(data.totalAmount),
     currency: safeValue(data.currency),
@@ -159,7 +246,6 @@ function getInitialFieldErrors(data: NormalizedInvoiceData): Record<string, stri
   if (!cleanValue(data.currency)) errors.currency = "Currency is required";
   if (!cleanValue(data.invoiceNumber)) errors.invoiceNumber = "Invoice number is required";
   if (!cleanValue(data.amountBeforeTax)) errors.amountBeforeTax = "Amount before tax is required";
-  if (!cleanValue(data.taxAmount)) errors.taxAmount = "Tax amount is required";
   if (!cleanValue(data.totalAfterTax)) errors.totalAfterTax = "Total amount is required";
   if (!cleanValue(data.glAccountId)) errors.glAccountId = "GL account is required";
   return errors;
@@ -189,33 +275,6 @@ const TIER_CLASSES: Record<ConfidenceTier, { bg: string; border: string; text: s
   warning: { bg: "bg-status-warning-bg", border: "border-status-warning-border", text: "text-status-warning-text" },
   danger: { bg: "bg-status-danger-bg", border: "border-status-danger-border", text: "text-status-danger-text" },
 };
-
-function ConfidenceRing({ percent, tier }: { percent: number; tier: ConfidenceTier }) {
-  const clamped = Math.max(0, Math.min(100, percent));
-  return (
-    <div className="relative h-16 w-16 shrink-0">
-      <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
-        <circle cx="18" cy="18" r={RING_RADIUS} fill="none" strokeWidth={3} className="stroke-border" />
-        <circle
-          cx="18"
-          cy="18"
-          r={RING_RADIUS}
-          fill="none"
-          strokeWidth={3}
-          strokeLinecap="round"
-          strokeDasharray={`${clamped} ${100 - clamped}`}
-          pathLength={100}
-          stroke="currentColor"
-          className={TIER_CLASSES[tier].text}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-caption font-extrabold ${TIER_CLASSES[tier].text}`}>{Math.round(clamped)}%</span>
-        <span className="text-[9px] font-semibold text-content-secondary">conf.</span>
-      </div>
-    </div>
-  );
-}
 
 // Collapsible card shell shared by every content section on this screen
 // (Invoice Information, Financial Summary, Line Items, Extra Charges) —
@@ -271,6 +330,17 @@ function SectionCard({
   );
 }
 
+// Read-only amount styled exactly like InlineEditField's display state (same
+// padding, text-body-sm, regular weight) — so computed Financial Summary
+// values look the same as the editable ones they replaced.
+function ReadOnlyAmount({ children, className = "text-content-primary" }: { children: ReactNode; className?: string }) {
+  return (
+    <div className="flex w-full justify-end px-[var(--space-xs)] py-[var(--space-xs)]">
+      <span className={`min-w-0 truncate text-body-sm ${className}`}>{children}</span>
+    </div>
+  );
+}
+
 // Label-left/value-right row, matching the read-only invoice detail screen's
 // layout but with the value slot taking an editable control.
 function FieldRow({
@@ -306,10 +376,17 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
 
   const invoiceObject = useAppSelector((state) => state.invoice.selectedInvoice);
+  const fetchError = useAppSelector((state) => state.invoice.error);
+  // Declared here (rather than just above their own populating effects
+  // further down) so the invoiceId-switch effect below can reset them
+  // without referencing a setter before its useState declaration.
+  const [originalExtractedTotal, setOriginalExtractedTotal] = useState<number | null>(null);
+  const [frozenConfidenceScore, setFrozenConfidenceScore] = useState<number | null>(null);
   const rejecting = useAppSelector((state) => state.invoice.rejecting);
   const posting = useAppSelector((state) => state.invoice.posting);
   const updatingExtractedData = useAppSelector((state) => state.invoice.updatingExtractedData);
   const vendors = useAppSelector((state) => state.quickBooks.vendors);
+  const vendorsLoading = useAppSelector((state) => state.quickBooks.vendorsLoading);
   const glAccounts = useAppSelector((state) => state.quickBooks.accounts);
   const glAccountsLoading = useAppSelector((state) => state.quickBooks.accountsLoading);
   const glAccountsError = useAppSelector((state) => state.quickBooks.accountsError);
@@ -317,6 +394,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const taxCodesLoading = useAppSelector((state) => state.quickBooks.taxCodesLoading);
   const taxCodesError = useAppSelector((state) => state.quickBooks.taxCodesError);
   const realmId = useAppSelector((state) => state.quickBooks.realmId);
+  const invoicesLoading = useAppSelector((state) => state.invoice.loading);
   // A vendor resolution belongs to ONE invoice — see vendorSlice.ts. Gated
   // here (as well as cleared in the mount effect below) because the first
   // render happens before that effect runs.
@@ -428,20 +506,43 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     dispatch(clearVendorResolutionForOtherInvoice(invoiceId));
     dispatch(getInvoiceDetails(invoiceId));
     // Pull the full invoice list so the pre-post duplicate-number check below
-    // can compare against every invoice this tab knows about.
-    dispatch(getInvoices());
+    // can compare against every invoice this tab knows about — skipped when
+    // already loaded/loading so opening invoice after invoice doesn't
+    // re-fetch the same list every single time (this, plus the same gap in
+    // the vendors/accounts/taxCodes effect below, was still tripping the
+    // global rate limiter on rapid invoice navigation even after
+    // GlobalSearchBar was fixed).
+    if (allInvoices.length === 0 && !invoicesLoading) dispatch(getInvoices());
+    // A genuine invoice switch (not a same-invoice Save refresh) — let
+    // originalExtractedTotal/frozenConfidenceScore be captured fresh for
+    // whichever invoice loads next.
+    setOriginalExtractedTotal(null);
+    setFrozenConfidenceScore(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceId]);
+
+  // A bad/stale/deleted invoiceId (e.g. an old bookmarked link, or the
+  // invoice was deleted from another tab) — bounce back to the list instead
+  // of leaving the user stuck on this page staring at "Invoice not found".
+  // Same pattern as InvoiceDetailContentV2.
+  useEffect(() => {
+    if (!fetchError || invoiceObject) return;
+    showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
+    router.replace("/invoices");
+  }, [fetchError, invoiceObject, router]);
 
   useEffect(() => {
     if (!accessToken) return;
     // Sequential, not parallel — see InvoiceReviewContent.tsx (v1) for why:
     // near-simultaneous requests sharing one QuickBooks connection can race a
-    // backend token refresh.
+    // backend token refresh. Each one only fires if that list is BOTH empty
+    // and not already loading, same guard as GlobalSearchBar — otherwise
+    // every invoice opened re-fetches all three lists again even though
+    // they're already in the store.
     (async () => {
-      await dispatch(fetchQuickBooksVendors({ accessToken }));
-      await dispatch(fetchQuickBooksAccounts({ accessToken }));
-      await dispatch(fetchQuickBooksTaxCodes({ accessToken }));
+      if (vendors.length === 0 && !vendorsLoading) await dispatch(fetchQuickBooksVendors({ accessToken }));
+      if (glAccounts.length === 0 && !glAccountsLoading) await dispatch(fetchQuickBooksAccounts({ accessToken }));
+      if (taxCodes.length === 0 && !taxCodesLoading) await dispatch(fetchQuickBooksTaxCodes({ accessToken }));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
@@ -466,8 +567,22 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const confidenceScore = Number.isFinite(Number(invoiceObject?.confidenceScore))
     ? Math.max(0, Math.min(100, Number(invoiceObject?.confidenceScore)))
     : 0;
-  const [frozenConfidenceScore] = useState(confidenceScore);
-  const tier = useMemo(() => getConfidenceTier(frozenConfidenceScore), [frozenConfidenceScore]);
+  // Was `useState(confidenceScore)` — a lazy initializer that runs on this
+  // component's very first render, which on a hard/direct navigation to this
+  // URL (store empty, invoiceObject not loaded yet) froze at 0 forever,
+  // permanently misrendering the confidence tier as "danger" (red) even once
+  // the real score arrived. A soft client-side navigation (e.g. the Edit
+  // button on the detail page for the same invoice) never showed this,
+  // because invoiceObject was already populated in the store by the time
+  // this component mounted. Same bug class, same fix, as
+  // originalExtractedTotal above: seed null, capture once real data lands.
+  useEffect(() => {
+    if (frozenConfidenceScore === null && invoiceObject?.confidenceScore != null) {
+      setFrozenConfidenceScore(confidenceScore);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceObject, frozenConfidenceScore]);
+  const tier = useMemo(() => getConfidenceTier(frozenConfidenceScore ?? 0), [frozenConfidenceScore]);
   const statusHistory = invoiceObject?.statusHistory || [];
   const latestStatus = statusHistory.length > 0 ? statusHistory[statusHistory.length - 1] : null;
   const postingReason = latestStatus?.reason || "";
@@ -485,9 +600,20 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>(() =>
     getInitialFieldErrors(normalizeInvoiceData(rawData)),
   );
-  const [lineItems, setLineItems] = useState<LineItem[]>(() => rawData.lineItems || []);
+  const [lineItems, setLineItems] = useState<LineItem[]>(() => withComputedLineItemAmounts(rawData.lineItems || []));
   const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>(() => rawData.extraCharges || []);
-  const [showConfidenceInfo, setShowConfidenceInfo] = useState(false);
+  const [discounts, setDiscounts] = useState<Discount[]>(() => rawData.discounts || []);
+  // Distinguishes "this invoice never had line items" (nothing to derive
+  // Before Tax from — leave whatever was extracted/typed alone) from "line
+  // items existed and the user just deleted the last one" (Before Tax should
+  // follow them back down to 0, not get stuck at its last-synced value).
+  // Reset whenever the underlying invoice changes, alongside lineItems itself.
+  const hadLineItemsRef = useRef((rawData.lineItems?.length ?? 0) > 0);
+  // Enter in a row's description jumps straight to that row's next field
+  // (line item → unit price, extra charge/discount → amount). Keyed by row index.
+  const unitPriceFieldRefs = useRef<Record<number, InlineEditFieldHandle | null>>({});
+  const extraChargeAmountFieldRefs = useRef<Record<number, InlineEditFieldHandle | null>>({});
+  const discountAmountFieldRefs = useRef<Record<number, InlineEditFieldHandle | null>>({});
 
   // Full reset only when the underlying invoice itself changes — see
   // InvoiceReviewContent.tsx (v1) for why this deliberately does NOT re-run
@@ -504,8 +630,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     }
     setInvoice(normalized);
     setFieldErrors(getInitialFieldErrors(normalized));
-    setLineItems(invoiceObject?.extractedData?.lineItems || []);
+    setLineItems(
+      withLineDefaults(
+        withComputedLineItemAmounts(invoiceObject?.extractedData?.lineItems || []),
+        normalized.glAccountId,
+        normalized.taxCodeId,
+      ),
+    );
     setExtraCharges(invoiceObject?.extractedData?.extraCharges || []);
+    setDiscounts(invoiceObject?.extractedData?.discounts || []);
+    hadLineItemsRef.current = (invoiceObject?.extractedData?.lineItems?.length ?? 0) > 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceObject]);
 
@@ -521,6 +655,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     };
     setInvoice(merged);
     setFieldErrors(getInitialFieldErrors(merged));
+    // The vendor's GL/tax may only just have become known — carry them down
+    // to any line that doesn't have its own yet.
+    setLineItems((prev) => withLineDefaults(prev, merged.glAccountId, merged.taxCodeId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVendor, createdVendor]);
 
@@ -534,11 +671,18 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     });
   };
 
-  const updateLineItem = (index: number, key: keyof LineItem, value: string) => {
+  const updateLineItem = (index: number, key: "description" | "quantity" | "unitPrice", value: string) => {
     setLineItems((prev) =>
-      prev.map((item, i) =>
-        i === index ? { ...item, [key]: key === "description" ? value : Number(value) || 0 } : item,
-      ),
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        if (key === "description") return { ...item, description: value };
+        const updated = { ...item, [key]: Number(value) || 0 };
+        // Amount is always quantity × unit price — never independently typed
+        // or trusted from the raw extraction, which can disagree with it
+        // (the LLM's own "amount" field is a separate guess that doesn't
+        // always match qty×unitPrice).
+        return { ...updated, amount: computeLineItemAmount(updated.quantity, updated.unitPrice) };
+      }),
     );
   };
 
@@ -546,8 +690,20 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     setLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, glAccountId: glAccountId || undefined } : item)));
   };
 
+  // "" = inherit the invoice-level (vendor) tax code.
+  const updateLineItemTaxCode = (index: number, taxCodeIdValue: string) => {
+    setLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, taxCodeId: taxCodeIdValue || null } : item)));
+  };
+
   const addLineItem = () => {
-    setLineItems((prev) => [...prev, { description: "", quantity: 1, unitPrice: 0, amount: 0 }]);
+    setLineItems((prev) => [
+      ...prev,
+      ...withLineDefaults(
+        [{ description: "", quantity: 1, unitPrice: 0, amount: 0 }],
+        cleanValue(invoice.glAccountId),
+        cleanValue(invoice.taxCodeId),
+      ),
+    ]);
   };
 
   const duplicateLineItem = (index: number) => {
@@ -562,49 +718,181 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     setLineItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Extra charges started as extraction/reconciliation output only, but the
-  // LLM doesn't always find everything, so this carries the same full
-  // add/edit/remove affordance as line items. Total Amount is what actually
-  // posts to QuickBooks, so every mutation here recomputes it directly.
-  const recalculateTotalFromExtraCharges = (nextExtraCharges: ExtraCharge[]) => {
-    const extraSum = nextExtraCharges.reduce((s, c) => s + c.amount, 0);
-    const recalculatedTotal = parseFloat(
-      ((Number(invoice.amountBeforeTax) || 0) + (Number(invoice.taxAmount) || 0) + extraSum).toFixed(2),
-    );
-    setInvoice((prev) => ({ ...prev, totalAfterTax: String(recalculatedTotal) }));
+  const updateExtraChargeDescription = (index: number, value: string) => {
+    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, description: value } : c)));
+  };
+
+  const updateExtraChargeAmount = (index: number, value: string) => {
+    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c)));
+  };
+
+  const addExtraCharge = () => {
+    setExtraCharges((prev) => [...prev, { description: "", amount: 0, taxCodeId: null }]);
+  };
+
+  const duplicateExtraCharge = (index: number) => {
+    setExtraCharges((prev) => {
+      const next = [...prev];
+      next.splice(index + 1, 0, { ...prev[index] });
+      return next;
+    });
+  };
+
+  const removeExtraCharge = (index: number) => {
+    setExtraCharges((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateDiscountDescription = (index: number, value: string) => {
+    setDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, description: value } : d)));
+  };
+
+  const updateDiscountAmount = (index: number, value: string) => {
+    // Always stored/sent as a positive magnitude — see the Discount type comment.
+    setDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, amount: Math.abs(Number(value) || 0) } : d)));
+  };
+
+  const addDiscount = () => {
+    setDiscounts((prev) => [...prev, { description: "", amount: 0 }]);
+  };
+
+  const duplicateDiscount = (index: number) => {
+    setDiscounts((prev) => {
+      const next = [...prev];
+      next.splice(index + 1, 0, { ...prev[index] });
+      return next;
+    });
+  };
+
+  const removeDiscount = (index: number) => {
+    setDiscounts((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // ── Final amount: always computed, never independently typed ───────────
+  // QuickBooks has no separate "total" input on a Bill — its total is always
+  // the sum of the Line entries buildBillPayload (backend) posts, and those
+  // lines come from the line items. So the pre-tax base can only ever
+  // legitimately be the line items' own sum — never amountBeforeTax as a
+  // fallback, since that's a separately-extracted guess that can disagree
+  // with the line items. With no line items at all there is nothing to base
+  // a real Bill on yet, so the base is 0 rather than silently trusting an
+  // unrelated field.
+  const hasLineItemsForTotal = lineItems.length > 0;
+  const lineItemsSum = useMemo(
+    () => parseFloat(lineItems.reduce((s, item) => s + (Number(item.amount) || 0), 0).toFixed(2)),
+    [lineItems],
+  );
+  // Pulled out of computedTotal so the Financial Summary can display them as
+  // their own rows, not just fold silently into the Total.
+  const extraChargesSum = useMemo(
+    () => parseFloat(extraCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0).toFixed(2)),
+    [extraCharges],
+  );
+  const discountsSum = useMemo(
+    () => parseFloat(discounts.reduce((s, d) => s + (Number(d.amount) || 0), 0).toFixed(2)),
+    [discounts],
+  );
+  // Tax is computed from line items × their QuickBooks tax-code rates (see
+  // computeLineItemsTax) — no longer the AI-extracted taxAmount, which is
+  // exactly as fragile as the extracted total (a missed line or value throws
+  // it off). invoice.taxAmount is left untouched as the extracted reference.
+  const taxCodeById = useMemo(() => new Map(taxCodes.map((code) => [getTaxCodeId(code), code])), [taxCodes]);
+  const lineItemsTax = useMemo(
+    () => computeLineItemsTax(lineItems, cleanValue(invoice.taxCodeId), taxCodeById),
+    [lineItems, invoice.taxCodeId, taxCodeById],
+  );
+  const computedTax = lineItemsTax.tax;
+
+  // Flags the invoice-level GL/tax dropdowns as "mixed" when line items don't
+  // all resolve to the same effective code (a line's own override, else the
+  // invoice-level default) — since selecting a value there overwrites every
+  // line, the field showing one specific code as if it applied everywhere
+  // would be misleading while lines actually differ.
+  const glAccountsMixedAcrossLines = useMemo(() => {
+    if (lineItems.length < 2) return false;
+    const ids = new Set(lineItems.map((item) => item.glAccountId || cleanValue(invoice.glAccountId)));
+    return ids.size > 1;
+  }, [lineItems, invoice.glAccountId]);
+  const taxCodesMixedAcrossLines = useMemo(() => {
+    if (lineItems.length < 2) return false;
+    const ids = new Set(lineItems.map((item) => item.taxCodeId || cleanValue(invoice.taxCodeId)));
+    return ids.size > 1;
+  }, [lineItems, invoice.taxCodeId]);
+
+  const computedTotal = useMemo(() => {
+    const preTaxBase = hasLineItemsForTotal ? lineItemsSum : 0;
+    // Never below 0 — e.g. discounts larger than everything else. A Bill
+    // can't have a negative total.
+    return Math.max(0, parseFloat((preTaxBase + computedTax + extraChargesSum - discountsSum).toFixed(2)));
+  }, [hasLineItemsForTotal, lineItemsSum, computedTax, extraChargesSum, discountsSum]);
+
+  // The AI's own extracted grand total, frozen at load — kept only as a
+  // reference to compare against computedTotal (both tax-inclusive, so this
+  // is the correct apples-to-apples pairing), never sent anywhere.
+  //
+  // NOT a useState(() => ...) lazy initializer — that runs on this
+  // component's very FIRST render, which happens before invoiceObject has
+  // loaded (getInvoiceDetails is dispatched in a separate effect and
+  // resolves later), so it would freeze at 0 forever and totalMismatch would
+  // never fire. Captured instead the first time real data actually arrives,
+  // and reset back to null when invoiceId itself changes (the invoiceId-only
+  // effect below) — but NOT on every invoiceObject update, since a Save
+  // re-fetches the same invoice and would otherwise re-freeze this to
+  // whatever we ourselves just posted, defeating its purpose as a reference.
+  useEffect(() => {
+    if (originalExtractedTotal === null && invoiceObject?.extractedData?.totalAmount != null) {
+      setOriginalExtractedTotal(Number(invoiceObject.extractedData.totalAmount) || 0);
+    }
+  }, [invoiceObject, originalExtractedTotal]);
+  const totalMismatch =
+    originalExtractedTotal !== null &&
+    originalExtractedTotal > 0 &&
+    Math.abs(computedTotal - originalExtractedTotal) > 0.01;
+
+  // Keeps invoice.totalAfterTax (what's displayed and what buildExtractedDataPayload
+  // sends) always equal to computedTotal, for every mutation (line items
+  // included — a real gap the old per-handler recalculate calls had).
+  useEffect(() => {
+    setInvoice((prev) => {
+      const nextValue = String(computedTotal);
+      return prev.totalAfterTax === nextValue ? prev : { ...prev, totalAfterTax: nextValue };
+    });
     setFieldErrors((prev) => {
       if (!prev.totalAfterTax) return prev;
       const updated = { ...prev };
       delete updated.totalAfterTax;
       return updated;
     });
-  };
+  }, [computedTotal]);
 
-  const updateExtraChargeDescription = (index: number, value: string) => {
-    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, description: value } : c)));
-  };
-
-  const updateExtraChargeTaxCode = (index: number, taxCodeIdValue: string) => {
-    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, taxCodeId: taxCodeIdValue || null } : c)));
-  };
-
-  const updateExtraChargeAmount = (index: number, value: string) => {
-    const nextExtraCharges = extraCharges.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c));
-    setExtraCharges(nextExtraCharges);
-    recalculateTotalFromExtraCharges(nextExtraCharges);
-  };
-
-  const addExtraCharge = () => {
-    const nextExtraCharges = [...extraCharges, { description: "", amount: 0, taxCodeId: null }];
-    setExtraCharges(nextExtraCharges);
-    recalculateTotalFromExtraCharges(nextExtraCharges);
-  };
-
-  const removeExtraCharge = (index: number) => {
-    const nextExtraCharges = extraCharges.filter((_, i) => i !== index);
-    setExtraCharges(nextExtraCharges);
-    recalculateTotalFromExtraCharges(nextExtraCharges);
-  };
+  // Before Tax is always the line items' own sum once line items exist —
+  // same reasoning as Amount (qty × unit price) and Total above: line items
+  // are the source of truth, so nothing independently typed here should be
+  // able to drift away from what they actually add up to.
+  //
+  // Without line items there's nothing to derive it from — BUT that "no
+  // line items" state means two different things depending on how it was
+  // reached: an invoice that never had any (nothing to sync, leave whatever
+  // was extracted/typed alone) vs. one where the user just deleted the last
+  // remaining line item (Before Tax should follow them back down to 0, not
+  // stay stuck at whatever it last synced to). hadLineItemsRef tells the two
+  // apart.
+  useEffect(() => {
+    if (hasLineItemsForTotal) {
+      hadLineItemsRef.current = true;
+    } else if (!hadLineItemsRef.current) {
+      return;
+    }
+    setInvoice((prev) => {
+      const nextValue = String(lineItemsSum);
+      return prev.amountBeforeTax === nextValue ? prev : { ...prev, amountBeforeTax: nextValue };
+    });
+    setFieldErrors((prev) => {
+      if (!prev.amountBeforeTax) return prev;
+      const updated = { ...prev };
+      delete updated.amountBeforeTax;
+      return updated;
+    });
+  }, [hasLineItemsForTotal, lineItemsSum]);
 
   const resolvedGlAccountName = useMemo(
     () => glAccounts.find((acc) => acc.qbAccountId === invoice.glAccountId)?.name || "",
@@ -613,20 +901,22 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
   const resolvedTaxCodeName = useMemo(() => {
     const match = taxCodes.find((code) => getTaxCodeId(code) === invoice.taxCodeId);
-    return match ? getTaxCodeName(match) : "";
+    return match ? getTaxCodeLabel(match) : "";
   }, [taxCodes, invoice.taxCodeId]);
 
-  // Real, computed reconciliation check — not decorative: before-tax + tax +
-  // extra charges should equal the total actually posted to QuickBooks.
-  const beforeTaxNumber = Number(invoice.amountBeforeTax) || 0;
-  const taxNumber = Number(invoice.taxAmount) || 0;
-  const extraChargesSum = extraCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
-  const totalNumber = Number(invoice.totalAfterTax) || 0;
-  const reconciledTotal = beforeTaxNumber + taxNumber + extraChargesSum;
-  const reconciliationDiff = Math.abs(reconciledTotal - totalNumber);
-  const isBalanced = reconciliationDiff < 0.01;
-  const verifiedPercent = totalNumber > 0 ? Math.max(0, 100 - Math.min(100, (reconciliationDiff / totalNumber) * 100)) : 100;
-  const taxRatePercent = beforeTaxNumber > 0 ? Math.round((taxNumber / beforeTaxNumber) * 100) : null;
+  // Label reflects the actual codes applied, not a back-derived tax÷base ratio.
+  // Tax rows come straight from the QuickBooks rates actually charged (see
+  // computeLineItemsTax's breakdown) — e.g. "GST (ITC) · 5%" and
+  // "PST (BC) Purchase · 7%" as separate rows, the way invoices print them.
+  const taxBreakdown = lineItemsTax.breakdown;
+  const taxRateRowLabel = (entry: { name: string; rate: number }) => `${entry.name} · ${formatTaxRate(entry.rate)}`;
+  const taxTotalRowLabel =
+    taxBreakdown.length === 1 ? `Tax · ${taxRateRowLabel(taxBreakdown[0])}` : taxBreakdown.length > 1 ? "Total Tax" : "Tax (0%)";
+  // Before Tax is now always kept in sync with the line items' own sum (see
+  // the effect above), so the only independent thing left to cross-check is
+  // the computed total against what the scanned invoice itself says its
+  // total is (totalMismatch above).
+  const isBalanced = !totalMismatch;
 
   const previewUrl = invoiceObject?.file?.s3Url || (invoiceObject as unknown as { s3Url?: string })?.s3Url;
   const previewMimeType = invoiceObject?.file?.mimeType || "";
@@ -670,10 +960,20 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     );
   };
 
+  // Same overwrite-all-lines rule as handleGlAccountChange below.
+  const handleTaxCodeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextTaxCodeId = event.target.value;
+    updateField("taxCodeId", nextTaxCodeId);
+    setLineItems((prev) => prev.map((item) => ({ ...item, taxCodeId: nextTaxCodeId || null })));
+  };
+
   const handleGlAccountChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const account = glAccounts.find((acc) => acc.qbAccountId === event.target.value);
     if (!account) return;
     setInvoice((prev) => ({ ...prev, glAccountId: account.qbAccountId }));
+    // Invoice-level GL is the default for every line — changing it
+    // deliberately overwrites all lines, including ones changed by hand.
+    setLineItems((prev) => prev.map((item) => ({ ...item, glAccountId: account.qbAccountId })));
     setFieldErrors((prev) => {
       if (!prev.glAccountId) return prev;
       const updated = { ...prev };
@@ -688,7 +988,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (!cleanValue(invoice.currency)) errors.currency = "Currency is required";
     if (!cleanValue(invoice.invoiceNumber)) errors.invoiceNumber = "Invoice number is required";
     if (!cleanValue(invoice.amountBeforeTax)) errors.amountBeforeTax = "Amount before tax is required";
-    if (!cleanValue(invoice.taxAmount)) errors.taxAmount = "Tax amount is required";
     if (!cleanValue(invoice.totalAfterTax)) errors.totalAfterTax = "Total amount is required";
     if (!cleanValue(invoice.glAccountId)) errors.glAccountId = "GL account is required";
     return errors;
@@ -704,10 +1003,15 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     invoiceDate: cleanValue(invoice.invoiceDate) || null,
     dueDate: cleanValue(invoice.dueDate) || null,
     amountBeforeTax: Number(invoice.amountBeforeTax) || 0,
-    taxAmount: Number(invoice.taxAmount) || 0,
-    totalAmount: Number(invoice.totalAfterTax) || 0,
+    // Straight from the computed values rather than their synced copies on
+    // `invoice` — what's shown on screen is exactly what gets saved/posted.
+    taxAmount: computedTax,
+    totalAmount: computedTotal,
     lineItems,
-    extraCharges,
+    // Extra charges are always non-taxable (backend posts them as NON) —
+    // clear any tax code left over from before that rule.
+    extraCharges: extraCharges.map((charge) => ({ ...charge, taxCodeId: null })),
+    discounts,
     description: cleanValue(invoice.itemDescriptionsText) || null,
     vendorAddress: cleanValue(invoice.vendorAddress) || null,
     bankingDetails: cleanValue(invoice.vendorBankDetails) || null,
@@ -727,7 +1031,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     const result = await dispatch(rejectInvoice({ invoiceId }));
     if (rejectInvoice.fulfilled.match(result)) {
       showToast("The invoice has been moved to the Failed section.", "success");
-      router.push("/v2/invoices?type=pending");
+      router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to reject the invoice.", "error");
@@ -752,7 +1056,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
     if (postInvoiceToQuickBooks.fulfilled.match(result)) {
       showToast("Invoice posted to QuickBooks successfully.", "success");
-      router.push("/v2/invoices?type=pending");
+      router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(
@@ -896,7 +1200,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
     if (updateInvoiceExtractedData.fulfilled.match(result)) {
       showToast("Invoice updated and synced to QuickBooks.", "success");
-      router.push(`/v2/invoices/${invoiceId}`);
+      router.push(`/invoices/${invoiceId}`);
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(typeof payload === "string" ? payload : payload?.message || "Failed to update invoice.", "error");
@@ -921,6 +1225,30 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
   const currencyForAmount = cleanValue(invoice.currency);
   const totalAmountDisplay = formatDetailAmount(invoice.totalAfterTax || null, currencyForAmount);
+
+  // First error relevant to the Invoice Information section, in the order
+  // its fields actually appear — shown on the accordion header itself so
+  // it's visible even collapsed, instead of making the user expand the
+  // section (and scroll past everything above it) just to discover there's
+  // a problem. Field-validation errors take priority over "couldn't load
+  // the dropdown options" errors, since fixing the field is the more
+  // actionable of the two.
+  const invoiceInfoTopError =
+    fieldErrors.invoiceNumber ||
+    fieldErrors.currency ||
+    fieldErrors.glAccountId ||
+    glAccountsErrorDisplay?.message ||
+    taxCodesErrorDisplay?.message ||
+    null;
+
+  // `fieldErrors.vendor` only fires when the vendor NAME text is blank —
+  // doesn't cover the far more common case of a vendor name that extracted
+  // fine but was never matched/created against an actual QuickBooks vendor
+  // record (the "+ Resolve Vendor" prompt above, gated the same way by
+  // vendorResolutionRequired/vendorIsResolved). Check that first since it's
+  // the one the dropdown in this section actually reflects.
+  const vendorInfoTopError =
+    (vendorResolutionRequired && !vendorIsResolved ? "Vendor not resolved" : null) || fieldErrors.vendor || null;
 
   return (
     <div className="w-full">
@@ -1046,112 +1374,69 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
       <div className="flex flex-col gap-[var(--space-md)] p-[var(--space-md)] sm:gap-[var(--space-lg)] sm:p-[var(--space-lg)] lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {/* Hero */}
-          <div className={`relative overflow-hidden rounded-2xl border p-[var(--space-lg)] ${TIER_CLASSES[tier].bg} ${TIER_CLASSES[tier].border}`}>
-            <button
-              type="button"
-              onClick={() => setShowConfidenceInfo(true)}
-              aria-label="How is this score calculated?"
-              className={`absolute right-[var(--space-md)] top-[var(--space-md)] flex h-8 w-8 items-center justify-center rounded-full bg-surface font-extrabold shadow-sm ${TIER_CLASSES[tier].text}`}
-            >
-              ?
-            </button>
-
-            <div className="mb-[var(--space-md)] flex flex-wrap items-center gap-[var(--space-xs)] pr-10">
-              <Badge variant={tier === "success" ? "success" : tier === "warning" ? "warning" : "error"}>
-                {TIER_COPY[tier].status}
-              </Badge>
-              <span className={`rounded-pill bg-surface px-[var(--space-sm)] py-1 text-caption font-semibold ${TIER_CLASSES[tier].text}`}>
-                {Math.round(frozenConfidenceScore)}% confidence
-              </span>
-              {realmId && (
-                <span className="rounded-pill bg-surface px-[var(--space-sm)] py-1 text-caption font-semibold text-content-secondary">
-                  QBO Realm: {realmId}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-start justify-between gap-[var(--space-md)]">
-              <div className="flex min-w-0 items-start gap-[var(--space-sm)]">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-nav-bg text-nav-text-active">
-                  <Building2 size={22} strokeWidth={2} />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-h2 font-extrabold text-content-primary">{invoice.vendor || "Select Vendor"}</p>
-                  {cleanValue(invoice.invoiceNumber) && (
-                    <p className="text-body-sm font-semibold text-content-secondary">Invoice #{invoice.invoiceNumber}</p>
-                  )}
-                  {cleanValue(invoice.invoiceDate) && (
-                    <p className="text-caption text-content-secondary">
-                      Date: {toDateInputValue(invoice.invoiceDate) || invoice.invoiceDate}
-                      {cleanValue(invoice.dueDate) && ` · Due: ${toDateInputValue(invoice.dueDate) || invoice.dueDate}`}
-                    </p>
-                  )}
+          <InvoiceHeroCard
+            themeClasses={TIER_CLASSES[tier]}
+            badgeVariant={tier === "success" ? "success" : tier === "warning" ? "warning" : "error"}
+            badgeLabel={TIER_COPY[tier].status}
+            confidenceScore={frozenConfidenceScore ?? 0}
+            realmId={realmId}
+            vendorName={invoice.vendor || "Select Vendor"}
+            invoiceNumber={cleanValue(invoice.invoiceNumber) || null}
+            invoiceDate={cleanValue(invoice.invoiceDate) ? toDateInputValue(invoice.invoiceDate) || invoice.invoiceDate : null}
+            dueDate={cleanValue(invoice.dueDate) ? toDateInputValue(invoice.dueDate) || invoice.dueDate : null}
+            totalAmountDisplay={totalAmountDisplay}
+            reason={
+              isPendingReview && reasonDisplay
+                ? {
+                    title: "Why this requires review",
+                    message: reasonDisplay.message,
+                    isTranslated: reasonDisplay.isTranslated,
+                    raw: reasonDisplay.raw,
+                    showTechnicalReason,
+                    onToggleTechnicalReason: () => setShowTechnicalReason((v) => !v),
+                  }
+                : null
+            }
+            reasonExtra={
+              vendorResolutionRequired &&
+              (vendorIsResolved ? (
+                <div className="mt-[var(--space-sm)] flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-success-border bg-status-success-bg px-[var(--space-sm)] py-[var(--space-xs)]">
+                  <span className="flex min-w-0 items-center gap-[var(--space-xs)] text-body-sm font-semibold text-status-success-text">
+                    <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
+                    <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setVendorDialogOpen(true)}
+                    className="shrink-0 text-body-sm font-bold text-accent"
+                  >
+                    Change
+                  </button>
                 </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-[var(--space-sm)]">
-                <div className="text-right">
-                  <p className="text-tiny font-bold uppercase tracking-wider text-content-secondary">Total Amount</p>
-                  <p className="text-h1 font-black tracking-tight text-content-primary">{totalAmountDisplay}</p>
-                </div>
-                <ConfidenceRing percent={frozenConfidenceScore} tier={tier} />
-              </div>
-            </div>
-
-            {isPendingReview && reasonDisplay && (
-              <div className="mt-[var(--space-md)] rounded-md bg-surface p-[var(--space-sm)]">
-                <div className="flex items-start gap-[var(--space-xs)]">
-                  <AlertTriangle size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-status-danger-text" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-content-primary">Why this requires review</p>
-                    <p className="mt-1 text-body-sm font-medium text-status-danger-text">{reasonDisplay.message}</p>
-                    {reasonDisplay.isTranslated && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setShowTechnicalReason((v) => !v)}
-                          className="mt-1 text-caption font-semibold text-content-secondary underline"
-                        >
-                          {showTechnicalReason ? "Hide technical details" : "Show technical details"}
-                        </button>
-                        {showTechnicalReason && (
-                          <p className="mt-1 break-words text-caption text-content-secondary">{reasonDisplay.raw}</p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                {vendorResolutionRequired &&
-                  (vendorIsResolved ? (
-                    <div className="mt-[var(--space-sm)] flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-success-border bg-status-success-bg px-[var(--space-sm)] py-[var(--space-xs)]">
-                      <span className="flex min-w-0 items-center gap-[var(--space-xs)] text-body-sm font-semibold text-status-success-text">
-                        <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
-                        <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setVendorDialogOpen(true)}
-                        className="shrink-0 text-body-sm font-bold text-accent"
-                      >
-                        Change
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setVendorDialogOpen(true)}
-                      className="mt-[var(--space-sm)] flex w-full items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
-                    >
-                      <span>+ Resolve Vendor</span>
-                      <ChevronLeft size={18} strokeWidth={2} className="rotate-180" />
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setVendorDialogOpen(true)}
+                  className="mt-[var(--space-sm)] flex w-full items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
+                >
+                  <span>+ Resolve Vendor</span>
+                  <ChevronLeft size={18} strokeWidth={2} className="rotate-180" />
+                </button>
+              ))
+            }
+          />
 
           {/* Invoice Information */}
-          <SectionCard title="Invoice Information" badge={<Badge variant="neutral"></Badge>}>
+          <SectionCard
+            title="Invoice Information"
+            badge={
+              invoiceInfoTopError && (
+                <Badge variant="error" className="max-w-[260px] truncate">
+                  {invoiceInfoTopError}
+                </Badge>
+              )
+            }
+          >
             <FieldRow id="field-invoiceNumber" label="Invoice Number" required>
               <InlineEditField
                 ariaLabel="Invoice Number"
@@ -1217,9 +1502,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 </p>
               )}
             </FieldRow>
-            <FieldRow id="field-glAccountId" label="GL Code / Category" required>
+            <FieldRow id="field-glAccountId" label="GL Code / Category (vendor default)" required>
               <div className="flex justify-end">
-                <SelectDropdown uiSize="sm" error={fieldErrors.glAccountId} value={invoice.glAccountId} onChange={handleGlAccountChange} className="max-w-full">
+                <SelectDropdown
+                  uiSize="sm"
+                  error={fieldErrors.glAccountId}
+                  value={invoice.glAccountId}
+                  onChange={handleGlAccountChange}
+                  title={resolvedGlAccountName || undefined}
+                  className="w-56 max-w-full"
+                >
                   <option value="" disabled>
                     {glAccountsLoading
                       ? "Loading accounts…"
@@ -1236,6 +1528,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               {fieldErrors.glAccountId && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-semibold text-status-danger-text">
                   {fieldErrors.glAccountId}
+                </p>
+              )}
+              {glAccountsMixedAcrossLines && (
+                <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                  Multiple GL codes selected across line items — picking one here replaces all of them.
                 </p>
               )}
               {glAccountsErrorDisplay && (
@@ -1260,9 +1557,15 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 </div>
               )}
             </FieldRow>
-            <FieldRow label="Tax Code">
+            <FieldRow label="Tax Code (vendor default)">
               <div className="flex justify-end">
-                <SelectDropdown uiSize="sm" value={invoice.taxCodeId} onChange={(e) => updateField("taxCodeId", e.target.value)}>
+                <SelectDropdown
+                  uiSize="sm"
+                  value={invoice.taxCodeId}
+                  onChange={handleTaxCodeChange}
+                  title={resolvedTaxCodeName || undefined}
+                  className="w-56 max-w-full"
+                >
                   <option value="">
                     {taxCodesLoading
                       ? "Loading tax codes…"
@@ -1271,11 +1574,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                   </option>
                   {taxCodes.map((code) => (
                     <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                      {getTaxCodeName(code)}
+                      {getTaxCodeLabel(code)}
                     </option>
                   ))}
                 </SelectDropdown>
               </div>
+              {taxCodesMixedAcrossLines && (
+                <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                  Multiple tax codes selected across line items — picking one here replaces all of them.
+                </p>
+              )}
               {taxCodesErrorDisplay && (
                 <div className="mt-[var(--space-xs)] text-right">
                   <p className="text-caption font-semibold text-status-danger-text">
@@ -1314,94 +1622,158 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           {/* Financial Summary */}
           <SectionCard
             title="Financial Summary"
-            badge={<Badge variant={isBalanced ? "success" : "warning"}>{isBalanced ? "Balanced" : "Unbalanced"}</Badge>}
+            badge={!isBalanced && <Badge variant="warning">Mismatch</Badge>}
             defaultOpen={false}
             forceOpen={Boolean(fieldErrors.amountBeforeTax || fieldErrors.taxAmount || fieldErrors.totalAfterTax)}
           >
-            <FieldRow id="field-amountBeforeTax" label="Before Tax" required>
-              <InlineEditField
-                ariaLabel="Amount Before Tax"
-                value={invoice.amountBeforeTax}
-                onCommit={(v) => updateField("amountBeforeTax", v)}
-                placeholder="Enter Amount Before Tax"
-                inputMode="decimal"
-                error={fieldErrors.amountBeforeTax}
-                formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
-                className="text-right"
-              />
+            <FieldRow id="field-amountBeforeTax" label="Before Tax" required={!hasLineItemsForTotal}>
+              {hasLineItemsForTotal ? (
+                // Not independently editable once line items exist — always
+                // their sum. Add/edit/remove a line item to change this.
+                <ReadOnlyAmount>{formatDetailAmount(invoice.amountBeforeTax || null, currencyForAmount)}</ReadOnlyAmount>
+              ) : (
+                <InlineEditField
+                  ariaLabel="Amount Before Tax"
+                  value={invoice.amountBeforeTax}
+                  onCommit={(v) => updateField("amountBeforeTax", v)}
+                  placeholder="Enter Amount Before Tax"
+                  inputMode="decimal"
+                  error={fieldErrors.amountBeforeTax}
+                  formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
+                  className="text-right"
+                />
+              )}
             </FieldRow>
-            <FieldRow id="field-taxAmount" label={taxRatePercent !== null ? `Tax (${taxRatePercent}%)` : "Tax"} required>
-              <InlineEditField
-                ariaLabel="Tax Amount"
-                value={invoice.taxAmount}
-                onCommit={(v) => updateField("taxAmount", v)}
-                placeholder="Enter Tax Amount"
-                inputMode="decimal"
-                error={fieldErrors.taxAmount}
-                formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
-                className="text-right"
-              />
+            {/* Read-only here — these amounts are edited in their own
+                dedicated sections below (Extra Charges / Discounts). Shown
+                only when non-zero, so an invoice with neither doesn't carry
+                two empty rows for no reason. */}
+            {extraChargesSum > 0 && (
+              <FieldRow label="Extra Charges">
+                <ReadOnlyAmount>+ {formatDetailAmount(extraChargesSum, currencyForAmount)}</ReadOnlyAmount>
+              </FieldRow>
+            )}
+            {discountsSum > 0 && (
+              <FieldRow label="Discounts">
+                <ReadOnlyAmount className="text-status-success-text">− {formatDetailAmount(discountsSum, currencyForAmount)}</ReadOnlyAmount>
+              </FieldRow>
+            )}
+            {/* Not independently editable — each line item × its tax code's
+                QuickBooks rate (vendor default unless the line overrides it).
+                Extra charges and discounts are never taxed. With more than one
+                rate charged, each gets its own row, then the total. */}
+            {taxBreakdown.length > 1 &&
+              taxBreakdown.map((entry) => (
+                <FieldRow key={entry.rateId} label={taxRateRowLabel(entry)}>
+                  <ReadOnlyAmount>{formatDetailAmount(entry.amount, currencyForAmount)}</ReadOnlyAmount>
+                </FieldRow>
+              ))}
+            <FieldRow id="field-taxAmount" label={taxTotalRowLabel}>
+              <ReadOnlyAmount>{formatDetailAmount(computedTax, currencyForAmount)}</ReadOnlyAmount>
+              {hasLineItemsForTotal && lineItemsTax.usedCodeIds.length === 0 && (
+                <p className="mt-[var(--space-xs)] text-right text-caption text-content-secondary">
+                  No tax code on any line item.
+                </p>
+              )}
+              {lineItemsTax.hasUnknownRate && (
+                <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                  A tax code on these line items has no rate from QuickBooks yet — sync tax codes, or its tax is counted
+                  as 0.
+                </p>
+              )}
             </FieldRow>
-            <FieldRow id="field-totalAfterTax" label="Total" required highlight>
-              <InlineEditField
-                ariaLabel="Total Amount"
-                value={invoice.totalAfterTax}
-                onCommit={(v) => updateField("totalAfterTax", v)}
-                placeholder="Enter Total Amount"
-                inputMode="decimal"
-                error={fieldErrors.totalAfterTax}
-                formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
-                className={`text-right text-h3 font-black ${TIER_CLASSES[tier].text}`}
-              />
+            <FieldRow id="field-totalAfterTax" label="Total" highlight>
+              {/* Not independently editable — always line items (or 0) plus
+                  tax plus extra charges minus discounts. The only way to
+                  change it is to change one of those. */}
+              <ReadOnlyAmount className="font-black text-content-primary">
+                {formatDetailAmount(invoice.totalAfterTax || null, currencyForAmount)}
+              </ReadOnlyAmount>
+              <p className="mt-[var(--space-xs)] text-right text-tiny text-content-muted">
+                {hasLineItemsForTotal
+                  ? "Computed from line items + tax + extra charges − discounts"
+                  : "No line items yet — add at least one to compute a total"}
+              </p>
             </FieldRow>
-            {/* <div className="flex items-center justify-between gap-[var(--space-md)] px-[var(--space-md)] py-[var(--space-sm)]">
-              <span className="text-body-sm font-medium text-content-secondary">Subtotal + Tax</span>
-              <Badge variant={isBalanced ? "success" : "warning"}>{Math.round(verifiedPercent)}% verified</Badge>
-            </div> */}
+            {totalMismatch && (
+              <div className="mx-[var(--space-md)] mb-[var(--space-md)] mt-[var(--space-sm)] flex items-start gap-[var(--space-xs)] rounded-md border border-status-warning-border bg-status-warning-bg p-[var(--space-sm)]">
+                <AlertTriangle size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-status-warning-text" />
+                <p className="text-caption font-medium text-status-warning-text">
+                  Posting <strong className="text-content-primary">{formatDetailAmount(computedTotal, currencyForAmount)}</strong>, but the scan showed{" "}
+                  <strong className="text-content-primary">{formatDetailAmount(originalExtractedTotal, currencyForAmount)}</strong>. Please double-check before posting.
+                </p>
+              </div>
+            )}
           </SectionCard>
 
           {/* Line Items */}
           <SectionCard
             title={`Line Items (${lineItems.length})`}
-            badge={<Badge variant="neutral">{lineItems.length} Extracted</Badge>}
             hint="Click a value or its pencil to inline edit."
           >
             <div className="flex flex-col gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-md)]">
               {lineItems.map((item, index) => (
                 <div key={index} className="rounded-md border border-border p-[var(--space-sm)]">
-                  <div className="flex items-start gap-[var(--space-sm)]">
-                    <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-bg text-caption font-bold text-accent-text-on-bg">
+                  <div className="flex flex-wrap items-center gap-[var(--space-sm)]">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-bg text-caption font-bold text-accent-text-on-bg">
                       {index + 1}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <InlineEditField
-                        ariaLabel={`Line item ${index + 1} description`}
-                        value={item.description}
-                        onCommit={(v) => updateLineItem(index, "description", v)}
-                        placeholder="Item description"
-                        className="font-semibold"
-                      />
-                      <div className="mt-[var(--space-xs)] flex flex-wrap items-center gap-[var(--space-xs)]">
-                        <SelectDropdown
-                          uiSize="sm"
-                          value={item.glAccountId || ""}
-                          onChange={(e) => updateLineItemGlAccount(index, e.target.value)}
-                          className="text-tiny"
-                        >
-                          <option value="">GL: Unassigned</option>
-                          {glAccounts.map((account) => (
-                            <option key={account._id} value={account.qbAccountId}>
-                              GL: {account.name}
-                            </option>
-                          ))}
-                        </SelectDropdown>
-                        {resolvedTaxCodeName && (
-                          <span className="rounded-pill bg-surface-alt px-[var(--space-sm)] py-[2px] text-tiny font-semibold text-content-secondary">
-                            Tax: {resolvedTaxCodeName}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    <InlineEditField
+                      ariaLabel={`Line item ${index + 1} description`}
+                      value={item.description}
+                      onCommit={(v) => updateLineItem(index, "description", v)}
+                      onEnter={() => unitPriceFieldRefs.current[index]?.startEdit()}
+                      placeholder="Item description"
+                      align="left"
+                      className="min-w-0 flex-1 font-semibold"
+                    />
+                    <SelectDropdown
+                      uiSize="sm"
+                      value={item.glAccountId || ""}
+                      onChange={(e) => updateLineItemGlAccount(index, e.target.value)}
+                      // Fixed width, same as the tax dropdown — a long name
+                      // ellipsizes (full name on hover and in the open list).
+                      title={glAccounts.find((a) => a.qbAccountId === item.glAccountId)?.name || "Select GL"}
+                      className="w-40 shrink-0 text-tiny"
+                    >
+                      {/* Placeholder only — a line always carries an explicit GL
+                          (filled from the vendor on load, or picked here). */}
+                      <option value="" disabled>
+                        Select GL
+                      </option>
+                      {glAccounts.map((account) => (
+                        <option key={account._id} value={account.qbAccountId}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </SelectDropdown>
+                    {/* Editable regardless of postedStatus, same as the GL
+                        dropdown above — editing an already-posted invoice
+                        re-syncs its QuickBooks bill via updateBillInQB, which
+                        reads this same per-line taxCodeId. Empty only when
+                        neither the line nor the vendor has a code (computed
+                        as 0%) — shows the "Select Tax" placeholder. */}
+                    <SelectDropdown
+                      uiSize="sm"
+                      value={item.taxCodeId || ""}
+                      onChange={(e) => updateLineItemTaxCode(index, e.target.value)}
+                      title={(() => {
+                        const code = taxCodeById.get(item.taxCodeId || cleanValue(invoice.taxCodeId));
+                        return code ? getTaxCodeLabel(code) : "None (0%)";
+                      })()}
+                      className="w-40 shrink-0 text-tiny"
+                    >
+                      {/* Placeholder only — for no tax, pick a 0% code
+                          (Exempt / Zero-rated / Out of Scope). */}
+                      <option value="" disabled>
+                        {taxCodesLoading ? "Loading…" : "Select Tax"}
+                      </option>
+                      {taxCodes.map((code) => (
+                        <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
+                          {getTaxCodeLabel(code)}
+                        </option>
+                      ))}
+                    </SelectDropdown>
                     <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
                       <button
                         type="button"
@@ -1435,6 +1807,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                     <label className="flex flex-col gap-[2px]">
                       <span className="text-tiny text-content-muted">Unit price</span>
                       <InlineEditField
+                        ref={(handle) => {
+                          unitPriceFieldRefs.current[index] = handle;
+                        }}
                         ariaLabel={`Line item ${index + 1} unit price`}
                         value={String(item.unitPrice)}
                         onCommit={(v) => updateLineItem(index, "unitPrice", v)}
@@ -1445,14 +1820,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                     </label>
                     <label className="flex flex-col gap-[2px]">
                       <span className="text-tiny text-content-muted">Amount</span>
-                      <InlineEditField
-                        ariaLabel={`Line item ${index + 1} amount`}
-                        value={String(item.amount)}
-                        onCommit={(v) => updateLineItem(index, "amount", v)}
-                        inputMode="decimal"
-                        formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
-                        className="rounded-md bg-surface-alt font-bold"
-                      />
+                      {/* Not independently editable — always quantity ×
+                          unit price. Change one of those to change this. */}
+                      <span className="rounded-md bg-surface-alt px-[var(--space-xs)] py-1 text-right font-bold text-content-primary">
+                        {formatDetailAmount(item.amount, currencyForAmount)}
+                      </span>
                     </label>
                   </div>
                 </div>
@@ -1469,50 +1841,58 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </SectionCard>
 
           {/* Extra Charges */}
-          <SectionCard title={`Extra Charges (${extraCharges.length})`} defaultOpen={extraCharges.length > 0}>
+          <SectionCard
+            title={`Extra Charges (${extraCharges.length})`}
+            defaultOpen={extraCharges.length > 0}
+            hint="Click a value or its pencil to inline edit."
+          >
             <div className="flex flex-col gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-md)]">
               {extraCharges.map((charge, index) => (
                 <div key={index} className="rounded-md border border-border p-[var(--space-sm)]">
-                  <div className="flex items-center gap-[var(--space-sm)]">
+                  <div className="flex flex-wrap items-center gap-[var(--space-sm)]">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-bg text-caption font-bold text-accent-text-on-bg">
+                      {index + 1}
+                    </span>
                     <InlineEditField
                       ariaLabel={`Extra charge ${index + 1} description`}
                       value={charge.description}
                       onCommit={(v) => updateExtraChargeDescription(index, v)}
+                      onEnter={() => extraChargeAmountFieldRefs.current[index]?.startEdit()}
                       placeholder="Charge description"
+                      align="left"
                       className="min-w-0 flex-1 font-semibold"
                     />
+                    {/* Inline, right before copy/delete — same single row as the description. */}
                     <InlineEditField
+                      ref={(handle) => {
+                        extraChargeAmountFieldRefs.current[index] = handle;
+                      }}
                       ariaLabel={`Extra charge ${index + 1} amount`}
                       value={String(charge.amount)}
                       onCommit={(v) => updateExtraChargeAmount(index, v)}
                       inputMode="decimal"
                       formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
-                      className={`w-28 shrink-0 rounded-md bg-surface-alt text-right font-extrabold ${TIER_CLASSES[tier].text}`}
+                      className={`w-32 shrink-0 rounded-md bg-surface-alt font-bold ${TIER_CLASSES[tier].text}`}
                     />
-                    <button
-                      type="button"
-                      onClick={() => removeExtraCharge(index)}
-                      aria-label="Remove extra charge"
-                      className="shrink-0 text-content-muted hover:text-status-danger-text"
-                    >
-                      <Trash2 size={14} strokeWidth={2} />
-                    </button>
+                    <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
+                      <button
+                        type="button"
+                        onClick={() => duplicateExtraCharge(index)}
+                        aria-label="Duplicate extra charge"
+                        className="text-content-muted hover:text-accent"
+                      >
+                        <Copy size={14} strokeWidth={2} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeExtraCharge(index)}
+                        aria-label="Remove extra charge"
+                        className="text-content-muted hover:text-status-danger-text"
+                      >
+                        <Trash2 size={14} strokeWidth={2} />
+                      </button>
+                    </div>
                   </div>
-                  <label className="mt-[var(--space-xs)] flex items-center justify-between gap-[var(--space-sm)]">
-                    <span className="shrink-0 text-caption text-content-secondary">Tax code</span>
-                    <SelectDropdown
-                      uiSize="sm"
-                      value={charge.taxCodeId || ""}
-                      onChange={(e) => updateExtraChargeTaxCode(index, e.target.value)}
-                    >
-                      <option value="">{taxCodesLoading ? "Loading…" : "Non-taxable (default)"}</option>
-                      {taxCodes.map((code) => (
-                        <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                          {getTaxCodeName(code)}
-                        </option>
-                      ))}
-                    </SelectDropdown>
-                  </label>
                 </div>
               ))}
               <button
@@ -1522,6 +1902,71 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               >
                 <Plus size={14} strokeWidth={2.5} />
                 Add extra charge
+              </button>
+            </div>
+          </SectionCard>
+
+          {/* Discounts */}
+          <SectionCard
+            title={`Discounts (${discounts.length})`}
+            defaultOpen={discounts.length > 0}
+            hint="Click a value or its pencil to inline edit."
+          >
+            <div className="flex flex-col gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-md)]">
+              {discounts.map((discount, index) => (
+                <div key={index} className="rounded-md border border-border p-[var(--space-sm)]">
+                  <div className="flex flex-wrap items-center gap-[var(--space-sm)]">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-bg text-caption font-bold text-accent-text-on-bg">
+                      {index + 1}
+                    </span>
+                    <InlineEditField
+                      ariaLabel={`Discount ${index + 1} description`}
+                      value={discount.description}
+                      onCommit={(v) => updateDiscountDescription(index, v)}
+                      onEnter={() => discountAmountFieldRefs.current[index]?.startEdit()}
+                      placeholder="Discount description"
+                      align="left"
+                      className="min-w-0 flex-1 font-semibold"
+                    />
+                    <InlineEditField
+                      ref={(handle) => {
+                        discountAmountFieldRefs.current[index] = handle;
+                      }}
+                      ariaLabel={`Discount ${index + 1} amount`}
+                      value={String(discount.amount)}
+                      onCommit={(v) => updateDiscountAmount(index, v)}
+                      inputMode="decimal"
+                      formatDisplay={(v) => formatDetailAmount(v || null, currencyForAmount)}
+                      className="w-32 shrink-0 rounded-md bg-surface-alt font-bold text-status-success-text"
+                    />
+                    <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
+                      <button
+                        type="button"
+                        onClick={() => duplicateDiscount(index)}
+                        aria-label="Duplicate discount"
+                        className="text-content-muted hover:text-accent"
+                      >
+                        <Copy size={14} strokeWidth={2} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeDiscount(index)}
+                        aria-label="Remove discount"
+                        className="text-content-muted hover:text-status-danger-text"
+                      >
+                        <Trash2 size={14} strokeWidth={2} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addDiscount}
+                className="flex items-center justify-center gap-[var(--space-xs)] rounded-md border border-dashed border-border-strong py-[var(--space-sm)] text-body-sm font-semibold text-accent hover:bg-accent-bg/40"
+              >
+                <Plus size={14} strokeWidth={2.5} />
+                Add discount
               </button>
             </div>
           </SectionCard>
@@ -1540,7 +1985,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           aria-orientation="vertical"
           aria-label="Resize panel"
           title="Drag to resize · double-click to reset"
-          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md hover:bg-surface-alt lg:flex lg:w-2"
+          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md bg-surface-alt hover:bg-border lg:flex lg:w-2"
         >
           <span className="h-10 w-1 rounded-full bg-border-strong" />
         </div>
@@ -1552,7 +1997,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               "--v2-aside-w": `${asideWidth}px`,
             } as CSSProperties
           }
-          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0 lg:max-h-[calc(100vh_-_var(--v2-header-h))] lg:overflow-y-auto"
+          // No max-h/overflow-y-auto here on purpose — that clipped this
+          // column's own internal scrollbar right at the viewport edge, so a
+          // field sitting exactly on that boundary (e.g. Item Description
+          // Notes, once Vendor Details/Status History were also open) was
+          // visibly rendered but NOT clickable, since its position was past
+          // the clipped hit-test area. Sticky alone degrades gracefully —
+          // once this column's content is taller than the viewport, it just
+          // scrolls normally with the page instead of fighting an inner
+          // scrollbar for space.
+          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0"
         >
           {/* Scanned copy */}
           <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
@@ -1693,30 +2147,65 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
 
           {/* Vendor Details */}
-          <SectionCard title="Vendor Details" defaultOpen={false} forceOpen={Boolean(fieldErrors.vendor)}>
+          <SectionCard
+            title="Vendor Details"
+            defaultOpen={false}
+            forceOpen={Boolean(vendorInfoTopError)}
+            badge={
+              vendorInfoTopError && (
+                <Badge variant="error" className="max-w-[260px] truncate">
+                  {vendorInfoTopError}
+                </Badge>
+              )
+            }
+          >
             <FieldRow id="field-vendor" label="Vendor Entity" required>
               {isPendingReview ? (
                 // Falls back to the backend's own auto-match when the user
                 // never went through the manual "Change vendor" flow — mirrors
                 // the fallback chain submitToQuickBooks uses when posting.
-                <div className="flex justify-end">
-                  <SelectDropdown
-                    uiSize="sm"
-                    error={fieldErrors.vendor}
-                    value={selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || ""}
-                    onChange={handleVendorChange}
-                    className="max-w-sm"
-                  >
-                    <option value="" disabled>
-                      Select Vendor
-                    </option>
-                    {vendors.map((vendor) => (
-                      <option key={vendor._id} value={vendor._id}>
-                        {vendor.displayName}
-                      </option>
-                    ))}
-                  </SelectDropdown>
-                </div>
+                //
+                // linkedVendorId can be a dangling reference (the vendor
+                // record it points to was deleted and recreated under a new
+                // _id, e.g. after a disconnect/resync) — a raw <select>
+                // whose value matches no <option> falls back to displaying
+                // the FIRST option, which misleadingly looked "selected" when
+                // a same-named vendor happened to be first in the list. Only
+                // ever pass a value that's actually in `vendors`; otherwise
+                // show the real "nothing selected" placeholder.
+                (() => {
+                  const linkedVendorId = selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "";
+                  const linkedVendorExists = vendors.some((v) => v._id === linkedVendorId);
+                  const vendorIsStale = Boolean(linkedVendorId) && !linkedVendorExists && !vendorsLoading;
+                  return (
+                    <>
+                      <div className="flex justify-end">
+                        <SelectDropdown
+                          uiSize="sm"
+                          error={fieldErrors.vendor}
+                          value={linkedVendorExists ? linkedVendorId : ""}
+                          onChange={handleVendorChange}
+                          className="max-w-sm"
+                        >
+                          <option value="" disabled>
+                            Select Vendor
+                          </option>
+                          {vendors.map((vendor) => (
+                            <option key={vendor._id} value={vendor._id}>
+                              {vendor.displayName}
+                            </option>
+                          ))}
+                        </SelectDropdown>
+                      </div>
+                      {vendorIsStale && (
+                        <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                          Linked vendor record no longer exists (it may have been deleted and re-synced) — please
+                          re-select the vendor above.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()
               ) : (
                 // Not editable outside pending review — the vendor is already
                 // linked to a QB vendor record with no safe way to change it here.
@@ -1734,6 +2223,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 value={invoice.vendorAddress}
                 onCommit={(v) => updateField("vendorAddress", v)}
                 multiline
+                align="left"
                 placeholder="Enter Vendor Address"
               />
             </FieldRow>
@@ -1743,6 +2233,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 value={invoice.vendorBankDetails}
                 onCommit={(v) => updateField("vendorBankDetails", v)}
                 multiline
+                align="left"
                 placeholder="Enter Vendor Bank Details"
               />
             </FieldRow>
@@ -1760,6 +2251,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 value={invoice.itemDescriptionsText}
                 onCommit={(v) => updateField("itemDescriptionsText", v)}
                 multiline
+                align="left"
                 placeholder="Enter item description notes"
               />
             </div>
@@ -1802,32 +2294,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
         </aside>
       </div>
-
-      {showConfidenceInfo && (
-        <div
-          className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/45 p-[var(--space-lg)]"
-          onClick={() => setShowConfidenceInfo(false)}
-        >
-          <div className="w-full max-w-md cursor-auto rounded-2xl bg-surface p-[var(--space-lg)]" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-h3 font-extrabold text-content-primary">Confidence Score</h2>
-            <p className="mt-[var(--space-sm)] text-body-sm text-content-secondary">
-              This score reflects how confident Scantrix is in the data extracted from your scanned invoice — things
-              like the vendor, amounts, and invoice number.
-            </p>
-            <p className="mt-[var(--space-md)] rounded-md bg-surface-alt p-[var(--space-sm)] text-center text-caption text-content-secondary">
-              Higher confidence scores indicate greater accuracy of extracted invoice data and require less manual
-              review. If a field looks off, you can always correct it below before posting.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowConfidenceInfo(false)}
-              className="mt-[var(--space-md)] h-12 w-full rounded-md bg-accent font-bold text-accent-ink hover:bg-accent-hover"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
 
       <VendorResolutionDialogV2
         invoiceId={invoiceId}

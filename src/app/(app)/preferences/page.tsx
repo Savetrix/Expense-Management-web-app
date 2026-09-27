@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { PreferencesContent } from "@/components/preferences/PreferencesContent";
+import { PreferencesContentV2 } from "@/components/v2/preferences/PreferencesContentV2";
 
 export const metadata: Metadata = {
   title: "Preferences — Scantrix",
 };
 
-export default function PreferencesPage() {
-  return <PreferencesContent />;
+export default function PreferencesV2Page() {
+  return <PreferencesContentV2 />;
 }

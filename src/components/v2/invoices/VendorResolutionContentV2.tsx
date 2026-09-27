@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, ChevronLeft } from "lucide-react";
 
-import { taxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { useAppSelector } from "@/store/hooks";
+import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
+import { showToast } from "@/lib/dialogManager";
 import { Badge } from "@/components/ui/Badge";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
@@ -21,6 +24,18 @@ import { useVendorResolution } from "./useVendorResolution";
 // cards) rather than inventing new patterns.
 export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
+
+  const fetchError = useAppSelector((state) => state.invoice.error);
+  const selectedInvoice = useAppSelector((state) => state.invoice.selectedInvoice);
+
+  // A bad/stale/deleted invoiceId reached directly (e.g. a bookmarked link)
+  // — bounce back to the list instead of leaving the user stuck on this
+  // page. Same pattern as InvoiceDetailContentV2/InvoiceReviewContentV2.
+  useEffect(() => {
+    if (!fetchError || selectedInvoice) return;
+    showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
+    router.replace("/invoices");
+  }, [fetchError, selectedInvoice, router]);
 
   const {
     invoiceVendor,
@@ -234,7 +249,7 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
                 <option value="">{taxCodesLoading ? "Loading tax codes…" : "Select tax code (optional)"}</option>
                 {taxCodes.map((code) => (
                   <option key={taxCodeId(code)} value={taxCodeId(code)}>
-                    {taxCodeName(code)}
+                    {taxCodeLabel(code)}
                   </option>
                 ))}
               </SelectDropdown>

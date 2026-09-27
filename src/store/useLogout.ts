@@ -21,7 +21,7 @@ export function useLogout() {
     }
     const result = await dispatch(logoutUser({ refreshToken }));
     if (logoutUser.fulfilled.match(result)) {
-      router.replace("/v2/login");
+      router.replace("/login");
     } else {
       const payload = result.payload;
       showToast(typeof payload === "string" ? payload : "Something went wrong", "error");

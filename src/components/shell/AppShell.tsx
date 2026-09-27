@@ -50,13 +50,13 @@ interface QBConnection {
 // (see AccountingSoftwaresContent's connected-accounts drill-down) — a
 // separate top-level "QuickBooks" link duplicated that same destination.
 const NAV_ITEMS = [
-  { href: "/v2/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/v2/invoices", label: "Invoices", icon: FileText },
-  { href: "/v2/team", label: "Team", icon: Users },
-  { href: "/v2/vendors", label: "Vendors", icon: Store },
-  { href: "/v2/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
-  { href: "/v2/accounting-software", label: "Integrations", icon: Puzzle },
-  { href: "/v2/subscription", label: "Subscription", icon: CreditCard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/invoices", label: "Invoices", icon: FileText },
+  { href: "/team", label: "Team", icon: Users },
+  { href: "/vendors", label: "Vendors", icon: Store },
+  { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
+  { href: "/accounting-software", label: "Integrations", icon: Puzzle },
+  { href: "/subscription", label: "Subscription", icon: CreditCard },
 ] as const;
 
 // Floating label that appears next to a single icon on hover, instead of
@@ -329,7 +329,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           className={`flex h-16 shrink-0 items-center overflow-hidden transition-[padding] duration-300 ease-in-out ${collapsed ? "justify-center" : "px-[var(--space-lg)]"}`}
         >
           <Link
-            href="/v2/dashboard"
+            href="/dashboard"
             aria-label="Go to dashboard"
             className="group relative flex min-w-0 items-center gap-[var(--space-sm)]"
           >
@@ -374,13 +374,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-lg border border-border bg-surface opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
               <Link
-                href="/v2/vendors?create=true"
+                href="/vendors?create=true"
                 className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
               >
                 Vendor
               </Link>
               <Link
-                href="/v2/gl-tax-codes?create=true"
+                href="/gl-tax-codes?create=true"
                 className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
               >
                 GL Account
@@ -397,12 +397,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className={`shrink-0  ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
           <Link
-            href="/v2/profile"
+            href="/profile"
             aria-label={name}
             className={`group relative mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] overflow-hidden truncate rounded-xl py-[var(--space-xs)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
               collapsed ? "justify-center" : "px-[var(--space-sm)]"
             } ${
-              pathname === "/v2/profile"
+              pathname === "/profile"
                 ? "bg-accent text-accent-ink  shadow-sm"
                 : `text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${collapsed ? "" : ""}`
             }`}
@@ -564,7 +564,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             onClick={() => setMobileNavOpen(false)}
           >
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-nav-hover px-[var(--space-lg)]">
-              <Link href="/v2/dashboard" aria-label="Go to dashboard" className="flex min-w-0 items-center gap-[var(--space-sm)]">
+              <Link href="/dashboard" aria-label="Go to dashboard" className="flex min-w-0 items-center gap-[var(--space-sm)]">
                 <Image src="/scantrix-icon.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
                 <span className="truncate text-h3 font-bold text-white">Scantrix</span>
               </Link>
@@ -586,14 +586,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 Create
               </p>
               <Link
-                href="/v2/vendors?create=true"
+                href="/vendors?create=true"
                 className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <Plus size={16} strokeWidth={2} className="shrink-0" />
                 Vendor
               </Link>
               <Link
-                href="/v2/gl-tax-codes?create=true"
+                href="/gl-tax-codes?create=true"
                 className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
               >
                 <Plus size={16} strokeWidth={2} className="shrink-0" />
@@ -609,10 +609,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
             <div className="shrink-0 border-t border-nav-hover p-[var(--space-md)]">
               <Link
-                href="/v2/profile"
+                href="/profile"
                 aria-label={name}
                 className={`mb-[var(--space-xs)] flex items-center gap-[var(--space-sm)] truncate rounded-xl border px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold ${
-                  pathname === "/v2/profile"
+                  pathname === "/profile"
                     ? "bg-accent text-accent-ink border-transparent shadow-sm"
                     : "border-nav-hover text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
                 }`}
@@ -656,7 +656,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             {qbSlotsFull ? (
               <Link
-                href="/v2/subscription"
+                href="/subscription"
                 onClick={() => setAddAccountModalOpen(false)}
                 className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover"
               >
