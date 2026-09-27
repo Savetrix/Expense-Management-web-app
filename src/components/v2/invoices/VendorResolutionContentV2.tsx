@@ -26,16 +26,26 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
   const router = useRouter();
 
   const fetchError = useAppSelector((state) => state.invoice.error);
-  const selectedInvoice = useAppSelector((state) => state.invoice.selectedInvoice);
+  // Only this page's invoice — on back/forward between invoices the store
+  // still holds the previous one until the fetch lands, and showing it here
+  // displayed (and on the vendor page, could leave) the wrong invoice.
+  const selectedInvoice = useAppSelector((state) =>
+    state.invoice.selectedInvoice?._id === invoiceId ? state.invoice.selectedInvoice : null,
+  );
 
   // A bad/stale/deleted invoiceId reached directly (e.g. a bookmarked link)
   // — bounce back to the list instead of leaving the user stuck on this
   // page. Same pattern as InvoiceDetailContentV2/InvoiceReviewContentV2.
+  // Keyed on THIS invoice's detail fetch failing, not the shared `error` —
+  // a stale error from another invoice thunk would otherwise bounce a valid
+  // invoice back to the list before its own fetch even ran.
+  const detailsFailed = useAppSelector((state) => state.invoice.invoiceDetailsErrorFor === invoiceId);
   useEffect(() => {
-    if (!fetchError || selectedInvoice) return;
+    if (!detailsFailed || selectedInvoice) return;
     showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
     router.replace("/invoices");
-  }, [fetchError, selectedInvoice, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchError is only the toast text
+  }, [detailsFailed, selectedInvoice, router]);
 
   const {
     invoiceVendor,

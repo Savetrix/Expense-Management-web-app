@@ -2,9 +2,13 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useStore } from "react-redux";
 
+import type { RootState } from "@/store";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { restoreUser } from "@/store/auth/authSlice";
+import { refreshAccessToken } from "@/lib/api";
+import { SESSION_EXPIRED, TOKEN_REFRESHED, handleSessionExpired, sessionEmitter } from "@/lib/sessionManager";
 import { getUser } from "@/lib/storage";
 import { AppShell } from "@/components/shell/AppShell";
 import { Spinner } from "@/components/ui/Spinner";
@@ -51,6 +55,7 @@ function FullScreenLoader() {
 // (see STATUS.md row 1).
 export function AuthGate({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
+  const store = useStore<RootState>();
   const router = useRouter();
   const pathname = usePathname();
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
@@ -71,6 +76,41 @@ export function AuthGate({ children }: { children: ReactNode }) {
     // Only ever needs to run once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let signingOut = false;
+    // Merge only the tokens into the in-memory user: replacing it with the
+    // stored copy would undo changes kept in memory only (e.g. a new profile
+    // photo, which isn't written back to storage).
+    const onTokenRefreshed = ({ accessToken, refreshToken }: { accessToken: string; refreshToken?: string }) => {
+      const current = store.getState().auth.user;
+      if (!current?.data) return;
+      dispatch(
+        restoreUser({
+          ...current,
+          data: { ...current.data, accessToken, ...(refreshToken ? { refreshToken } : {}) },
+        }),
+      );
+    };
+    // Some callers (chat, email forwarding) emit this on any 401 without
+    // trying a refresh first, and an access token that merely expired while
+    // idle must not sign the user out — so only a failed refresh does.
+    const onSessionExpired = async () => {
+      if (signingOut) return;
+      try {
+        await refreshAccessToken();
+      } catch {
+        signingOut = true;
+        await handleSessionExpired();
+      }
+    };
+    sessionEmitter.on(TOKEN_REFRESHED, onTokenRefreshed);
+    sessionEmitter.on(SESSION_EXPIRED, onSessionExpired);
+    return () => {
+      sessionEmitter.off(TOKEN_REFRESHED, onTokenRefreshed);
+      sessionEmitter.off(SESSION_EXPIRED, onSessionExpired);
+    };
+  }, [dispatch, store]);
 
   // "/" is the public marketing landing page. Unlike /login and /register,
   // it stays viewable even for authenticated visitors (e.g. to preview it

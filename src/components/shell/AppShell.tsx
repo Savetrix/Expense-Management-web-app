@@ -35,16 +35,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
 import { connectQuickBooks, getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
 import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
-
-interface QBConnection {
-  _id: string;
-  name: string;
-  realmId: string;
-  role: string;
-  createdAt: string;
-  /** Backend derives this from isDeleted — absent on older cached data, treat as active. */
-  status?: "active" | "disconnected";
-}
+import type { QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
 
 // QuickBooks connection management now lives entirely under Integrations
 // (see AccountingSoftwaresContent's connected-accounts drill-down) — a
@@ -137,7 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // trip fail.
   const subscription = useAppSelector((state) => state.subscription.subscription);
 
-  const [connections, setConnections] = useState<QBConnection[]>([]);
+  const connections = useAppSelector((state) => state.quickBooks.connections);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [addingAccount, setAddingAccount] = useState(false);
@@ -165,14 +156,25 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => clearTimeout(timeout);
   }, []);
 
+  // The one place the companies list is loaded for every screen (it lands in
+  // the quickBooks slice). Re-checked when the user comes back to the tab, so
+  // a company connected, removed or shared in another tab shows up here.
+  // Keyed on connectionsLoaded too: a session-boundary reset that doesn't
+  // actually end the session (e.g. a failed logout) clears the list, and
+  // nothing else would load it again.
+  const connectionsLoaded = useAppSelector((state) => state.quickBooks.connectionsLoaded);
+  useEffect(() => {
+    if (!accessToken || connectionsLoaded) return;
+    dispatch(getMyQBConnections({ accessToken }));
+  }, [accessToken, connectionsLoaded, dispatch]);
+
   useEffect(() => {
     if (!accessToken) return;
-    (async () => {
-      const result = await dispatch(getMyQBConnections({ accessToken }));
-      if (getMyQBConnections.fulfilled.match(result)) {
-        setConnections(result.payload?.data?.connections ?? []);
-      }
-    })();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") dispatch(getMyQBConnections({ accessToken }));
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [accessToken, dispatch]);
 
   useEffect(() => {

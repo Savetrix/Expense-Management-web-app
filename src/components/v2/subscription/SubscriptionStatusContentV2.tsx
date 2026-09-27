@@ -66,7 +66,9 @@ export function SubscriptionStatusContentV2() {
 
     if (checkoutStatus === "success" && sessionId) {
       dispatch(confirmCheckout(sessionId)).then((result) => {
-        dispatch(fetchMySubscription());
+        // Forced: the mount fetch may still be in flight, started before the
+        // confirm, and would otherwise make this one a skipped duplicate.
+        dispatch(fetchMySubscription({ force: true }));
         if (confirmCheckout.fulfilled.match(result)) {
           showToast("Subscription confirmed — you're all set!", "success");
         } else {

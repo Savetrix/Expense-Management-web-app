@@ -230,8 +230,11 @@ export function ProfileContentV2() {
         </button>
       </div>
 
-      <EditProfileDialogV2 open={editProfileOpen} onClose={() => setEditProfileOpen(false)} />
-      <PreferencesDialogV2 open={preferencesOpen} onClose={() => setPreferencesOpen(false)} />
+      {/* Mounted only while open: their hooks fetch QuickBooks settings and
+          seed form state on mount, so always-mounted dialogs fetched on every
+          Profile visit and reopened Edit Profile with abandoned edits. */}
+      {editProfileOpen && <EditProfileDialogV2 open onClose={() => setEditProfileOpen(false)} />}
+      {preferencesOpen && <PreferencesDialogV2 open onClose={() => setPreferencesOpen(false)} />}
     </div>
   );
 }

@@ -27,7 +27,12 @@ export type VendorResolutionTab = "suggested" | "all" | "create";
 export function useVendorResolution(invoiceId: string, onResolved: () => void) {
   const dispatch = useAppDispatch();
 
-  const selectedInvoice = useAppSelector((state) => state.invoice.selectedInvoice);
+  // Only this page's invoice — on back/forward between invoices the store
+  // still holds the previous one until the fetch lands, and showing it here
+  // displayed (and on the vendor page, could leave) the wrong invoice.
+  const selectedInvoice = useAppSelector((state) =>
+    state.invoice.selectedInvoice?._id === invoiceId ? state.invoice.selectedInvoice : null,
+  );
   const vendors = useAppSelector((state) => state.quickBooks.vendors);
   const vendorsLoading = useAppSelector((state) => state.quickBooks.vendorsLoading);
   const glAccounts = useAppSelector((state) => state.quickBooks.accounts);

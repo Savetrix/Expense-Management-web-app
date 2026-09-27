@@ -375,7 +375,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
 
-  const invoiceObject = useAppSelector((state) => state.invoice.selectedInvoice);
+  // Only this page's invoice — on back/forward between invoices the store
+  // still holds the previous one until the fetch lands, and showing it here
+  // displayed (and on the vendor page, could leave) the wrong invoice.
+  const invoiceObject = useAppSelector((state) =>
+    state.invoice.selectedInvoice?._id === invoiceId ? state.invoice.selectedInvoice : null,
+  );
   const fetchError = useAppSelector((state) => state.invoice.error);
   // Declared here (rather than just above their own populating effects
   // further down) so the invoiceId-switch effect below can reset them
@@ -525,11 +530,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   // invoice was deleted from another tab) — bounce back to the list instead
   // of leaving the user stuck on this page staring at "Invoice not found".
   // Same pattern as InvoiceDetailContentV2.
+  // Keyed on THIS invoice's detail fetch failing, not the shared `error` —
+  // a stale error from another invoice thunk would otherwise bounce a valid
+  // invoice back to the list before its own fetch even ran.
+  const detailsFailed = useAppSelector((state) => state.invoice.invoiceDetailsErrorFor === invoiceId);
   useEffect(() => {
-    if (!fetchError || invoiceObject) return;
+    if (!detailsFailed || invoiceObject) return;
     showToast(typeof fetchError === "string" ? fetchError : "This invoice could not be found.", "error");
     router.replace("/invoices");
-  }, [fetchError, invoiceObject, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchError is only the toast text
+  }, [detailsFailed, invoiceObject, router]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -615,10 +625,21 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const extraChargeAmountFieldRefs = useRef<Record<number, InlineEditFieldHandle | null>>({});
   const discountAmountFieldRefs = useRef<Record<number, InlineEditFieldHandle | null>>({});
 
+  // The list/dashboard pre-seed selectedInvoice so this form is editable
+  // immediately; getInvoiceDetails then replaces it with the same invoice's
+  // fresh copy. Applying that copy over edits made in the meantime wiped them,
+  // so a refresh of the SAME invoice only resets an untouched form.
+  const resetForInvoiceIdRef = useRef<string | null>(null);
+  const userEditedRef = useRef(false);
+
   // Full reset only when the underlying invoice itself changes — see
   // InvoiceReviewContent.tsx (v1) for why this deliberately does NOT re-run
   // when selectedVendor/createdVendor change on their own.
   useEffect(() => {
+    const currentId: string | null = invoiceObject?._id ?? null;
+    if (currentId && currentId === resetForInvoiceIdRef.current && userEditedRef.current) return;
+    resetForInvoiceIdRef.current = currentId;
+    userEditedRef.current = false;
     const normalized = normalizeInvoiceData(invoiceObject?.extractedData || {});
     if (selectedVendor?.displayName) normalized.vendor = selectedVendor.displayName;
     else if (createdVendor?.name) normalized.vendor = createdVendor.name;
@@ -661,8 +682,27 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVendor, createdVendor]);
 
+  // Every user edit goes through these, never the raw setters, so the reset
+  // effect above can tell an edited form from an untouched one.
+  const editInvoice: typeof setInvoice = (value) => {
+    userEditedRef.current = true;
+    setInvoice(value);
+  };
+  const editLineItems: typeof setLineItems = (value) => {
+    userEditedRef.current = true;
+    setLineItems(value);
+  };
+  const editExtraCharges: typeof setExtraCharges = (value) => {
+    userEditedRef.current = true;
+    setExtraCharges(value);
+  };
+  const editDiscounts: typeof setDiscounts = (value) => {
+    userEditedRef.current = true;
+    setDiscounts(value);
+  };
+
   const updateField = (key: keyof NormalizedInvoiceData, value: string) => {
-    setInvoice((prev) => ({ ...prev, [key]: value }));
+    editInvoice((prev) => ({ ...prev, [key]: value }));
     setFieldErrors((prev) => {
       if (!prev[key]) return prev;
       const updated = { ...prev };
@@ -672,7 +712,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
 
   const updateLineItem = (index: number, key: "description" | "quantity" | "unitPrice", value: string) => {
-    setLineItems((prev) =>
+    editLineItems((prev) =>
       prev.map((item, i) => {
         if (i !== index) return item;
         if (key === "description") return { ...item, description: value };
@@ -687,16 +727,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
 
   const updateLineItemGlAccount = (index: number, glAccountId: string) => {
-    setLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, glAccountId: glAccountId || undefined } : item)));
+    editLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, glAccountId: glAccountId || undefined } : item)));
   };
 
   // "" = inherit the invoice-level (vendor) tax code.
   const updateLineItemTaxCode = (index: number, taxCodeIdValue: string) => {
-    setLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, taxCodeId: taxCodeIdValue || null } : item)));
+    editLineItems((prev) => prev.map((item, i) => (i === index ? { ...item, taxCodeId: taxCodeIdValue || null } : item)));
   };
 
   const addLineItem = () => {
-    setLineItems((prev) => [
+    editLineItems((prev) => [
       ...prev,
       ...withLineDefaults(
         [{ description: "", quantity: 1, unitPrice: 0, amount: 0 }],
@@ -707,7 +747,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
 
   const duplicateLineItem = (index: number) => {
-    setLineItems((prev) => {
+    editLineItems((prev) => {
       const next = [...prev];
       next.splice(index + 1, 0, { ...prev[index] });
       return next;
@@ -715,23 +755,23 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
 
   const removeLineItem = (index: number) => {
-    setLineItems((prev) => prev.filter((_, i) => i !== index));
+    editLineItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const updateExtraChargeDescription = (index: number, value: string) => {
-    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, description: value } : c)));
+    editExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, description: value } : c)));
   };
 
   const updateExtraChargeAmount = (index: number, value: string) => {
-    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c)));
+    editExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c)));
   };
 
   const addExtraCharge = () => {
-    setExtraCharges((prev) => [...prev, { description: "", amount: 0, taxCodeId: null }]);
+    editExtraCharges((prev) => [...prev, { description: "", amount: 0, taxCodeId: null }]);
   };
 
   const duplicateExtraCharge = (index: number) => {
-    setExtraCharges((prev) => {
+    editExtraCharges((prev) => {
       const next = [...prev];
       next.splice(index + 1, 0, { ...prev[index] });
       return next;
@@ -739,24 +779,24 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
 
   const removeExtraCharge = (index: number) => {
-    setExtraCharges((prev) => prev.filter((_, i) => i !== index));
+    editExtraCharges((prev) => prev.filter((_, i) => i !== index));
   };
 
   const updateDiscountDescription = (index: number, value: string) => {
-    setDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, description: value } : d)));
+    editDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, description: value } : d)));
   };
 
   const updateDiscountAmount = (index: number, value: string) => {
     // Always stored/sent as a positive magnitude — see the Discount type comment.
-    setDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, amount: Math.abs(Number(value) || 0) } : d)));
+    editDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, amount: Math.abs(Number(value) || 0) } : d)));
   };
 
   const addDiscount = () => {
-    setDiscounts((prev) => [...prev, { description: "", amount: 0 }]);
+    editDiscounts((prev) => [...prev, { description: "", amount: 0 }]);
   };
 
   const duplicateDiscount = (index: number) => {
-    setDiscounts((prev) => {
+    editDiscounts((prev) => {
       const next = [...prev];
       next.splice(index + 1, 0, { ...prev[index] });
       return next;
@@ -764,7 +804,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
 
   const removeDiscount = (index: number) => {
-    setDiscounts((prev) => prev.filter((_, i) => i !== index));
+    editDiscounts((prev) => prev.filter((_, i) => i !== index));
   };
 
   // ── Final amount: always computed, never independently typed ───────────
@@ -964,16 +1004,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const handleTaxCodeChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextTaxCodeId = event.target.value;
     updateField("taxCodeId", nextTaxCodeId);
-    setLineItems((prev) => prev.map((item) => ({ ...item, taxCodeId: nextTaxCodeId || null })));
+    editLineItems((prev) => prev.map((item) => ({ ...item, taxCodeId: nextTaxCodeId || null })));
   };
 
   const handleGlAccountChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const account = glAccounts.find((acc) => acc.qbAccountId === event.target.value);
     if (!account) return;
-    setInvoice((prev) => ({ ...prev, glAccountId: account.qbAccountId }));
+    editInvoice((prev) => ({ ...prev, glAccountId: account.qbAccountId }));
     // Invoice-level GL is the default for every line — changing it
     // deliberately overwrites all lines, including ones changed by hand.
-    setLineItems((prev) => prev.map((item) => ({ ...item, glAccountId: account.qbAccountId })));
+    editLineItems((prev) => prev.map((item) => ({ ...item, glAccountId: account.qbAccountId })));
     setFieldErrors((prev) => {
       if (!prev.glAccountId) return prev;
       const updated = { ...prev };
@@ -1209,6 +1249,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    // An explicit refresh means "show me the server's copy" — let the reset
+    // effect apply it even over unsaved edits.
+    userEditedRef.current = false;
     await dispatch(getInvoiceDetails(invoiceId));
     setRefreshing(false);
     setQuickActionsOpen(false);

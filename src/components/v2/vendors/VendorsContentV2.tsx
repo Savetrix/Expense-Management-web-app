@@ -23,7 +23,6 @@ import {
   fetchQuickBooksAccounts,
   fetchQuickBooksTaxCodes,
   fetchQuickBooksVendors,
-  getMyQBConnections,
   reactivateQuickBooksVendor,
   syncQuickBooksVendors,
   updateQuickBooksVendor,
@@ -34,14 +33,6 @@ import { VendorDetailV2 } from "@/components/v2/vendors/VendorDetailV2";
 import { CompactListRow, Modal, PageHeader, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 
 type VendorTab = "active" | "inactive";
-
-interface QBConnection {
-  _id: string;
-  name: string;
-  realmId: string;
-  role: string;
-  createdAt: string;
-}
 
 interface VendorFormState {
   displayName: string;
@@ -96,8 +87,9 @@ export function VendorsContentV2() {
   const taxCodes = useAppSelector((state) => state.quickBooks.taxCodes);
   const invoices = useAppSelector((state) => state.invoice.invoices);
 
-  const [loadingConnections, setLoadingConnections] = useState(true);
-  const [connections, setConnections] = useState<QBConnection[]>([]);
+  // Loaded once by AppShell into the quickBooks slice — no per-page fetch.
+  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [searchText, setSearchText] = useState("");
   const [activeTab, setActiveTab] = useState<VendorTab>("active");
 
@@ -128,25 +120,6 @@ export function VendorsContentV2() {
   const currentRole = activeConnection?.role || "";
   const canManageVendors = currentRole !== "" && currentRole !== "contributor";
 
-  const fetchConnections = useCallback(async () => {
-    if (!accessToken) {
-      setLoadingConnections(false);
-      return;
-    }
-    setLoadingConnections(true);
-    const result = await dispatch(getMyQBConnections({ accessToken }));
-    if (getMyQBConnections.fulfilled.match(result)) {
-      setConnections(result.payload?.data?.connections ?? []);
-    } else {
-      setConnections([]);
-    }
-    setLoadingConnections(false);
-  }, [accessToken, dispatch]);
-
-  useEffect(() => {
-    fetchConnections();
-  }, [fetchConnections]);
-
   const refetchVendors = useCallback(() => {
     if (!accessToken) return;
     dispatch(fetchQuickBooksVendors({ accessToken }));
@@ -166,12 +139,22 @@ export function VendorsContentV2() {
     setInactiveLoading(false);
   }, [accessToken, dispatch]);
 
+  // Accounts/tax codes only label rows and fill the form dropdowns — reuse
+  // this company's copies when they're already loaded (the GL/Tax codes page
+  // is where they're refreshed and synced).
+  const accountsLoadedForCompany = useAppSelector(
+    (state) => state.quickBooks.accountsConnectionId === state.quickBooks.qbConnectionId,
+  );
+  const taxCodesLoadedForCompany = useAppSelector(
+    (state) => state.quickBooks.taxCodesConnectionId === state.quickBooks.qbConnectionId,
+  );
+
   useEffect(() => {
     if (!accessToken || !activeConnection?._id) return;
     refetchVendors();
     refetchInactiveVendors();
-    dispatch(fetchQuickBooksAccounts({ accessToken }));
-    dispatch(fetchQuickBooksTaxCodes({ accessToken }));
+    if (!accountsLoadedForCompany) dispatch(fetchQuickBooksAccounts({ accessToken }));
+    if (!taxCodesLoadedForCompany) dispatch(fetchQuickBooksTaxCodes({ accessToken }));
     // Backs the "Suggested cleanups" box below — it derives its tips from
     // the vendor's own invoice history, not a dedicated stats endpoint.
     dispatch(getInvoices());
@@ -179,7 +162,12 @@ export function VendorsContentV2() {
   }, [accessToken, activeConnection?._id]);
 
   const currentList = activeTab === "active" ? vendors : inactiveVendors;
-  const currentLoading = activeTab === "active" ? vendorsLoading : inactiveLoading;
+  // Active list: skeleton only when empty — a refetch (every visit, create,
+  // reactivate, Refresh) keeps rows mounted so a click isn't lost; the slice
+  // clears it first when the company changed. The inactive list is local and
+  // not company-tagged, so it keeps the plain loading state.
+  const currentLoading =
+    activeTab === "active" ? vendorsLoading && vendors.length === 0 : inactiveLoading;
   const currentError = activeTab === "active" ? vendorsError : inactiveError;
 
   const glAccountName = (id?: string | null) => glAccounts.find((a) => a.qbAccountId === id)?.name;

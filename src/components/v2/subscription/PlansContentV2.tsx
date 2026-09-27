@@ -90,7 +90,11 @@ export function PlansContentV2() {
   const plans = useAppSelector((state) => state.subscription.plans);
   const plansLoading = useAppSelector((state) => state.subscription.plansLoading);
   const subscription = useAppSelector((state) => state.subscription.subscription);
-  const subscriptionLoading = useAppSelector((state) => state.subscription.subscriptionLoading);
+  // Only "still loading" when nothing is cached yet — every visit refetches
+  // the subscription, and the cached one is enough to pick portal vs checkout.
+  const subscriptionLoading = useAppSelector(
+    (state) => state.subscription.subscriptionLoading && !state.subscription.subscription,
+  );
 
   useEffect(() => {
     dispatch(fetchPlans());
@@ -208,7 +212,7 @@ export function PlansContentV2() {
         ))}
       </div>
 
-      {plansLoading ? (
+      {plansLoading && plans.length === 0 ? (
         <div className="flex justify-center py-[var(--space-xl)]">
           <Spinner size="md" />
         </div>

@@ -11,7 +11,6 @@ import { setSelectedInvoice } from "@/store/invoice/invoiceSlice";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import {
   INVOICE_STATUS_THEME,
-  getInvoiceAmount,
   getInvoiceFailureReason,
   getInvoicePostedDate,
   getInvoiceStatus,
@@ -73,14 +72,14 @@ function invoiceTimestamp(invoice: InvoiceRecord): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function sumAndCurrency(list: InvoiceRecord[]): { total: number; currency: string } {
-  const total = list.reduce((sum, invoice) => sum + (invoice.extractedData?.totalAmount || 0), 0);
-  const currency = list.find((invoice) => invoice.extractedData?.currency)?.extractedData?.currency || "";
-  return { total, currency };
+function sumTotals(list: InvoiceRecord[]): number {
+  return list.reduce((sum, invoice) => sum + (invoice.extractedData?.totalAmount || 0), 0);
 }
 
+// Always two decimals — rounding to whole units hid the cents, so a tile read
+// 52 for invoices adding up to 51.95.
 function formatAmount(total: number): string {
-  return total.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function InvoiceListContentV2() {
@@ -213,10 +212,10 @@ export function InvoiceListContentV2() {
 
   const totals = useMemo(
     () => ({
-      total: sumAndCurrency(combinedInvoices),
-      auto: sumAndCurrency(autoPostedInvoices),
-      manual: sumAndCurrency(manualPostedInvoices),
-      failed: sumAndCurrency(failedInvoices),
+      total: sumTotals(combinedInvoices),
+      auto: sumTotals(autoPostedInvoices),
+      manual: sumTotals(manualPostedInvoices),
+      failed: sumTotals(failedInvoices),
     }),
     [combinedInvoices, autoPostedInvoices, manualPostedInvoices, failedInvoices],
   );
@@ -299,7 +298,9 @@ export function InvoiceListContentV2() {
       align: "right",
       width: "12%",
       render: (invoice) => (
-        <span className="block truncate whitespace-nowrap font-bold text-content-primary">{getInvoiceAmount(invoice)}</span>
+        <span className="block truncate whitespace-nowrap font-bold text-content-primary">
+          {formatAmount(invoice.extractedData?.totalAmount || 0)}
+        </span>
       ),
     },
     {
@@ -330,8 +331,7 @@ export function InvoiceListContentV2() {
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
               <div className="my-[2px]">
-                <p className="text-tiny font-medium text-nav-muted">{totals.total.currency || "—"}</p>
-                <p className="text-h3 font-bold tracking-tight text-white">{formatAmount(totals.total.total)}</p>
+                <p className="text-h3 font-bold tracking-tight text-white">{formatAmount(totals.total)}</p>
               </div>
               <p className="text-tiny text-nav-muted">
                 {combinedInvoices.length} invoice{combinedInvoices.length === 1 ? "" : "s"}
@@ -356,9 +356,8 @@ export function InvoiceListContentV2() {
                     {tileTheme.label}
                   </p>
                   <div className="my-[2px]">
-                    <p className={`text-tiny font-medium ${tileTheme.accentTextClass}`}>{totals[t].currency || "—"}</p>
                     <p className={`text-h3 font-bold tracking-tight ${tileTheme.accentTextClass}`}>
-                      {formatAmount(totals[t].total)}
+                      {formatAmount(totals[t])}
                     </p>
                   </div>
                   <p className={`text-tiny ${tileTheme.accentTextClass}`}>
@@ -426,7 +425,11 @@ export function InvoiceListContentV2() {
               </div>
             </div>
 
-            {loading ? (
+            {/* Skeleton only when there's nothing to show yet — a refetch
+                over cached invoices (every visit refetches) keeps the table
+                mounted instead of blanking it and losing a click in flight.
+                Same rule as the dashboard's Recent table. */}
+            {loading && allInvoices.length === 0 ? (
               <div className="p-[var(--space-md)]">
                 <SkeletonListRows count={4} />
               </div>

@@ -10,6 +10,7 @@ import {
   updateQuickBooksVendor,
 } from "./quickBooksApi";
 import { isSessionBoundary } from "../sessionBoundary";
+import type { QBConnection } from "./useQuickBooksConnections";
 
 export interface Vendor {
   _id: string;
@@ -86,6 +87,26 @@ interface QuickBooksState {
   taxCodes: TaxCode[];
   taxCodesLoading: boolean;
   taxCodesError: string | null;
+  // Which company each list was loaded for. A fetch for a different company
+  // clears the old list first, so screens can keep showing a list during a
+  // same-company refetch without ever showing the previous company's data.
+  vendorsConnectionId: string;
+  accountsConnectionId: string;
+  taxCodesConnectionId: string;
+  // The company the in-flight fetch was sent for (X-QB-Id is read when the
+  // request starts). A response landing after a company switch belongs to the
+  // old company and is dropped instead of being tagged as the new one.
+  vendorsFetchConnectionId: string;
+  accountsFetchConnectionId: string;
+  taxCodesFetchConnectionId: string;
+  // The signed-in user's companies, from the last getMyQBConnections. Read
+  // from here rather than each screen fetching its own copy on mount — the
+  // header switcher and every page then share one list that updates whenever
+  // anything (connect, disconnect, reconnect) refetches it.
+  connections: QBConnection[];
+  // False until the first fetch settles (success or failure), so screens can
+  // tell "still loading" from "no companies".
+  connectionsLoaded: boolean;
 }
 
 const initialState: QuickBooksState = {
@@ -112,6 +133,14 @@ const initialState: QuickBooksState = {
   taxCodes: [],
   taxCodesLoading: false,
   taxCodesError: null,
+  vendorsConnectionId: "",
+  accountsConnectionId: "",
+  taxCodesConnectionId: "",
+  vendorsFetchConnectionId: "",
+  accountsFetchConnectionId: "",
+  taxCodesFetchConnectionId: "",
+  connections: [],
+  connectionsLoaded: false,
 };
 
 const quickBooksSlice = createSlice({
@@ -136,6 +165,8 @@ const quickBooksSlice = createSlice({
 
         const connections = action.payload?.data?.connections; // ← was action.payload?.data
         const list = Array.isArray(connections) ? connections : [];
+        state.connections = list;
+        state.connectionsLoaded = true;
         const activeConns = list.filter((c: { status?: string }) => c?.status !== "disconnected");
 
         if (activeConns.length > 0) {
@@ -177,6 +208,7 @@ const quickBooksSlice = createSlice({
       })
       .addCase(getMyQBConnections.rejected, (state, action) => {
         state.statusLoading = false;
+        state.connectionsLoaded = true;
         const payload = action.payload as { message?: string; statusCode?: number } | undefined;
         const statusCode = payload?.statusCode;
         // 400/404 = no connection exists yet
@@ -186,7 +218,10 @@ const quickBooksSlice = createSlice({
           state.qbConnectionId = "";
           state.hasExplicitSelection = false;
           state.statusError = null;
+          state.connections = [];
         } else {
+          // A transient failure keeps the last known list rather than
+          // briefly showing every screen's "no company" state.
           state.statusError = payload?.message || "Failed to fetch QB connections";
         }
       });
@@ -245,10 +280,14 @@ const quickBooksSlice = createSlice({
       .addCase(fetchQuickBooksVendors.pending, (state) => {
         state.vendorsLoading = true;
         state.vendorsError = null;
+        if (state.vendorsConnectionId !== state.qbConnectionId) state.vendors = [];
+        state.vendorsFetchConnectionId = state.qbConnectionId;
       })
       .addCase(fetchQuickBooksVendors.fulfilled, (state, action) => {
         state.vendorsLoading = false;
+        if (state.vendorsFetchConnectionId !== state.qbConnectionId) return;
         state.vendors = action.payload || [];
+        state.vendorsConnectionId = state.qbConnectionId;
       })
       .addCase(fetchQuickBooksVendors.rejected, (state, action) => {
         state.vendorsLoading = false;
@@ -275,10 +314,14 @@ const quickBooksSlice = createSlice({
       .addCase(fetchQuickBooksAccounts.pending, (state) => {
         state.accountsLoading = true;
         state.accountsError = null;
+        if (state.accountsConnectionId !== state.qbConnectionId) state.accounts = [];
+        state.accountsFetchConnectionId = state.qbConnectionId;
       })
       .addCase(fetchQuickBooksAccounts.fulfilled, (state, action) => {
         state.accountsLoading = false;
+        if (state.accountsFetchConnectionId !== state.qbConnectionId) return;
         state.accounts = action.payload || [];
+        state.accountsConnectionId = state.qbConnectionId;
       })
       .addCase(fetchQuickBooksAccounts.rejected, (state, action) => {
         state.accountsLoading = false;
@@ -290,10 +333,14 @@ const quickBooksSlice = createSlice({
       .addCase(fetchQuickBooksTaxCodes.pending, (state) => {
         state.taxCodesLoading = true;
         state.taxCodesError = null;
+        if (state.taxCodesConnectionId !== state.qbConnectionId) state.taxCodes = [];
+        state.taxCodesFetchConnectionId = state.qbConnectionId;
       })
       .addCase(fetchQuickBooksTaxCodes.fulfilled, (state, action) => {
         state.taxCodesLoading = false;
+        if (state.taxCodesFetchConnectionId !== state.qbConnectionId) return;
         state.taxCodes = action.payload || [];
+        state.taxCodesConnectionId = state.qbConnectionId;
       })
       .addCase(fetchQuickBooksTaxCodes.rejected, (state, action) => {
         state.taxCodesLoading = false;
