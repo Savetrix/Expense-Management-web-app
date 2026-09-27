@@ -14,11 +14,18 @@ export const sessionEmitter =
 export const SESSION_EXPIRED =
   "SESSION_EXPIRED";
 
+// Emitted by api.ts after a successful token refresh with
+// { accessToken, refreshToken? }, so the in-memory auth state picks up the
+// new tokens too.
+export const TOKEN_REFRESHED =
+  "TOKEN_REFRESHED";
+
 export const handleSessionExpired =
   async () => {
     await clearStorage();
 
     if (typeof window === "undefined") return;
+    if (window.location.pathname.startsWith("/login")) return;
 
     window.location.href = "/login?sessionExpired=true";
   };

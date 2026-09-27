@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -42,12 +42,25 @@ export function useQuickBooksConnections(redirectPath: string) {
   const [reconnectingId, setReconnectingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
+  // Read through a ref so checkStatus keeps a stable identity: this fetch is
+  // itself what sets the active connection (getQuickBooksStatus below), so
+  // depending on it re-ran the whole round a second time on every mount.
+  const activeConnectionIdRef = useRef(activeConnectionId);
+  useEffect(() => {
+    activeConnectionIdRef.current = activeConnectionId;
+  }, [activeConnectionId]);
+
+  // Only the first load shows the loading state. Background re-checks keep
+  // the current list on screen — swapping it for a skeleton mid-click
+  // unmounted the row being clicked, so the click was lost.
+  const hasLoadedRef = useRef(false);
+
   const checkStatus = useCallback(async () => {
     if (!accessToken) {
       setCheckingStatus(false);
       return;
     }
-    setCheckingStatus(true);
+    if (!hasLoadedRef.current) setCheckingStatus(true);
     const result = await dispatch(getMyQBConnections({ accessToken }));
     if (getMyQBConnections.fulfilled.match(result)) {
       const list: QBConnection[] = result.payload?.data?.connections ?? [];
@@ -59,22 +72,28 @@ export function useQuickBooksConnections(redirectPath: string) {
       // directly. With 2+, only refresh status for whichever one is already
       // selected — never silently default to "the first one" here, that
       // would undo the top-bar switcher's blank-until-chosen behavior.
-      const target = active.length === 1 ? active[0] : active.find((c) => c._id === activeConnectionId);
+      const target =
+        active.length === 1 ? active[0] : active.find((c) => c._id === activeConnectionIdRef.current);
       if (target?._id) {
         await dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: target._id }));
       }
     }
+    hasLoadedRef.current = true;
     setCheckingStatus(false);
-  }, [accessToken, dispatch, activeConnectionId]);
+  }, [accessToken, dispatch]);
 
   useEffect(() => {
     checkStatus();
-    // Re-check whenever the tab regains focus: covers returning from the
-    // QuickBooks OAuth redirect (completed in this same tab) and a
-    // disconnect/reconnect done in another tab.
-    const onFocus = () => checkStatus();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    // Re-check when the user comes back to this tab (a disconnect/reconnect
+    // done in another tab). The QuickBooks OAuth return is a full page load,
+    // so the mount above already covers it. Not window "focus": that also
+    // fires on the first click into the page, which refetched on every
+    // such click for no reason.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkStatus();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [checkStatus]);
 
   const handleSwitch = async (connection: QBConnection) => {

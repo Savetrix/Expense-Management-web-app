@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { siClaude, siGoogledrive, siQuickbooks, siSage, siXero, siZoho } from "simple-icons";
 
 // Licensed brand marks (CC0-1.0, simple-icons — built specifically for
@@ -15,6 +17,17 @@ const BRANDS = {
 } as const;
 
 export type BrandName = keyof typeof BRANDS;
+
+// simple-icons only ships a single-tone mark for Google Drive (Google's own
+// monochrome guidance), not the recognizable green/yellow/blue triangle.
+// public/brand/google-drive.png is Google's own official full-color logo PNG
+// (gstatic CDN, https://developers.google.com/drive/web/branding — no
+// pre-approval needed), used here instead of hand-tracing the multi-color
+// mark ourselves. Raster can't take `currentColor`, so the `monochrome` path
+// below still falls back to the simple-icons single-tone SVG.
+const RASTER_BRANDS: Partial<Record<BrandName, string>> = {
+  "google-drive": "/brand/google-drive.png",
+};
 
 // Tally (Tally Solutions / TallyPrime) and FreshBooks both have no entry in
 // simple-icons or any other legitimately-licensed brand-mark source found
@@ -40,6 +53,12 @@ export function BrandIcon({
   monochrome?: boolean;
 }) {
   const icon = BRANDS[name];
+  const rasterSrc = RASTER_BRANDS[name];
+  if (rasterSrc && !monochrome) {
+    return (
+      <Image src={rasterSrc} alt={icon.title} width={size} height={size} className={className} />
+    );
+  }
   return (
     <svg
       viewBox="0 0 24 24"

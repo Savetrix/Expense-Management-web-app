@@ -112,10 +112,17 @@ export const getInvoiceDetails = createAsyncThunk(
 // GET ALL INVOICES
 // ======================================
 
+export interface GetInvoicesOptions {
+  /** A poll refreshing data that's already on screen: no loading state, and
+   *  a failure keeps the current list instead of clearing it (see slice). */
+  background?: boolean;
+}
+
 export const getInvoices = createAsyncThunk(
   "invoice/getInvoices",
 
-  async (_, thunkAPI) => {
+  // Options are read by the slice via action.meta.arg, not here.
+  async (_options: GetInvoicesOptions | void, thunkAPI) => {
     try {
       console.log("========== GET ALL INVOICES ==========");
 

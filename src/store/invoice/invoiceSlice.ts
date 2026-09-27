@@ -144,6 +144,10 @@ interface InvoiceState {
   invoicesFetchPending: boolean;
   /** Which invoiceId getInvoiceDetails currently has in flight, or null. */
   invoiceDetailsFetchId: string | null;
+  // Which invoice's getInvoiceDetails last failed. The "not found → back to
+  // the list" redirects key off this rather than the shared `error`, which
+  // any other invoice thunk (e.g. a failed getInvoices) can leave set.
+  invoiceDetailsErrorFor: string | null;
   invoiceData: any;
   invoiceDetails: InvoiceRecord | null;
   invoices: InvoiceRecord[];
@@ -171,6 +175,7 @@ const initialState: InvoiceState = {
   loading: false,
   invoicesFetchPending: false,
   invoiceDetailsFetchId: null,
+  invoiceDetailsErrorFor: null,
   invoiceData: null,
   invoiceDetails: null,
   invoices: [],
@@ -245,6 +250,7 @@ const invoiceSlice = createSlice({
       state.loading = true;
       state.error = null;
       state.invoiceDetailsFetchId = action.meta.arg;
+      state.invoiceDetailsErrorFor = null;
     });
 
     builder.addCase(getInvoiceDetails.fulfilled, (state, action) => {
@@ -260,6 +266,7 @@ const invoiceSlice = createSlice({
     builder.addCase(getInvoiceDetails.rejected, (state, action) => {
       state.loading = false;
       state.invoiceDetailsFetchId = null;
+      state.invoiceDetailsErrorFor = action.meta?.arg ?? null;
       state.error = action.payload;
     });
 
@@ -267,14 +274,17 @@ const invoiceSlice = createSlice({
     // GET ALL INVOICES
     // ======================================
 
-    builder.addCase(getInvoices.pending, (state) => {
-      state.loading = true;
+    builder.addCase(getInvoices.pending, (state, action) => {
       state.invoicesFetchPending = true;
+      if (action.meta?.arg?.background) return;
+      state.loading = true;
       state.error = null;
     });
 
     builder.addCase(getInvoices.fulfilled, (state, action) => {
-      state.loading = false;
+      // A background poll never set `loading`, so it mustn't clear it either —
+      // it's shared with getInvoiceDetails, which may still be in flight.
+      if (!action.meta?.arg?.background) state.loading = false;
       state.invoicesFetchPending = false;
       state.invoices = action.payload || [];
 
@@ -293,8 +303,13 @@ const invoiceSlice = createSlice({
     });
 
     builder.addCase(getInvoices.rejected, (state, action) => {
-      state.loading = false;
       state.invoicesFetchPending = false;
+      // A failed background poll (network blip, 429) keeps what's on screen —
+      // clearing it blanked the dashboard and, with no "processing" invoices
+      // left in the list, silently stopped the poll itself. An expired
+      // session is handled by the api.ts refresh/sign-out path instead.
+      if (action.meta?.arg?.background) return;
+      state.loading = false;
       state.error = action.payload;
       // A failed fetch (e.g. token expiry, or a genuinely disconnected
       // account getting a 400 for missing X-QB-Id) must not leave a
