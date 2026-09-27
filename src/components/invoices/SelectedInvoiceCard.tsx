@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import type { GLAccount, TaxCode } from "@/store/quickBooks/quickBooksSlice";
-import { taxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { InvoiceStatusTheme, getInvoiceTitle, getUserDisplayName } from "@/lib/invoiceDisplay";
 import { formatDetailAmount, formatDetailDate, formatDetailDateTime, safeDetailValue } from "@/lib/invoiceDetailTheme";
 
@@ -131,7 +131,7 @@ export function SelectedInvoiceCard({
             <DetailField label="Due date" value={formatDetailDate(data?.dueDate)} />
             <DetailField label="Currency" value={safeDetailValue(currency)} />
             <DetailField label="GL account" value={safeDetailValue(resolvedGlAccount?.name)} />
-            <DetailField label="Tax code" value={safeDetailValue(resolvedTaxCode ? taxCodeName(resolvedTaxCode) : undefined)} />
+            <DetailField label="Tax code" value={safeDetailValue(resolvedTaxCode ? taxCodeLabel(resolvedTaxCode) : undefined)} />
           </DetailSection>
 
           <DetailSection title="Financials">

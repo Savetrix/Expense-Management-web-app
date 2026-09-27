@@ -12,7 +12,7 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
-import { taxCodeId as getTaxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { taxCodeId as getTaxCodeId, taxCodeLabel as formatTaxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { useRefreshThrottle } from "@/lib/useRefreshThrottle";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { getInvoices } from "@/store/invoice/invoiceApi";
@@ -183,7 +183,10 @@ export function VendorsContentV2() {
   const currentError = activeTab === "active" ? vendorsError : inactiveError;
 
   const glAccountName = (id?: string | null) => glAccounts.find((a) => a.qbAccountId === id)?.name;
-  const taxCodeLabel = (id?: string | null) => taxCodes.find((t) => getTaxCodeId(t) === id)?.name ?? id ?? undefined;
+  const taxCodeLabel = (id?: string | null) => {
+    const code = taxCodes.find((t) => getTaxCodeId(t) === id);
+    return code ? formatTaxCodeLabel(code) : (id ?? undefined);
+  };
 
   const filteredVendors = useMemo(() => {
     if (!searchText.trim()) return currentList;
@@ -721,7 +724,7 @@ export function VendorsContentV2() {
               <option value="">Select tax code (not applicable if your QB company doesn&apos;t use tax codes)</option>
               {taxCodes.map((code) => (
                 <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                  {taxCodeName(code)}
+                  {formatTaxCodeLabel(code)}
                 </option>
               ))}
             </SelectDropdown>

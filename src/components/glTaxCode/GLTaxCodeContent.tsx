@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/Input";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { showToast } from "@/lib/dialogManager";
-import { taxCodeId as getTaxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { taxCodeId as getTaxCodeId, taxCodeLabel, taxCodeName } from "@/lib/quickbooks/taxCode";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   createQuickBooksAccount,
@@ -364,7 +364,7 @@ export function GLTaxCodeContent() {
           filteredTaxCodes.map((code) => (
             <Card key={getTaxCodeId(code)} className="flex items-center justify-between gap-[var(--space-md)]">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-bold text-text-primary">{taxCodeName(code)}</p>
+                <p className="truncate font-bold text-text-primary">{taxCodeLabel(code)}</p>
                 {code.taxRateIds && code.taxRateIds.length > 0 && (
                   <p className="mt-[var(--space-xs)] truncate text-caption text-text-secondary">
                     {code.taxRateIds.map((r) => r.name).join(", ")}

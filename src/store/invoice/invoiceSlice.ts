@@ -22,6 +22,8 @@ export interface LineItem {
   unitPrice: number;
   amount: number;
   glAccountId?: string;
+  /** Per-line tax code. Unset = inherit the invoice-level (vendor) taxCodeId. */
+  taxCodeId?: string | null;
 }
 
 export interface ExtraCharge {

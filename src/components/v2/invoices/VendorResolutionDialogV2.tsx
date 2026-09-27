@@ -2,7 +2,7 @@
 
 import { Building2 } from "lucide-react";
 
-import { taxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { Badge } from "@/components/ui/Badge";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Modal, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
@@ -236,7 +236,7 @@ export function VendorResolutionDialogV2({
                 <option value="">{taxCodesLoading ? "Loading tax codes…" : "Select tax code (optional)"}</option>
                 {taxCodes.map((code) => (
                   <option key={taxCodeId(code)} value={taxCodeId(code)}>
-                    {taxCodeName(code)}
+                    {taxCodeLabel(code)}
                   </option>
                 ))}
               </SelectDropdown>

@@ -401,10 +401,6 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
     setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, description: value } : c)));
   };
 
-  const updateExtraChargeTaxCode = (index: number, taxCodeId: string) => {
-    setExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, taxCodeId: taxCodeId || null } : c)));
-  };
-
   const updateExtraChargeAmount = (index: number, value: string) => {
     const nextExtraCharges = extraCharges.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c));
     setExtraCharges(nextExtraCharges);
@@ -1201,21 +1197,6 @@ export function InvoiceReviewContent({ invoiceId }: { invoiceId: string }) {
                         <Trash2 size={14} strokeWidth={2} />
                       </button>
                     </div>
-                    <label className="mt-[var(--space-xs)] flex items-center justify-between gap-[var(--space-sm)]">
-                      <span className="shrink-0 text-caption text-text-secondary">Tax code</span>
-                      <select
-                        value={charge.taxCodeId || ""}
-                        onChange={(e) => updateExtraChargeTaxCode(index, e.target.value)}
-                        className="min-w-0 max-w-[65%] rounded-md bg-background-soft px-[var(--space-xs)] py-[2px] text-right text-body-sm font-medium text-text-primary focus:outline-none"
-                      >
-                        <option value="">{taxCodesLoading ? "Loading…" : "Non-taxable (default)"}</option>
-                        {taxCodes.map((code) => (
-                          <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                            {getTaxCodeName(code)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
                   </div>
                 ))}
                 <button

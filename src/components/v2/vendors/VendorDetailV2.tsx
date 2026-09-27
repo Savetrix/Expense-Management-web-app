@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { formatInvoiceDate, getInvoiceAmount, getInvoiceStatus } from "@/lib/invoiceDisplay";
 import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
 import { showToast } from "@/lib/dialogManager";
-import { taxCodeId as getTaxCodeId } from "@/lib/quickbooks/taxCode";
+import { taxCodeId as getTaxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import type { GLAccount, TaxCode, Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { Avatar, StatusPill } from "@/components/v2/ui";
@@ -57,7 +57,8 @@ export function VendorDetailV2({
   reactivating,
 }: VendorDetailV2Props) {
   const glName = glAccounts.find((a) => a.qbAccountId === vendor.glAccountId)?.name;
-  const taxName = taxCodes.find((t) => getTaxCodeId(t) === vendor.taxCodeId)?.name;
+  const taxCode = taxCodes.find((t) => getTaxCodeId(t) === vendor.taxCodeId);
+  const taxName = taxCode ? taxCodeLabel(taxCode) : undefined;
 
   const vendorInvoices = useMemo(
     () =>

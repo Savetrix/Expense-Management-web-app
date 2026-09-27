@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Pencil, X } from "lucide-react";
-import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 interface InlineEditFieldProps {
   value: string;
@@ -26,6 +26,15 @@ interface InlineEditFieldProps {
    *  field is used for. Free-text fields (a line item's own description,
    *  not its qty/price/amount) read more naturally left-aligned. */
   align?: "left" | "right";
+  /** Called after a single-line field is committed with Enter (not on blur or
+   *  the Save button) — lets a form move straight on to its next field. */
+  onEnter?: () => void;
+}
+
+/** Imperative handle — lets a parent open another field for editing, e.g.
+ *  jump from a line item's description to its unit price on Enter. */
+export interface InlineEditFieldHandle {
+  startEdit: () => void;
 }
 
 // Real controlled-component version of the Stitch invoice-review mockup's
@@ -33,7 +42,7 @@ interface InlineEditFieldProps {
 // cancelInlineEdit, keyed off global DOM ids). Here the caller owns `value`
 // and receives the new value via `onCommit` — no document.getElementById
 // lookups, no module-level "which field is open" state.
-export function InlineEditField({
+export const InlineEditField = forwardRef<InlineEditFieldHandle, InlineEditFieldProps>(function InlineEditField({
   value,
   onCommit,
   multiline = false,
@@ -45,7 +54,8 @@ export function InlineEditField({
   ariaLabel,
   className = "",
   align = "right",
-}: InlineEditFieldProps) {
+  onEnter,
+}, ref) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [justSaved, setJustSaved] = useState(false);
@@ -63,9 +73,28 @@ export function InlineEditField({
     setEditing(true);
   };
 
+  useImperativeHandle(ref, () => ({ startEdit }));
+
   const cancelEdit = () => {
     setDraft(value);
     setEditing(false);
+  };
+
+  // inputMode alone is only a mobile-keyboard hint — it doesn't stop letters
+  // being typed or pasted. For numeric fields, reject any edit that wouldn't
+  // leave a valid positive number-in-progress: "decimal" = digits + one dot;
+  // "numeric" = digits only. No minus sign anywhere — negatives aren't
+  // entered by hand (e.g. a discount is typed positive and subtracted for you). Pasted thousands separators
+  // ("1,299.00") are stripped rather than rejecting the whole paste.
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.value;
+    if (type === "date" || (inputMode !== "decimal" && inputMode !== "numeric")) {
+      setDraft(next);
+      return;
+    }
+    const cleaned = next.replace(/,/g, "");
+    const pattern = inputMode === "numeric" ? /^\d*$/ : /^\d*\.?\d*$/;
+    if (pattern.test(cleaned)) setDraft(cleaned);
   };
 
   const commitEdit = async () => {
@@ -89,6 +118,7 @@ export function InlineEditField({
     if (isCommitKey) {
       event.preventDefault();
       void commitEdit();
+      if (!multiline) onEnter?.();
     }
   };
 
@@ -117,7 +147,7 @@ export function InlineEditField({
               inputMode={type === "date" ? undefined : inputMode}
               placeholder={placeholder}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               onBlur={() => void commitEdit()}
               className={sharedClassName}
@@ -175,4 +205,4 @@ export function InlineEditField({
       {error && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{error}</p>}
     </div>
   );
-}
+});

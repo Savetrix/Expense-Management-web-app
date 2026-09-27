@@ -16,7 +16,7 @@ import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { setSelectedVendor } from "@/store/vendor/vendorSlice";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { showToast } from "@/lib/dialogManager";
-import { taxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 
 type ActiveTab = "suggested" | "all" | "create";
@@ -403,7 +403,7 @@ export function VendorResolutionContent({ invoiceId }: { invoiceId: string }) {
                 <option value="">{taxCodesLoading ? "Loading tax codes…" : "Select tax code (optional)"}</option>
                 {taxCodes.map((code) => (
                   <option key={taxCodeId(code)} value={taxCodeId(code)}>
-                    {taxCodeName(code)}
+                    {taxCodeLabel(code)}
                   </option>
                 ))}
               </select>

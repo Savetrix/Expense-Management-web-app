@@ -11,7 +11,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { showToast } from "@/lib/dialogManager";
-import { taxCodeId as getTaxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
+import { formatTaxRate, taxCodeId as getTaxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   createQuickBooksAccount,
@@ -259,17 +259,32 @@ export function GLTaxCodeContentV2() {
     {
       key: "name",
       header: "Tax code",
-      width: "40%",
+      width: "30%",
       render: (code) => <span className="block truncate font-bold text-content-primary">{taxCodeName(code)}</span>,
     },
     {
       key: "rates",
       header: "Tax rates",
-      width: "40%",
+      width: "35%",
       render: (code) => (
         <span className="block truncate text-content-secondary">
-          {code.taxRateIds && code.taxRateIds.length > 0 ? code.taxRateIds.map((r) => r.name).join(", ") : "—"}
+          {code.taxRateIds && code.taxRateIds.length > 0
+            ? code.taxRateIds
+                .map((r) => {
+                  const rate = formatTaxRate(r.rate);
+                  return rate ? `${r.name} ${rate}` : r.name;
+                })
+                .join(", ")
+            : "—"}
         </span>
+      ),
+    },
+    {
+      key: "totalRate",
+      header: "Rate",
+      width: "15%",
+      render: (code) => (
+        <span className="block truncate font-bold text-content-primary">{formatTaxRate(code.totalRate) || "—"}</span>
       ),
     },
     {

@@ -50,7 +50,10 @@ export interface TaxCode {
   Name?: string;
   description?: string;
   isDeleted?: boolean;
-  taxRateIds?: { name: string; value: string }[];
+  /** `value` is the QB TaxRate ID, not a percentage — `rate` is the percentage. */
+  taxRateIds?: { name: string; value: string; rate?: number | null }[];
+  /** Combined purchase rate % (e.g. GST 5 + PST 7 = 12). null = unknown/compound — don't compute from it. */
+  totalRate?: number | null;
 }
 
 interface QuickBooksState {

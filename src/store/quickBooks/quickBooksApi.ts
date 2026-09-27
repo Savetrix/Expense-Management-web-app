@@ -70,16 +70,12 @@ export const getMyQBConnections = createAsyncThunk(
       return thunkAPI.rejectWithValue({ message, statusCode });
     }
   },
-  {
-    // AppShell's mount effect is the only automatic caller (see AppShell.tsx
-    // — "never remounts between route navigations"), so this only actually
-    // double-fires under React Strict Mode's dev-only double-invoke of
-    // mount effects. `statusLoading` is also touched by getQuickBooksStatus,
-    // but that one only runs from a user-triggered connection switch, never
-    // at the same instant as this mount-time dispatch, so reusing it here is
-    // safe.
-    condition: (_, { getState }) => !(getState() as RootState).quickBooks.statusLoading,
-  },
+  // Deliberately NO dedup `condition` here: AppShell, Dashboard, Vendors,
+  // GL/Tax Codes and Team all dispatch this on mount and several of them
+  // (AppShell's company switcher included) read the connections list from
+  // the RESOLVED action. A skipped duplicate resolves as not-fulfilled, so
+  // whichever caller lost the race got no list — that's what made the
+  // company switcher vanish on the dashboard.
 );
 
 // ================================

@@ -38,7 +38,10 @@ export const SelectDropdown = forwardRef<HTMLSelectElement, SelectDropdownProps>
           ref={ref}
           id={selectId}
           name={name}
-          className="border-0 bg-transparent p-0 text-caption font-semibold text-content-primary focus:outline-none"
+          // min-w-0 + flex-1 + truncate: when the caller gives the pill a fixed
+          // width, a long selected value ellipsizes instead of stretching the
+          // pill to its longest option. No effect on auto-width pills.
+          className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-caption font-semibold text-content-primary focus:outline-none"
           {...props}
         >
           {children}
