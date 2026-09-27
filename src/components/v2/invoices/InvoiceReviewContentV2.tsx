@@ -33,6 +33,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { InlineEditField, SelectDropdown } from "@/components/v2/ui";
 import type { InlineEditFieldHandle } from "@/components/v2/ui";
 import { VendorResolutionDialogV2 } from "@/components/v2/invoices/VendorResolutionDialogV2";
+import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   getInvoiceDetails,
@@ -73,11 +74,6 @@ const SCAN_PANEL_MAX_HEIGHT = 1000;
 const ASIDE_DEFAULT_WIDTH = 400;
 const ASIDE_MIN_WIDTH = 300;
 const ASIDE_MAX_WIDTH = 680;
-
-// Same radius-with-pathLength(100) technique OutcomeMixCardV2 uses for its
-// donut — lets stroke-dasharray/offset be plain percentages regardless of
-// the actual circle radius.
-const RING_RADIUS = 15.9155;
 
 interface NormalizedInvoiceData {
   vendor: string;
@@ -279,33 +275,6 @@ const TIER_CLASSES: Record<ConfidenceTier, { bg: string; border: string; text: s
   warning: { bg: "bg-status-warning-bg", border: "border-status-warning-border", text: "text-status-warning-text" },
   danger: { bg: "bg-status-danger-bg", border: "border-status-danger-border", text: "text-status-danger-text" },
 };
-
-function ConfidenceRing({ percent, tier }: { percent: number; tier: ConfidenceTier }) {
-  const clamped = Math.max(0, Math.min(100, percent));
-  return (
-    <div className="relative h-16 w-16 shrink-0">
-      <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
-        <circle cx="18" cy="18" r={RING_RADIUS} fill="none" strokeWidth={3} className="stroke-border" />
-        <circle
-          cx="18"
-          cy="18"
-          r={RING_RADIUS}
-          fill="none"
-          strokeWidth={3}
-          strokeLinecap="round"
-          strokeDasharray={`${clamped} ${100 - clamped}`}
-          pathLength={100}
-          stroke="currentColor"
-          className={TIER_CLASSES[tier].text}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={`text-caption font-extrabold ${TIER_CLASSES[tier].text}`}>{Math.round(clamped)}%</span>
-        <span className="text-[9px] font-semibold text-content-secondary">conf.</span>
-      </div>
-    </div>
-  );
-}
 
 // Collapsible card shell shared by every content section on this screen
 // (Invoice Information, Financial Summary, Line Items, Extra Charges) —
@@ -634,7 +603,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const [lineItems, setLineItems] = useState<LineItem[]>(() => withComputedLineItemAmounts(rawData.lineItems || []));
   const [extraCharges, setExtraCharges] = useState<ExtraCharge[]>(() => rawData.extraCharges || []);
   const [discounts, setDiscounts] = useState<Discount[]>(() => rawData.discounts || []);
-  const [showConfidenceInfo, setShowConfidenceInfo] = useState(false);
   // Distinguishes "this invoice never had line items" (nothing to derive
   // Before Tax from — leave whatever was extracted/typed alone) from "line
   // items existed and the user just deleted the last one" (Before Tax should
@@ -1406,109 +1374,57 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
       <div className="flex flex-col gap-[var(--space-md)] p-[var(--space-md)] sm:gap-[var(--space-lg)] sm:p-[var(--space-lg)] lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {/* Hero */}
-          <div className={`relative overflow-hidden rounded-2xl border p-[var(--space-lg)] ${TIER_CLASSES[tier].bg} ${TIER_CLASSES[tier].border}`}>
-            <button
-              type="button"
-              onClick={() => setShowConfidenceInfo(true)}
-              aria-label="How is this score calculated?"
-              className={`absolute right-[var(--space-md)] top-[var(--space-md)] flex h-8 w-8 items-center justify-center rounded-full bg-surface font-extrabold shadow-sm ${TIER_CLASSES[tier].text}`}
-            >
-              ?
-            </button>
-
-            <div className="mb-[var(--space-md)] flex flex-wrap items-center gap-[var(--space-xs)] pr-10">
-              <Badge variant={tier === "success" ? "success" : tier === "warning" ? "warning" : "error"}>
-                {TIER_COPY[tier].status}
-              </Badge>
-              <span className={`rounded-pill bg-surface px-[var(--space-sm)] py-1 text-caption font-semibold ${TIER_CLASSES[tier].text}`}>
-                {Math.round(frozenConfidenceScore ?? 0)}% confidence
-              </span>
-              {realmId && (
-                <span className="rounded-pill bg-surface px-[var(--space-sm)] py-1 text-caption font-semibold text-content-secondary">
-                  QBO Realm: {realmId}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-start justify-between gap-[var(--space-md)]">
-              <div className="flex min-w-0 items-start gap-[var(--space-sm)]">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-nav-bg text-nav-text-active">
-                  <Building2 size={22} strokeWidth={2} />
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-h2 font-extrabold text-content-primary">{invoice.vendor || "Select Vendor"}</p>
-                  {cleanValue(invoice.invoiceNumber) && (
-                    <p className="text-body-sm font-semibold text-content-secondary">Invoice #{invoice.invoiceNumber}</p>
-                  )}
-                  {cleanValue(invoice.invoiceDate) && (
-                    <p className="text-caption text-content-secondary">
-                      Date: {toDateInputValue(invoice.invoiceDate) || invoice.invoiceDate}
-                      {cleanValue(invoice.dueDate) && ` · Due: ${toDateInputValue(invoice.dueDate) || invoice.dueDate}`}
-                    </p>
-                  )}
+          <InvoiceHeroCard
+            themeClasses={TIER_CLASSES[tier]}
+            badgeVariant={tier === "success" ? "success" : tier === "warning" ? "warning" : "error"}
+            badgeLabel={TIER_COPY[tier].status}
+            confidenceScore={frozenConfidenceScore ?? 0}
+            realmId={realmId}
+            vendorName={invoice.vendor || "Select Vendor"}
+            invoiceNumber={cleanValue(invoice.invoiceNumber) || null}
+            invoiceDate={cleanValue(invoice.invoiceDate) ? toDateInputValue(invoice.invoiceDate) || invoice.invoiceDate : null}
+            dueDate={cleanValue(invoice.dueDate) ? toDateInputValue(invoice.dueDate) || invoice.dueDate : null}
+            totalAmountDisplay={totalAmountDisplay}
+            reason={
+              isPendingReview && reasonDisplay
+                ? {
+                    title: "Why this requires review",
+                    message: reasonDisplay.message,
+                    isTranslated: reasonDisplay.isTranslated,
+                    raw: reasonDisplay.raw,
+                    showTechnicalReason,
+                    onToggleTechnicalReason: () => setShowTechnicalReason((v) => !v),
+                  }
+                : null
+            }
+            reasonExtra={
+              vendorResolutionRequired &&
+              (vendorIsResolved ? (
+                <div className="mt-[var(--space-sm)] flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-success-border bg-status-success-bg px-[var(--space-sm)] py-[var(--space-xs)]">
+                  <span className="flex min-w-0 items-center gap-[var(--space-xs)] text-body-sm font-semibold text-status-success-text">
+                    <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
+                    <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setVendorDialogOpen(true)}
+                    className="shrink-0 text-body-sm font-bold text-accent"
+                  >
+                    Change
+                  </button>
                 </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-[var(--space-sm)]">
-                <div className="text-right">
-                  <p className="text-tiny font-bold uppercase tracking-wider text-content-secondary">Total Amount</p>
-                  <p className="text-h1 font-black tracking-tight text-content-primary">{totalAmountDisplay}</p>
-                </div>
-                <ConfidenceRing percent={frozenConfidenceScore ?? 0} tier={tier} />
-              </div>
-            </div>
-
-            {isPendingReview && reasonDisplay && (
-              <div className="mt-[var(--space-md)] rounded-md bg-surface p-[var(--space-sm)]">
-                <div className="flex items-start gap-[var(--space-xs)]">
-                  <AlertTriangle size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-status-danger-text" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-content-primary">Why this requires review</p>
-                    <p className="mt-1 text-body-sm font-medium text-status-danger-text">{reasonDisplay.message}</p>
-                    {reasonDisplay.isTranslated && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setShowTechnicalReason((v) => !v)}
-                          className="mt-1 text-caption font-semibold text-content-secondary underline"
-                        >
-                          {showTechnicalReason ? "Hide technical details" : "Show technical details"}
-                        </button>
-                        {showTechnicalReason && (
-                          <p className="mt-1 break-words text-caption text-content-secondary">{reasonDisplay.raw}</p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                {vendorResolutionRequired &&
-                  (vendorIsResolved ? (
-                    <div className="mt-[var(--space-sm)] flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-success-border bg-status-success-bg px-[var(--space-sm)] py-[var(--space-xs)]">
-                      <span className="flex min-w-0 items-center gap-[var(--space-xs)] text-body-sm font-semibold text-status-success-text">
-                        <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
-                        <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setVendorDialogOpen(true)}
-                        className="shrink-0 text-body-sm font-bold text-accent"
-                      >
-                        Change
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setVendorDialogOpen(true)}
-                      className="mt-[var(--space-sm)] flex w-full items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
-                    >
-                      <span>+ Resolve Vendor</span>
-                      <ChevronLeft size={18} strokeWidth={2} className="rotate-180" />
-                    </button>
-                  ))}
-              </div>
-            )}
-          </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setVendorDialogOpen(true)}
+                  className="mt-[var(--space-sm)] flex w-full items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
+                >
+                  <span>+ Resolve Vendor</span>
+                  <ChevronLeft size={18} strokeWidth={2} className="rotate-180" />
+                </button>
+              ))
+            }
+          />
 
           {/* Invoice Information */}
           <SectionCard
@@ -1831,39 +1747,33 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                         </option>
                       ))}
                     </SelectDropdown>
-                    {/* Per-line tax code — only editable while pending review.
-                        Empty only when neither the line nor the vendor has a
-                        code (computed as 0%) — shows the "Select Tax" placeholder. */}
-                    {isPendingReview ? (
-                      <SelectDropdown
-                        uiSize="sm"
-                        value={item.taxCodeId || ""}
-                        onChange={(e) => updateLineItemTaxCode(index, e.target.value)}
-                        title={(() => {
-                          const code = taxCodeById.get(item.taxCodeId || cleanValue(invoice.taxCodeId));
-                          return code ? getTaxCodeLabel(code) : "None (0%)";
-                        })()}
-                        className="w-40 shrink-0 text-tiny"
-                      >
-                        {/* Placeholder only — for no tax, pick a 0% code
-                            (Exempt / Zero-rated / Out of Scope). */}
-                        <option value="" disabled>
-                          {taxCodesLoading ? "Loading…" : "Select Tax"}
+                    {/* Editable regardless of postedStatus, same as the GL
+                        dropdown above — editing an already-posted invoice
+                        re-syncs its QuickBooks bill via updateBillInQB, which
+                        reads this same per-line taxCodeId. Empty only when
+                        neither the line nor the vendor has a code (computed
+                        as 0%) — shows the "Select Tax" placeholder. */}
+                    <SelectDropdown
+                      uiSize="sm"
+                      value={item.taxCodeId || ""}
+                      onChange={(e) => updateLineItemTaxCode(index, e.target.value)}
+                      title={(() => {
+                        const code = taxCodeById.get(item.taxCodeId || cleanValue(invoice.taxCodeId));
+                        return code ? getTaxCodeLabel(code) : "None (0%)";
+                      })()}
+                      className="w-40 shrink-0 text-tiny"
+                    >
+                      {/* Placeholder only — for no tax, pick a 0% code
+                          (Exempt / Zero-rated / Out of Scope). */}
+                      <option value="" disabled>
+                        {taxCodesLoading ? "Loading…" : "Select Tax"}
+                      </option>
+                      {taxCodes.map((code) => (
+                        <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
+                          {getTaxCodeLabel(code)}
                         </option>
-                        {taxCodes.map((code) => (
-                          <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                            {getTaxCodeLabel(code)}
-                          </option>
-                        ))}
-                      </SelectDropdown>
-                    ) : (
-                      <span className="w-40 shrink-0 truncate rounded-pill bg-surface-alt px-[var(--space-sm)] py-[2px] text-tiny font-semibold text-content-secondary">
-                        Tax: {(() => {
-                          const code = taxCodeById.get(item.taxCodeId || cleanValue(invoice.taxCodeId));
-                          return code ? getTaxCodeLabel(code) : "None (0%)";
-                        })()}
-                      </span>
-                    )}
+                      ))}
+                    </SelectDropdown>
                     <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
                       <button
                         type="button"
@@ -2075,7 +1985,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           aria-orientation="vertical"
           aria-label="Resize panel"
           title="Drag to resize · double-click to reset"
-          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md hover:bg-surface-alt lg:flex lg:w-2"
+          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md bg-surface-alt hover:bg-border lg:flex lg:w-2"
         >
           <span className="h-10 w-1 rounded-full bg-border-strong" />
         </div>
@@ -2087,7 +1997,16 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               "--v2-aside-w": `${asideWidth}px`,
             } as CSSProperties
           }
-          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0 lg:max-h-[calc(100vh_-_var(--v2-header-h))] lg:overflow-y-auto"
+          // No max-h/overflow-y-auto here on purpose — that clipped this
+          // column's own internal scrollbar right at the viewport edge, so a
+          // field sitting exactly on that boundary (e.g. Item Description
+          // Notes, once Vendor Details/Status History were also open) was
+          // visibly rendered but NOT clickable, since its position was past
+          // the clipped hit-test area. Sticky alone degrades gracefully —
+          // once this column's content is taller than the viewport, it just
+          // scrolls normally with the page instead of fighting an inner
+          // scrollbar for space.
+          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0"
         >
           {/* Scanned copy */}
           <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
@@ -2245,24 +2164,48 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 // Falls back to the backend's own auto-match when the user
                 // never went through the manual "Change vendor" flow — mirrors
                 // the fallback chain submitToQuickBooks uses when posting.
-                <div className="flex justify-end">
-                  <SelectDropdown
-                    uiSize="sm"
-                    error={fieldErrors.vendor}
-                    value={selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || ""}
-                    onChange={handleVendorChange}
-                    className="max-w-sm"
-                  >
-                    <option value="" disabled>
-                      Select Vendor
-                    </option>
-                    {vendors.map((vendor) => (
-                      <option key={vendor._id} value={vendor._id}>
-                        {vendor.displayName}
-                      </option>
-                    ))}
-                  </SelectDropdown>
-                </div>
+                //
+                // linkedVendorId can be a dangling reference (the vendor
+                // record it points to was deleted and recreated under a new
+                // _id, e.g. after a disconnect/resync) — a raw <select>
+                // whose value matches no <option> falls back to displaying
+                // the FIRST option, which misleadingly looked "selected" when
+                // a same-named vendor happened to be first in the list. Only
+                // ever pass a value that's actually in `vendors`; otherwise
+                // show the real "nothing selected" placeholder.
+                (() => {
+                  const linkedVendorId = selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "";
+                  const linkedVendorExists = vendors.some((v) => v._id === linkedVendorId);
+                  const vendorIsStale = Boolean(linkedVendorId) && !linkedVendorExists && !vendorsLoading;
+                  return (
+                    <>
+                      <div className="flex justify-end">
+                        <SelectDropdown
+                          uiSize="sm"
+                          error={fieldErrors.vendor}
+                          value={linkedVendorExists ? linkedVendorId : ""}
+                          onChange={handleVendorChange}
+                          className="max-w-sm"
+                        >
+                          <option value="" disabled>
+                            Select Vendor
+                          </option>
+                          {vendors.map((vendor) => (
+                            <option key={vendor._id} value={vendor._id}>
+                              {vendor.displayName}
+                            </option>
+                          ))}
+                        </SelectDropdown>
+                      </div>
+                      {vendorIsStale && (
+                        <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                          Linked vendor record no longer exists (it may have been deleted and re-synced) — please
+                          re-select the vendor above.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()
               ) : (
                 // Not editable outside pending review — the vendor is already
                 // linked to a QB vendor record with no safe way to change it here.
@@ -2280,6 +2223,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 value={invoice.vendorAddress}
                 onCommit={(v) => updateField("vendorAddress", v)}
                 multiline
+                align="left"
                 placeholder="Enter Vendor Address"
               />
             </FieldRow>
@@ -2289,6 +2233,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 value={invoice.vendorBankDetails}
                 onCommit={(v) => updateField("vendorBankDetails", v)}
                 multiline
+                align="left"
                 placeholder="Enter Vendor Bank Details"
               />
             </FieldRow>
@@ -2306,6 +2251,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 value={invoice.itemDescriptionsText}
                 onCommit={(v) => updateField("itemDescriptionsText", v)}
                 multiline
+                align="left"
                 placeholder="Enter item description notes"
               />
             </div>
@@ -2348,32 +2294,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
         </aside>
       </div>
-
-      {showConfidenceInfo && (
-        <div
-          className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/45 p-[var(--space-lg)]"
-          onClick={() => setShowConfidenceInfo(false)}
-        >
-          <div className="w-full max-w-md cursor-auto rounded-2xl bg-surface p-[var(--space-lg)]" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-h3 font-extrabold text-content-primary">Confidence Score</h2>
-            <p className="mt-[var(--space-sm)] text-body-sm text-content-secondary">
-              This score reflects how confident Scantrix is in the data extracted from your scanned invoice — things
-              like the vendor, amounts, and invoice number.
-            </p>
-            <p className="mt-[var(--space-md)] rounded-md bg-surface-alt p-[var(--space-sm)] text-center text-caption text-content-secondary">
-              Higher confidence scores indicate greater accuracy of extracted invoice data and require less manual
-              review. If a field looks off, you can always correct it below before posting.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowConfidenceInfo(false)}
-              className="mt-[var(--space-md)] h-12 w-full rounded-md bg-accent font-bold text-accent-ink hover:bg-accent-hover"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
 
       <VendorResolutionDialogV2
         invoiceId={invoiceId}

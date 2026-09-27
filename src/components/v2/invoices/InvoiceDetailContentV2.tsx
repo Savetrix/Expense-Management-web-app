@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Building2, ChevronDown, ChevronLeft, ChevronUp, Pencil, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronUp, Pencil, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import type { CSSProperties } from "react";
 import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
-import { Badge } from "@/components/ui/Badge";
+import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { deleteInvoice, getInvoiceDetails } from "@/store/invoice/invoiceApi";
@@ -136,6 +136,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
   const type = resolveInvoiceDetailType(invoiceObject?.postedStatus) as DetailType;
   const theme = TYPE_CLASSES[type];
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
+  const realmId = useAppSelector((state) => state.quickBooks.realmId);
   const glAccounts = useAppSelector((state) => state.quickBooks.accounts);
   const deleting = useAppSelector((state) => state.invoice.deleting);
 
@@ -350,57 +351,30 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
       <div className="flex flex-col gap-[var(--space-md)] p-[var(--space-md)] sm:gap-[var(--space-lg)] sm:p-[var(--space-lg)] lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {/* Hero */}
-          <div className={`relative overflow-hidden rounded-2xl border p-[var(--space-lg)] ${theme.bg} ${theme.border}`}>
-            <div className="mb-[var(--space-md)] flex flex-wrap items-center gap-[var(--space-xs)]">
-              <Badge variant={theme.badgeVariant}>{theme.label}</Badge>
-              {confidenceScore !== null && (
-                <span className={`rounded-pill bg-surface px-[var(--space-sm)] py-1 text-caption font-semibold ${theme.text}`}>
-                  {Math.round(confidenceScore)}% confidence
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-start gap-[var(--space-sm)]">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-nav-bg text-nav-text-active">
-                <Building2 size={22} strokeWidth={2} />
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-h2 font-extrabold text-content-primary">{vendorName}</p>
-                {invoiceNumber !== "—" && <p className="text-body-sm font-semibold text-content-secondary">Invoice #{invoiceNumber}</p>}
-              </div>
-            </div>
-
-            <p className="mt-[var(--space-sm)] text-h1 font-black tracking-tight text-content-primary">{totalAfterTax}</p>
-
-            {confidenceScore !== null && (
-              <div className="mt-[var(--space-md)] h-1.5 overflow-hidden rounded-md bg-surface/60">
-                <div className={`h-full rounded-md ${theme.text.replace("text-", "bg-")}`} style={{ width: `${Math.max(6, confidenceScore)}%` }} />
-              </div>
-            )}
-
-            {type === "failed" && reasonDisplay && (
-              <div className="mt-[var(--space-md)] rounded-md bg-surface p-[var(--space-sm)]">
-                <div className="flex items-start gap-[var(--space-xs)]">
-                  <AlertTriangle size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-status-danger-text" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-body-sm font-medium text-status-danger-text">{reasonDisplay.message}</p>
-                    {reasonDisplay.isTranslated && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setShowTechnicalReason((v) => !v)}
-                          className="mt-1 text-caption font-semibold text-content-secondary underline"
-                        >
-                          {showTechnicalReason ? "Hide technical details" : "Show technical details"}
-                        </button>
-                        {showTechnicalReason && <p className="mt-1 break-words text-caption text-content-secondary">{reasonDisplay.raw}</p>}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <InvoiceHeroCard
+            themeClasses={theme}
+            badgeVariant={theme.badgeVariant}
+            badgeLabel={theme.label}
+            confidenceScore={confidenceScore}
+            realmId={realmId}
+            vendorName={vendorName}
+            invoiceNumber={invoiceNumber !== "—" ? invoiceNumber : null}
+            invoiceDate={invoiceDate !== "—" ? invoiceDate : null}
+            dueDate={dueDate !== "—" ? dueDate : null}
+            totalAmountDisplay={totalAfterTax}
+            reason={
+              type === "failed" && reasonDisplay
+                ? {
+                    title: "Why this failed",
+                    message: reasonDisplay.message,
+                    isTranslated: reasonDisplay.isTranslated,
+                    raw: reasonDisplay.raw,
+                    showTechnicalReason,
+                    onToggleTechnicalReason: () => setShowTechnicalReason((v) => !v),
+                  }
+                : null
+            }
+          />
 
           {/* Invoice Information */}
           <SectionCard title="Invoice Information">
@@ -496,7 +470,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
           aria-orientation="vertical"
           aria-label="Resize panel"
           title="Drag to resize · double-click to reset"
-          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md hover:bg-surface-alt lg:flex lg:w-2"
+          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md bg-surface-alt hover:bg-border lg:flex lg:w-2"
         >
           <span className="h-10 w-1 rounded-full bg-border-strong" />
         </div>
@@ -508,7 +482,12 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
               "--v2-aside-w": `${asideWidth}px`,
             } as CSSProperties
           }
-          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0 lg:max-h-[calc(100vh_-_var(--v2-header-h))] lg:overflow-y-auto"
+          // No max-h/overflow-y-auto here on purpose — see the matching
+          // aside in InvoiceReviewContentV2 for why (clipped the column's
+          // own scroll right at the viewport edge, making a field sitting on
+          // that boundary visible but not clickable). Sticky alone degrades
+          // gracefully once this column is taller than the viewport.
+          className="flex w-full min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--v2-header-h)] lg:w-[var(--v2-aside-w)] lg:shrink-0"
         >
           {/* Scanned copy */}
           <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
