@@ -33,6 +33,9 @@ export interface ExtraCharge {
    * service fee, ...) can carry its own tax treatment. null/unset defaults
    * to non-taxable on the QuickBooks side. */
   taxCodeId?: string | null;
+  /** Independent of the invoice-level glAccountId, same reasoning as
+   * taxCodeId above — an extra charge can post to its own GL account. */
+  glAccountId?: string | null;
 }
 
 export interface Discount {
@@ -41,6 +44,8 @@ export interface Discount {
    * the QuickBooks Bill line (see quickbooks.service.js buildBillPayload).
    * Never send a negative value here. */
   amount: number;
+  /** Per-discount GL override; unset = invoice-level glAccountId. */
+  glAccountId?: string | null;
 }
 
 export interface ExtractedData {
