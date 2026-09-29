@@ -483,7 +483,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   />
                 </button>
                 {switcherOpen && (
-                  <div className="absolute left-0 top-full z-10 mt-[var(--space-xs)] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-[var(--space-xs)] shadow-md">
+                  // z-50: several v2 screens use `sticky top-0 z-40` for their
+                  // own back/title bar (e.g. InvoiceDetailContentV2), which
+                  // otherwise renders on top of this dropdown once it scrolls
+                  // under the app header.
+                  <div className="absolute left-0 top-full z-50 mt-[var(--space-xs)] w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface p-[var(--space-xs)] shadow-md">
                     {/* Caret is part of this panel, not separately positioned
                         against the trigger button — so it's welded to
                         wherever the dropdown itself ends up (its width is

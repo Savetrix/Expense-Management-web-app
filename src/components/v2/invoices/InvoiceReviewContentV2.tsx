@@ -125,6 +125,12 @@ function withLineDefaults(items: LineItem[], glAccountId: string, taxCodeId: str
   }));
 }
 
+// GL-only counterpart of withLineDefaults for extra charges and discounts —
+// both are always posted non-taxable, so there's no tax code to default.
+function withGlDefaults<T extends { glAccountId?: string | null }>(rows: T[], glAccountId: string): T[] {
+  return rows.map((row) => ({ ...row, glAccountId: row.glAccountId || glAccountId || null }));
+}
+
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 // Tax is computed from line items only — never extra charges or discounts
@@ -658,8 +664,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         normalized.taxCodeId,
       ),
     );
-    setExtraCharges(invoiceObject?.extractedData?.extraCharges || []);
-    setDiscounts(invoiceObject?.extractedData?.discounts || []);
+    setExtraCharges(withGlDefaults(invoiceObject?.extractedData?.extraCharges || [], normalized.glAccountId));
+    setDiscounts(withGlDefaults(invoiceObject?.extractedData?.discounts || [], normalized.glAccountId));
     hadLineItemsRef.current = (invoiceObject?.extractedData?.lineItems?.length ?? 0) > 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceObject]);
@@ -679,6 +685,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     // The vendor's GL/tax may only just have become known — carry them down
     // to any line that doesn't have its own yet.
     setLineItems((prev) => withLineDefaults(prev, merged.glAccountId, merged.taxCodeId));
+    setExtraCharges((prev) => withGlDefaults(prev, merged.glAccountId));
+    setDiscounts((prev) => withGlDefaults(prev, merged.glAccountId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVendor, createdVendor]);
 
@@ -766,8 +774,14 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     editExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, amount: Number(value) || 0 } : c)));
   };
 
+  const updateExtraChargeGlAccount = (index: number, glAccountId: string) => {
+    editExtraCharges((prev) => prev.map((c, i) => (i === index ? { ...c, glAccountId: glAccountId || null } : c)));
+  };
+
   const addExtraCharge = () => {
-    editExtraCharges((prev) => [...prev, { description: "", amount: 0, taxCodeId: null }]);
+    // Defaults to the invoice-level GL (same starting point as a new line
+    // item), editable per-charge from there.
+    editExtraCharges((prev) => [...prev, { description: "", amount: 0, taxCodeId: null, glAccountId: cleanValue(invoice.glAccountId) || null }]);
   };
 
   const duplicateExtraCharge = (index: number) => {
@@ -791,8 +805,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     editDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, amount: Math.abs(Number(value) || 0) } : d)));
   };
 
+  const updateDiscountGlAccount = (index: number, glAccountId: string) => {
+    editDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, glAccountId: glAccountId || null } : d)));
+  };
+
   const addDiscount = () => {
-    editDiscounts((prev) => [...prev, { description: "", amount: 0 }]);
+    editDiscounts((prev) => [...prev, { description: "", amount: 0, glAccountId: cleanValue(invoice.glAccountId) || null }]);
   };
 
   const duplicateDiscount = (index: number) => {
@@ -847,11 +865,14 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   // invoice-level default) — since selecting a value there overwrites every
   // line, the field showing one specific code as if it applied everywhere
   // would be misleading while lines actually differ.
+  // GL covers extra charges and discounts too — the invoice-level GL
+  // dropdown overwrites those as well (see handleGlAccountChange).
   const glAccountsMixedAcrossLines = useMemo(() => {
-    if (lineItems.length < 2) return false;
-    const ids = new Set(lineItems.map((item) => item.glAccountId || cleanValue(invoice.glAccountId)));
+    const rows = [...lineItems, ...extraCharges, ...discounts];
+    if (rows.length < 2) return false;
+    const ids = new Set(rows.map((row) => row.glAccountId || cleanValue(invoice.glAccountId)));
     return ids.size > 1;
-  }, [lineItems, invoice.glAccountId]);
+  }, [lineItems, extraCharges, discounts, invoice.glAccountId]);
   const taxCodesMixedAcrossLines = useMemo(() => {
     if (lineItems.length < 2) return false;
     const ids = new Set(lineItems.map((item) => item.taxCodeId || cleanValue(invoice.taxCodeId)));
@@ -1014,6 +1035,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     // Invoice-level GL is the default for every line — changing it
     // deliberately overwrites all lines, including ones changed by hand.
     editLineItems((prev) => prev.map((item) => ({ ...item, glAccountId: account.qbAccountId })));
+    editExtraCharges((prev) => prev.map((charge) => ({ ...charge, glAccountId: account.qbAccountId })));
+    editDiscounts((prev) => prev.map((discount) => ({ ...discount, glAccountId: account.qbAccountId })));
     setFieldErrors((prev) => {
       if (!prev.glAccountId) return prev;
       const updated = { ...prev };
@@ -1575,7 +1598,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               )}
               {glAccountsMixedAcrossLines && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
-                  Multiple GL codes selected across line items — picking one here replaces all of them.
+                  Multiple GL codes selected across line items, extra charges and discounts — picking one here replaces all of them.
                 </p>
               )}
               {glAccountsErrorDisplay && (
@@ -1905,6 +1928,22 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                       align="left"
                       className="min-w-0 flex-1 font-semibold"
                     />
+                    <SelectDropdown
+                      uiSize="sm"
+                      value={charge.glAccountId || ""}
+                      onChange={(e) => updateExtraChargeGlAccount(index, e.target.value)}
+                      title={glAccounts.find((a) => a.qbAccountId === charge.glAccountId)?.name || "Select GL"}
+                      className="w-40 shrink-0 text-tiny"
+                    >
+                      <option value="" disabled>
+                        Select GL
+                      </option>
+                      {glAccounts.map((account) => (
+                        <option key={account._id} value={account.qbAccountId}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </SelectDropdown>
                     {/* Inline, right before copy/delete — same single row as the description. */}
                     <InlineEditField
                       ref={(handle) => {
@@ -1971,6 +2010,22 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                       align="left"
                       className="min-w-0 flex-1 font-semibold"
                     />
+                    <SelectDropdown
+                      uiSize="sm"
+                      value={discount.glAccountId || ""}
+                      onChange={(e) => updateDiscountGlAccount(index, e.target.value)}
+                      title={glAccounts.find((a) => a.qbAccountId === discount.glAccountId)?.name || "Select GL"}
+                      className="w-40 shrink-0 text-tiny"
+                    >
+                      <option value="" disabled>
+                        Select GL
+                      </option>
+                      {glAccounts.map((account) => (
+                        <option key={account._id} value={account.qbAccountId}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </SelectDropdown>
                     <InlineEditField
                       ref={(handle) => {
                         discountAmountFieldRefs.current[index] = handle;
