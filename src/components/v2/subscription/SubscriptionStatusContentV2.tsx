@@ -65,6 +65,16 @@ export function SubscriptionStatusContentV2() {
     const sessionId = searchParams.get("session_id");
 
     if (checkoutStatus === "success" && sessionId) {
+      router.replace("/subscription");
+
+      // Revisiting this exact success URL (browser back/forward, a stale
+      // bookmark, or a hard refresh before the replace above lands) must not
+      // re-confirm and re-toast for a session_id already handled this tab.
+      const confirmedKey = `checkout_confirmed_${sessionId}`;
+      const alreadyConfirmed = typeof window !== "undefined" && sessionStorage.getItem(confirmedKey) === "1";
+      if (alreadyConfirmed) return;
+      if (typeof window !== "undefined") sessionStorage.setItem(confirmedKey, "1");
+
       dispatch(confirmCheckout(sessionId)).then((result) => {
         // Forced: the mount fetch may still be in flight, started before the
         // confirm, and would otherwise make this one a skipped duplicate.
@@ -79,7 +89,6 @@ export function SubscriptionStatusContentV2() {
           );
         }
       });
-      router.replace("/subscription");
     } else if (checkoutStatus === "cancelled") {
       router.replace("/subscription");
     }
