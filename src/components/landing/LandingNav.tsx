@@ -1,23 +1,33 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Wordmark } from "./primitives";
 import { trackSignupClick } from "./pixel";
 
+// Root-relative ("/#how", not "#how") because this nav is shared with the blog:
+// a bare fragment would point at a section that doesn't exist on /blog. Link
+// handles both cases: on the homepage it scrolls to the section (smoothly, via
+// the scroll-behavior LandingPage sets), and from the blog it navigates home
+// client-side and then scrolls.
 const LINKS = [
-  { href: "#how", label: "How it works" },
-  { href: "#email", label: "Email forwarding" },
-  { href: "#capabilities", label: "Capabilities" },
-  { href: "#difference", label: "Why Scantrix" },
-  { href: "#pricing", label: "Pricing" },
-  { href: "#faq", label: "FAQ" },
-  { href: "#about", label: "About" },
+  { href: "/#how", label: "How it works" },
+  { href: "/#email", label: "Email forwarding" },
+  { href: "/#capabilities", label: "Capabilities" },
+  { href: "/#difference", label: "Why Scantrix" },
+  { href: "/#pricing", label: "Pricing" },
+  { href: "/#faq", label: "FAQ" },
+  { href: "/blog", label: "Blog" },
 ];
 
+/** "/blog" is a real route; everything else is a section of the homepage. */
+const isRoute = (href: string) => !href.includes("#");
+
 export function LandingNav() {
+  const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -46,20 +56,27 @@ export function LandingNav() {
         }`}
       >
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
-          <a href="#top" aria-label="Scantrix home" className="shrink-0">
+          <Link href="/#top" aria-label="Scantrix home" className="shrink-0">
             <Wordmark />
-          </a>
+          </Link>
 
-          <div className="hidden items-center gap-8 lg:flex">
-            {LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="text-[14px] font-medium text-text-secondary transition-colors hover:text-trust-navy"
-              >
-                {link.label}
-              </a>
-            ))}
+          <div className="mx-6 hidden items-center gap-5 lg:flex xl:gap-8">
+            {LINKS.map((link) => {
+              const active = isRoute(link.href) && pathname?.startsWith(link.href);
+              const className = `text-[14px] font-medium transition-colors hover:text-trust-navy ${
+                active ? "text-trust-navy" : "text-text-secondary"
+              }`;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-current={active ? "page" : undefined}
+                  className={className}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
           </div>
 
           <div className="hidden items-center gap-2 lg:flex">
@@ -94,16 +111,14 @@ export function LandingNav() {
       {open && (
         <div className="border-b border-border bg-surface px-5 pb-6 pt-2 shadow-lg lg:hidden">
           <div className="flex flex-col">
-            {LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                onClick={() => setOpen(false)}
-                className="border-b border-border py-3.5 text-[15px] font-medium text-trust-navy"
-              >
-                {link.label}
-              </a>
-            ))}
+            {LINKS.map((link) => {
+              const className = "border-b border-border py-3.5 text-[15px] font-medium text-trust-navy";
+              return (
+                <Link key={link.href} href={link.href} onClick={() => setOpen(false)} className={className}>
+                  {link.label}
+                </Link>
+              );
+            })}
           </div>
           <div className="mt-4 flex flex-col gap-2.5">
             <Link

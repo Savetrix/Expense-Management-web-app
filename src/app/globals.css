@@ -526,3 +526,147 @@ button:not(:disabled),
   .lp-status-posted { opacity: 1 !important; }
   .lp-field { opacity: 1 !important; transform: none !important; }
 }
+
+/* ==========================================================================
+   Blog (/blog) — article typography. Written by hand rather than adding the
+   Tailwind typography plugin for one surface. Colours come only from the
+   .lp-root tokens, so posts follow the landing page's palette and its dark
+   mode with no extra rules. Scoped to .lp-prose, which only wraps rendered
+   Markdown (src/lib/blog.ts → renderMarkdown).
+   ========================================================================== */
+
+/* In-page links (table of contents, heading anchors) glide on the blog only,
+   and never for visitors who have asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.lp-blog) {
+    scroll-behavior: smooth;
+  }
+}
+
+.lp-prose {
+  max-width: 44rem;
+  color: var(--lp-ink-2);
+  font-size: 17px;
+  line-height: 1.75;
+}
+.lp-prose > :first-child {
+  margin-top: 0;
+}
+.lp-prose p,
+.lp-prose ul,
+.lp-prose ol,
+.lp-prose blockquote,
+.lp-prose .lp-prose-table {
+  margin-top: 1.25em;
+}
+.lp-prose h2,
+.lp-prose h3 {
+  color: var(--lp-ink);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  /* Clears the fixed 64px nav when jumped to from the table of contents. */
+  scroll-margin-top: 6rem;
+}
+.lp-prose h2 {
+  margin-top: 2.4em;
+  font-size: clamp(1.45rem, 2.6vw, 1.75rem);
+  line-height: 1.25;
+}
+.lp-prose h3 {
+  margin-top: 1.9em;
+  font-size: 1.2rem;
+  line-height: 1.35;
+}
+.lp-prose h2 + *,
+.lp-prose h3 + * {
+  margin-top: 0.75em;
+}
+.lp-prose strong {
+  color: var(--lp-ink);
+  font-weight: 650;
+}
+.lp-prose a {
+  color: var(--lp-teal-700);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--lp-teal) 45%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s ease;
+}
+.lp-prose a:hover {
+  text-decoration-color: currentColor;
+}
+.lp-prose ul,
+.lp-prose ol {
+  padding-left: 1.35em;
+}
+.lp-prose ul {
+  list-style: disc;
+}
+.lp-prose ol {
+  list-style: decimal;
+}
+.lp-prose li {
+  margin-top: 0.5em;
+  padding-left: 0.25em;
+}
+.lp-prose li::marker {
+  color: var(--lp-teal);
+  font-weight: 700;
+}
+.lp-prose blockquote {
+  border-left: 3px solid var(--lp-teal);
+  background: var(--lp-teal-050);
+  border-radius: 0 0.75rem 0.75rem 0;
+  padding: 0.9em 1.2em;
+  color: var(--lp-ink);
+}
+.lp-prose blockquote > :first-child {
+  margin-top: 0;
+}
+.lp-prose code {
+  border: 1px solid var(--lp-border);
+  background: var(--lp-soft);
+  border-radius: 0.4rem;
+  padding: 0.1em 0.4em;
+  font-size: 0.88em;
+  color: var(--lp-ink);
+}
+.lp-prose hr {
+  margin: 2.5em 0;
+  border: 0;
+  border-top: 1px solid var(--lp-border);
+}
+.lp-prose img {
+  margin-top: 1.5em;
+  border-radius: 1rem;
+  border: 1px solid var(--lp-border);
+}
+/* Tables scroll inside their own box so a wide one never widens the page. */
+.lp-prose-table {
+  overflow-x: auto;
+  border: 1px solid var(--lp-border);
+  border-radius: 0.9rem;
+}
+.lp-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.lp-prose th {
+  background: var(--lp-soft);
+  color: var(--lp-ink);
+  font-weight: 650;
+  text-align: left;
+}
+.lp-prose th,
+.lp-prose td {
+  padding: 0.7em 0.95em;
+  border-bottom: 1px solid var(--lp-border);
+  vertical-align: top;
+}
+.lp-prose tr:last-child td {
+  border-bottom: 0;
+}

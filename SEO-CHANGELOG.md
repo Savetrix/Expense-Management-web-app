@@ -355,3 +355,29 @@ Net on non-moved files: **+581 / −41** across 12 files.
   that `BACKEND_duplicate-bills.md` documents as an open customer-reported
   defect — it needs a decision before the next marketing push, independent of
   anything SEO.**
+
+---
+
+## Blog (`/blog`) — 2026-09-30
+
+**Branch:** `pranamya/blog`, cut from `develop`. **Gate:** `npx tsc --noEmit && npx next build` passes; `npm test` 382/382 (21 new in `src/test/blog.test.ts`).
+
+Delivers the content surface SEO-AUDIT.md §4–§7 called for: the first problem-aware guides (cluster 1) and a long-tail workflow guide (cluster 5).
+
+| What | Where |
+|---|---|
+| Post registry: one TS file per post, Markdown body, typed metadata; validated at build (a bad post fails the build) | `src/content/blog/`, `src/lib/blog.ts` |
+| `/blog` index (featured post + grid), `/blog/[slug]` articles, all prerendered; unknown slugs 404 (`dynamicParams = false`) | `src/app/blog/` |
+| Per-post Open Graph image | `src/app/blog/[slug]/opengraph-image.tsx` |
+| RSS 2.0 feed, advertised via `<link rel="alternate">` on `/`, `/blog` and every post | `src/app/blog/rss.xml/route.ts` |
+| `BlogPosting`, `Blog` and `BreadcrumbList` JSON-LD. BreadcrumbList is now valid: the audit held it back until a real hierarchy existed | `src/lib/seo.ts` |
+| Sitemap: `/blog` + every post, dated by the post's own publish/update date, never the build time | `src/app/sitemap.ts` |
+| Homepage "From the blog" section (the audit's "cross-link from the homepage"); nav "Blog" link; shared footer | `LandingPage.tsx`, `LandingNav.tsx`, `LandingFooter.tsx` |
+
+**Decisions worth knowing when reviewing:**
+
+- **Markdown renders at build time only** (`marked`, the one new dependency). It never ships to the browser: the homepage receives plain summaries as props. Raw HTML in a post is escaped, not rendered.
+- **Nav anchors are now `/#section`**, so they work from `/blog`. "About" left the top nav to make room for "Blog" at the same width; it remains in the footer and on the page.
+- **No tag or category pages.** With three posts they would be thin, near-duplicate pages. Add them once a category has enough posts to stand alone.
+- **Product claims are guarded.** A test fails if any sentence mentioning Scantrix also mentions duplicates or merging, the unsupported claims in SEO-AUDIT.md §3. The month-end post covers duplicate *payments* as manual controls only.
+- **Drafts:** `draft: true` shows a post in `next dev` only.
