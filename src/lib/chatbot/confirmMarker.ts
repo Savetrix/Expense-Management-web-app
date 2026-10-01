@@ -14,3 +14,23 @@ export const CONFIRM_MARKER = "Reply yes to confirm, or no to cancel.";
 // unambiguously before rendering.
 export const CONSENT_FRAME_PREFIX = "\u001fSAVETRIX_CONSENT:";
 export const CONSENT_FRAME_SUFFIX = "\u001f";
+
+const CONSENT_FRAME_RE = new RegExp(`${CONSENT_FRAME_PREFIX}([^${CONSENT_FRAME_SUFFIX}]*)${CONSENT_FRAME_SUFFIX}`);
+
+/** The consent ticket from a reply, if the server attached one. */
+export function extractConsentTicket(text: string): string | undefined {
+  return CONSENT_FRAME_RE.exec(text)?.[1] || undefined;
+}
+
+/**
+ * The reply as the user should see it: no consent frame, complete or partial.
+ *
+ * Cuts at the first U+001F rather than at the full prefix. A frame still
+ * arriving may have sent only "\u001fSAVET" so far, which doesn't match the
+ * prefix; U+001F never occurs in prose, so everything from it on is control
+ * data. Must be applied to the WHOLE reply so far, not to each chunk: a frame
+ * split across chunks leaves its second half without any marker at all.
+ */
+export function stripConsentFrame(text: string): string {
+  return text.replace(CONSENT_FRAME_RE, "").split(CONSENT_FRAME_SUFFIX)[0];
+}
