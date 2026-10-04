@@ -462,7 +462,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <Menu size={20} strokeWidth={2} />
             </button>
-            {connectedAccounts.length > 0 && (
+            {/* Shown even with zero companies so a fresh account still has the
+                "Add account" entry point — gated on connectionsLoaded only so
+                it doesn't flash "No company connected" before the list loads. */}
+            {(connectionsLoaded || connectedAccounts.length > 0) && (
               <div ref={switcherRef} className="relative min-w-0">
                 <button
                   type="button"
@@ -475,7 +478,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   }`}
                 >
                   <span className="min-w-0 truncate font-semibold text-content-primary">
-                    {activeConnection?.name ?? "Select your company"}
+                    {activeConnection?.name ?? (connectedAccounts.length === 0 ? "No company connected" : "Select your company")}
                   </span>
                   <ChevronDown
                     size={16}
@@ -518,7 +521,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                         Integrations page — QuickBooks connection management
                         used to live only there, this just offers the same
                         action from wherever the switcher already is. */}
-                    <div className="mt-[var(--space-xs)] border-t border-border pt-[var(--space-xs)]">
+                    <div className={connectedAccounts.length > 0 ? "mt-[var(--space-xs)] border-t border-border pt-[var(--space-xs)]" : ""}>
                       <button
                         type="button"
                         onClick={handleOpenAddAccount}
