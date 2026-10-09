@@ -68,6 +68,10 @@ const REJECTION_COPY: Record<string, string> = {
   too_many_attachments: "Too many attachments in one email.",
   duplicate_attachment: "The same file appeared twice.",
   credential_expired: "Email forwarding lost access to this company — reconnect below.",
+  // Restored: the original panel had this, and the redesign dropped it, so a
+  // 403 fell back to showing the raw code. It names the one-click fix.
+  forwarding_access_lost:
+    "Scantrix no longer has access to this company, so the invoice couldn't be filed. Press Reconnect, then forward the email again.",
   ingestion_failed: "The invoice couldn't be processed.",
   attachment_download_failed: "We couldn't retrieve the attachment from the mail provider.",
   invalid_payload: "The email couldn't be read.",
@@ -154,6 +158,10 @@ function ActivityRow({ entry }: { entry: InboundActivityEntry }) {
         {entry.senderEmail || "unknown sender"} · {formatWhen(entry.receivedAt)}
       </p>
       {reason && <p className="text-tiny text-status-danger-text">{reason}</p>}
+      {/* Restored from the original panel: the backend's own sentence, e.g.
+          "Duplicate invoice — '012345' already exists". Without it this panel
+          shows generic copy for a failure the invoice dashboard explains. */}
+      {entry.upstreamMessage && <p className="text-tiny text-content-secondary">{entry.upstreamMessage}</p>}
       {/* The auth-header evidence. This is what turns "authentication_failed"
           from a mystery into a five-minute fix — see authResults.ts. */}
       {entry.authDiagnostics && entry.authDiagnostics.trust !== "verified" && (
@@ -649,6 +657,17 @@ export function EmailForwardingPanelV2({
       )}
 
       <div className="flex flex-col gap-[var(--space-sm)]">
+        {/* Restored from the original panel. Reconnect above only appears once
+            a failure has been recorded, but access is lost the moment someone
+            removes Scantrix from the company's team — and nothing here knows
+            until a forwarded invoice has already been refused. Re-running the
+            invite when it isn't needed is harmless. */}
+        {alias.delegationActive && (
+          <button type="button" onClick={handleReconnect} disabled={busy} className={GHOST_BUTTON_CLASS}>
+            <RefreshCw size={14} />
+            {busy ? "Working…" : "Re-check access to this company"}
+          </button>
+        )}
         <button type="button" onClick={handleRegenerate} disabled={busy} className={GHOST_BUTTON_CLASS}>
           <RefreshCw size={14} />
           {busy ? "Working…" : "Generate a new address"}

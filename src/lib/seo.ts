@@ -170,8 +170,99 @@ export const faqPageJsonLd = {
   })),
 };
 
-// No BreadcrumbList is emitted. Schema.org breadcrumbs describe a page's
-// position in a site hierarchy, and the public site is currently a single
-// indexable page — "/" with in-page anchors. A one-item breadcrumb trail
-// pointing at itself is not a hierarchy, and Google discards it. This becomes
-// valid the moment the sub-pages listed in SEO-AUDIT.md's open questions exist.
+// ==============================
+// BLOG
+// ==============================
+//
+// BreadcrumbList became valid with the blog: /blog and /blog/<slug> are the
+// site's first real hierarchy below "/". It is still deliberately NOT emitted on
+// the homepage, where a one-item trail pointing at itself is not a hierarchy
+// and Google discards it.
+
+export const BLOG_NAME = "Scantrix Blog";
+export const BLOG_DESCRIPTION =
+  "Practical guides to accounts payable, bill entry and QuickBooks Online for accountants and finance teams.";
+
+/** Breadcrumb trail, root first. Paths are site-relative. */
+export function breadcrumbJsonLd(items: { name: string; path: string }[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: absoluteUrl(item.path),
+    })),
+  };
+}
+
+interface BlogPostingInput {
+  slug: string;
+  title: string;
+  description: string;
+  publishedAt: string;
+  updatedAt: string | null;
+  category: string;
+  tags: string[];
+  wordCount: number;
+}
+
+const BLOG_ID = `${SITE_URL}/blog#blog`;
+
+/**
+ * BlogPosting. The author is the Organization rather than an invented person:
+ * posts are written as "Scantrix Team", and a named author with no real
+ * profile behind it is exactly the kind of signal Google's quality raters are
+ * told to distrust.
+ */
+export function blogPostingJsonLd(post: BlogPostingInput) {
+  const url = absoluteUrl(`/blog/${post.slug}`);
+  return {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "@id": `${url}#article`,
+    headline: post.title,
+    description: post.description,
+    url,
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    image: absoluteUrl(`/blog/${post.slug}/opengraph-image`),
+    datePublished: post.publishedAt,
+    dateModified: post.updatedAt ?? post.publishedAt,
+    articleSection: post.category,
+    keywords: post.tags.join(", "),
+    wordCount: post.wordCount,
+    inLanguage: "en",
+    author: { "@id": ORGANIZATION_ID },
+    publisher: { "@id": ORGANIZATION_ID },
+    isPartOf: { "@id": BLOG_ID },
+  };
+}
+
+/** Blog, listing its posts. Organization is repeated so the @id references resolve on this page. */
+export function blogJsonLd(posts: BlogPostingInput[]) {
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      // Inside a @graph the context is inherited; undefined drops it on stringify.
+      { ...organizationJsonLd, "@context": undefined },
+      {
+        "@type": "Blog",
+        "@id": BLOG_ID,
+        name: BLOG_NAME,
+        description: BLOG_DESCRIPTION,
+        url: absoluteUrl("/blog"),
+        inLanguage: "en",
+        publisher: { "@id": ORGANIZATION_ID },
+        blogPost: posts.map((post) => ({
+          "@type": "BlogPosting",
+          "@id": `${absoluteUrl(`/blog/${post.slug}`)}#article`,
+          headline: post.title,
+          url: absoluteUrl(`/blog/${post.slug}`),
+          datePublished: post.publishedAt,
+          dateModified: post.updatedAt ?? post.publishedAt,
+        })),
+      },
+    ],
+  };
+}

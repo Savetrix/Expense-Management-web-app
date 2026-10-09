@@ -67,7 +67,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     type: "function",
     function: {
       name: "list_vendors",
-      description: "List vendors for the active QuickBooks company, including their default GL account/tax code.",
+      description: "List vendors for the active QuickBooks company, including their default GL account/tax code. Returns at most 20, plus totalMatched: the full count. Use totalMatched to answer how many there are.",
       parameters: {
         type: "object",
         properties: {
@@ -80,7 +80,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     type: "function",
     function: {
       name: "list_gl_accounts",
-      description: "List the GL (general ledger) accounts configured for the active QuickBooks company.",
+      description: "List the GL (general ledger) accounts configured for the active QuickBooks company. Returns at most 20, plus totalMatched: the full count. Use totalMatched to answer how many there are.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -88,7 +88,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     type: "function",
     function: {
       name: "list_tax_codes",
-      description: "List the tax codes configured for the active QuickBooks company.",
+      description: "List the tax codes configured for the active QuickBooks company. Returns at most 20, plus totalMatched: the full count. Use totalMatched to answer how many there are.",
       parameters: { type: "object", properties: {} },
     },
   },

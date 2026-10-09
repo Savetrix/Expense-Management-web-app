@@ -18,11 +18,13 @@ export interface TopVendorsResult {
 const MIN_TOP_VENDORS = 3;
 const MAX_TOP_VENDORS = 4;
 
+// Keyed by vendor AND currency. Keying by vendor alone added a vendor's USD
+// and CAD bills into one number labelled with whichever currency came first.
 function buildVendorTotals(
   invoices: InvoiceRecord[],
   monthStart: Date | null,
-): Map<string, { total: number; currency: string }> {
-  const totals = new Map<string, { total: number; currency: string }>();
+): Map<string, { vendor: string; total: number; currency: string }> {
+  const totals = new Map<string, { vendor: string; total: number; currency: string }>();
   for (const invoice of invoices) {
     if (monthStart) {
       const dateStr = invoice.extractedData?.invoiceDate || invoice.createdAt;
@@ -35,9 +37,11 @@ function buildVendorTotals(
     if (!vendor) continue;
 
     const amount = invoice.extractedData?.totalAmount || 0;
-    const existing = totals.get(vendor);
+    const currency = (invoice.extractedData?.currency || "").trim().toUpperCase();
+    const key = `${vendor.toLowerCase()}\u0000${currency}`;
+    const existing = totals.get(key);
     if (existing) existing.total += amount;
-    else totals.set(vendor, { total: amount, currency: invoice.extractedData?.currency || "" });
+    else totals.set(key, { vendor, total: amount, currency });
   }
   return totals;
 }
@@ -69,8 +73,7 @@ export function computeTopVendors(invoices: InvoiceRecord[]): TopVendorsResult {
   }
 
   return {
-    vendors: [...totals.entries()]
-      .map(([vendor, data]) => ({ vendor, ...data }))
+    vendors: [...totals.values()]
       .sort((a, b) => b.total - a.total)
       .slice(0, MAX_TOP_VENDORS),
     scopedToMonth,
