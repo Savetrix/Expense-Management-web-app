@@ -10,8 +10,9 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { Config } from "../config.js";
-import { createClientForLogin } from "../client/savetrixClient.js";
-import { InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { createClientForLogin, createClientForTokens } from "../client/savetrixClient.js";
+import { InvalidGrantError, InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { decodeJwt } from "jose";
 import { encryptToken, decryptToken } from "./tokens.js";
 
 const CLIENT_TTL = 60 * 60 * 24 * 365; // 1 year
@@ -19,6 +20,18 @@ const CODE_TTL = 60 * 5; // 5 minutes
 const LOGIN_REQ_TTL = 60 * 15; // 15 minutes
 const ACCESS_TTL = 60 * 60 * 8; // 8 hours
 const REFRESH_TTL = 60 * 60 * 24 * 30; // 30 days
+const RENEW_SAVETRIX_WITHIN = 60 * 60 * 24; // renew the Savetrix pair with < 1 day left
+
+/** `exp` of a Savetrix access token (a JWT), read without verifying it. */
+const savetrixTokenExpiry = (token: string | undefined): number | undefined => {
+  if (!token) return undefined;
+  try {
+    const { exp } = decodeJwt(token);
+    return typeof exp === "number" ? exp : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /** The Savetrix session we wrap inside every OAuth artifact. */
 export interface SavetrixSession {
@@ -223,7 +236,35 @@ export class SavetrixOAuthProvider implements OAuthServerProvider {
     if (session.client_id !== client.client_id) {
       throw new Error("Refresh token was issued to a different client.");
     }
-    return this.mintTokens(session);
+    return this.mintTokens(await this.renewSavetrixSession(session));
+  }
+
+  /**
+   * Our tokens carry the Savetrix session inside them, and nothing else stores
+   * it. A Savetrix access token lasts 7 days while this refresh token lasts
+   * 30, so without renewal every connection stopped working after a week.
+   * When Claude refreshes, renew the Savetrix pair if it has less than a day
+   * left. Not more often: Savetrix rotates refresh tokens and keeps one live
+   * session per account, so needless refreshes only add chances to fail.
+   */
+  private async renewSavetrixSession(session: AccessPayload): Promise<AccessPayload> {
+    const now = Math.floor(Date.now() / 1000);
+    const expiresAt = savetrixTokenExpiry(session.st_at);
+    if (expiresAt !== undefined && expiresAt - now > RENEW_SAVETRIX_WITHIN) return session;
+    try {
+      const client = createClientForTokens(this.config, {
+        accessToken: session.st_at,
+        refreshToken: session.st_rt,
+      });
+      const fresh = await client.refreshSession();
+      return { ...session, st_at: fresh.accessToken, st_rt: fresh.refreshToken };
+    } catch {
+      // Still usable: keep it and try again at the next refresh.
+      if (expiresAt !== undefined && expiresAt > now) return session;
+      // Gone for good (e.g. revoked, or the account signed in elsewhere):
+      // invalid_grant makes Claude ask the person to sign in again.
+      throw new InvalidGrantError("Your Scantrix session has ended. Please sign in again.");
+    }
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {

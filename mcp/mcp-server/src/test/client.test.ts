@@ -311,7 +311,9 @@ test("client refreshes access token once on 401 and retries", async () => {
     axiosInstance: instance as never,
   });
   client.setTokens("expired", "rt-1");
-  mock.onPost("/auth/refresh-token").reply(200, { accessToken: "fresh" });
+  // The real route and shape (verified against api.savetrix.com): /auth/refresh,
+  // answering { data: { accessToken, refreshToken } } with a NEW refresh token.
+  mock.onPost("/auth/refresh").reply(200, { data: { accessToken: "fresh", refreshToken: "rt-2" } });
   mock.onGet("/invoices").replyOnce(401, { message: "expired" });
   mock.onGet("/invoices").replyOnce((config) => {
     assert.equal(config.headers?.Authorization, "Bearer fresh");
@@ -319,6 +321,35 @@ test("client refreshes access token once on 401 and retries", async () => {
   });
   await client.api.get("/invoices");
   assert.equal(client.getAccessToken(), "fresh");
+  // The rotated refresh token is kept; the old one is dead after this call.
+  assert.equal(client.getRefreshToken(), "rt-2");
+  assert.equal(mock.history.post.filter((r) => r.url === "/auth/refresh-token").length, 0);
+  mock.restore();
+});
+
+test("concurrent 401s share one refresh, so a rotated token isn't spent twice", async () => {
+  const instance = axios.create();
+  const mock = new MockAdapter(instance as never);
+  const session = await makeSession();
+  const client = new SavetrixClient({
+    baseURL: "https://api.test",
+    session,
+    axiosInstance: instance as never,
+  });
+  client.setTokens("expired", "rt-1");
+  let refreshes = 0;
+  mock.onPost("/auth/refresh").reply((config) => {
+    refreshes += 1;
+    // Savetrix accepts each refresh token once.
+    if (JSON.parse(config.data).refreshToken !== "rt-1") return [401, { message: "Invalid refresh token" }];
+    return [200, { data: { accessToken: "fresh", refreshToken: "rt-2" } }];
+  });
+  mock.onGet("/vendors").reply((config) =>
+    config.headers?.Authorization === "Bearer fresh" ? [200, { data: { vendors: [] } }] : [401, {}],
+  );
+  await Promise.all([client.api.get("/vendors"), client.api.get("/vendors"), client.api.get("/vendors")]);
+  assert.equal(refreshes, 1);
+  assert.equal(session.load().refreshToken, "rt-2", "the rotated token is saved for next time");
   mock.restore();
 });
 
@@ -331,9 +362,9 @@ test("client surfaces a clear error when refresh fails", async () => {
     axiosInstance: instance as never,
   });
   client.setTokens("expired", "rt-dead");
-  mock.onPost("/auth/refresh-token").reply(401, {});
+  mock.onPost("/auth/refresh").reply(401, {});
   mock.onGet("/invoices").replyOnce(401, {});
-  await assert.rejects(client.api.get("/invoices"), /session.*expired|login/i);
+  await assert.rejects(client.api.get("/invoices"), /session has expired.*Reconnect/i);
   mock.restore();
 });
 

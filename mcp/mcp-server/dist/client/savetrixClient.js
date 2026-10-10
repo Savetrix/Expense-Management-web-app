@@ -1,5 +1,8 @@
 import axios from "axios";
 import { SessionStore, MemorySessionStore } from "../session.js";
+// Read by both people (stdio users run savetrix_login) and Claude (remote
+// users reconnect the connector).
+const SESSION_EXPIRED = "Your Scantrix session has expired. Reconnect the Scantrix connector in Claude, or run the savetrix_login tool.";
 export class SavetrixClient {
     api;
     session;
@@ -10,6 +13,7 @@ export class SavetrixClient {
     qbOverride;
     activeQbId;
     resolvingQb = false;
+    refreshing;
     constructor(opts) {
         this.baseURL = opts.baseURL;
         this.webUrl = (opts.webUrl ?? "https://scantrix.ai").replace(/\/$/, "");
@@ -23,7 +27,9 @@ export class SavetrixClient {
             if (this.accessToken) {
                 config.headers.Authorization = `Bearer ${this.accessToken}`;
             }
-            if (!config.headers["X-QB-Id"]) {
+            // Auth calls are company-independent, and resolving a company here with
+            // an expired token would 401 and re-enter the refresh below.
+            if (!config.headers["X-QB-Id"] && !String(config.url ?? "").startsWith("/auth/")) {
                 const qbId = await this.resolveQbId();
                 if (qbId)
                     config.headers["X-QB-Id"] = qbId;
@@ -35,30 +41,50 @@ export class SavetrixClient {
             if (error.response?.status === 401 && original && !original._retry) {
                 original._retry = true;
                 try {
-                    if (!this.refreshToken) {
-                        throw new Error("Not logged in. Run the savetrix_login tool or set SAVETRIX_EMAIL/SAVETRIX_PASSWORD.");
-                    }
-                    // Use this.api so the request matches the configured baseURL, but
-                    // mark it _retry so a 401 on refresh itself won't recurse here.
-                    const { data } = await this.api.post("/auth/refresh-token", { refreshToken: this.refreshToken }, { _retry: true });
-                    const newAccessToken = data?.accessToken;
-                    if (!newAccessToken) {
-                        throw new Error("Session expired. Run savetrix_login again.");
-                    }
-                    this.accessToken = newAccessToken;
-                    await this.session.save({ accessToken: newAccessToken });
-                    original.headers.Authorization = `Bearer ${newAccessToken}`;
+                    const { accessToken } = await this.refreshSession();
+                    original.headers.Authorization = `Bearer ${accessToken}`;
                     return this.api(original);
                 }
                 catch (refreshError) {
                     if (refreshError instanceof Error && /login/i.test(refreshError.message)) {
                         return Promise.reject(refreshError);
                     }
-                    return Promise.reject(new Error("Session expired. Run the savetrix_login tool again."));
+                    return Promise.reject(new Error(SESSION_EXPIRED));
                 }
             }
             return Promise.reject(error);
         });
+    }
+    /**
+     * Trade the refresh token for a new pair via POST /auth/refresh. Savetrix
+     * ROTATES the refresh token on every call, so the new one is kept and the
+     * old one is dead; and a refresh already in flight is shared rather than
+     * repeated, or two concurrent 401s would spend the same token twice and the
+     * second would fail. (This used /auth/refresh-token, a route that doesn't
+     * exist, so every session ended when its access token expired.)
+     */
+    async refreshSession() {
+        if (!this.refreshToken) {
+            throw new Error("Not logged in. Run the savetrix_login tool or set SAVETRIX_EMAIL/SAVETRIX_PASSWORD.");
+        }
+        this.refreshing ??= (async () => {
+            try {
+                // _retry: a 401 from the refresh call itself must not recurse here.
+                const { data } = await this.api.post("/auth/refresh", { refreshToken: this.refreshToken }, { _retry: true });
+                const body = data?.data ?? data;
+                const accessToken = body?.accessToken;
+                const refreshToken = body?.refreshToken ?? this.refreshToken;
+                if (!accessToken)
+                    throw new Error(SESSION_EXPIRED);
+                this.setTokens(accessToken, refreshToken);
+                await this.session.save({ accessToken, refreshToken });
+                return { accessToken, refreshToken };
+            }
+            finally {
+                this.refreshing = undefined;
+            }
+        })();
+        return this.refreshing;
     }
     setTokens(accessToken, refreshToken) {
         this.accessToken = accessToken;
