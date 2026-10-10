@@ -1,6 +1,11 @@
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 export const loginPage = (opts) => {
     const app = opts.clientName ? esc(opts.clientName) : "an application";
+    // Embedded in a <script>: JSON gives a valid JS string, and escaping "<"
+    // stops a stray "</script>" from ending the block early.
+    const googleClientIdJs = opts.googleClientId
+        ? JSON.stringify(opts.googleClientId).replace(/</g, "\\u003c")
+        : "";
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -78,6 +83,13 @@ export const loginPage = (opts) => {
   }
   .info a { color: #1fb6aa; font-weight: 600; }
   .info a:hover { color: #17998f; }
+  .google { display: flex; justify-content: center; min-height: 44px; }
+  .google-status { font-size: 13px; color: #475569; text-align: center; margin-top: 8px; display: none; }
+  .divider {
+    display: flex; align-items: center; gap: 12px; margin: 20px 0;
+    font-size: 12px; color: #94a3b8;
+  }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: #e2e8f0; }
   .foot { margin-top: 20px; font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.5; }
   .foot a { color: #1fb6aa; font-weight: 600; text-decoration: none; }
   .foot a:hover { color: #17998f; }
@@ -95,7 +107,7 @@ export const loginPage = (opts) => {
     <span class="logo-text">Scantrix</span>
   </a>
 
-  <form class="card" method="POST" action="/login" id="loginForm">
+  <div class="card">
     <div class="card-header">
       <h1 class="card-title">Welcome back</h1>
       <p class="card-sub">Sign in to connect <strong>${app}</strong> to your Scantrix account.</p>
@@ -103,8 +115,19 @@ export const loginPage = (opts) => {
 
     ${opts.error ? `<div class="err">${esc(opts.error)}</div>` : ""}
 
+    ${googleClientIdJs
+        ? `<div class="google" id="googleButton"></div>
+    <p class="google-status" id="googleStatus">Signing in with Google…</p>
+    <form method="POST" action="/login/google" id="googleForm">
+      <input type="hidden" name="req" value="${esc(opts.reqToken)}" />
+      <input type="hidden" name="credential" id="googleCredential" />
+    </form>
+    <div class="divider">or sign in with email</div>`
+        : ""}
+
+  <form method="POST" action="/login" id="loginForm">
     <div class="info">
-      Use your <strong>Scantrix email &amp; password</strong>. If you signed up with Google, Microsoft, or Apple,
+      Use your <strong>Scantrix email &amp; password</strong>.${googleClientIdJs ? " Signed up with Google? Use <strong>Continue with Google</strong> above." : ""} If you signed up with ${googleClientIdJs ? "Microsoft or Apple" : "Google, Microsoft, or Apple"},
       you&apos;ll need to <a href="${esc(opts.webUrl)}/forgot-password" target="_blank" rel="noopener">set a password first</a>.
     </div>
 
@@ -144,6 +167,39 @@ export const loginPage = (opts) => {
       <a href="${esc(opts.webUrl)}/" target="_blank" rel="noopener">scantrix.ai</a>
     </div>
   </form>
+  </div>
+${googleClientIdJs
+        ? `
+<script>
+  // Google Identity Services, the same button the website uses. Google
+  // returns an ID token to the callback; we post it to /login/google, which
+  // exchanges it with Scantrix's /auth/google.
+  function initGoogle() {
+    var el = document.getElementById("googleButton");
+    if (!el || !window.google || !google.accounts || !google.accounts.id) return;
+    google.accounts.id.initialize({
+      client_id: ${googleClientIdJs},
+      ux_mode: "popup",
+      context: "signin",
+      callback: function (response) {
+        if (!response || !response.credential) return;
+        document.getElementById("googleCredential").value = response.credential;
+        el.style.display = "none";
+        document.getElementById("googleStatus").style.display = "block";
+        document.getElementById("googleForm").submit();
+      }
+    });
+    google.accounts.id.renderButton(el, {
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      shape: "rectangular",
+      width: Math.max(240, Math.min(356, el.offsetWidth || 356))
+    });
+  }
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="initGoogle()"></script>`
+        : ""}
 
 <script>
   function togglePw() {

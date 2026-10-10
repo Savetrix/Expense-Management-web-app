@@ -1,4 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from "express";
+import { isAxiosError } from "axios";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -9,7 +10,7 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import type { Config } from "../config.js";
 import { createClientForTokens } from "../client/savetrixClient.js";
 import { registerSavetrixTools } from "../tools/index.js";
-import { SavetrixOAuthProvider } from "../auth/provider.js";
+import { SavetrixOAuthProvider, type LoginRequest } from "../auth/provider.js";
 import { loginPage } from "../auth/loginPage.js";
 import { uploadPage } from "../auth/uploadPage.js";
 import { encryptToken, decryptToken } from "../auth/tokens.js";
@@ -141,29 +142,95 @@ export const createRemoteApp = (config: Config): express.Express => {
   );
 
   // ── Login page (the /authorize step redirects here) ──
+  const sendLoginPage = async (
+    res: Response,
+    status: number,
+    reqToken: string,
+    clientId: string,
+    error?: string,
+  ): Promise<void> => {
+    const client = await provider.clientsStore.getClient(clientId);
+    res
+      .status(status)
+      .type("html")
+      .send(
+        loginPage({
+          reqToken,
+          webUrl: config.webUrl,
+          clientName: client?.client_name,
+          googleClientId: config.googleClientId,
+          error,
+        }),
+      );
+  };
+
+  /** Send the browser back to the OAuth client (Claude) with its code. */
+  const redirectWithCode = (res: Response, loginReq: LoginRequest, code: string): void => {
+    const redirect = new URL(loginReq.redirect_uri);
+    redirect.searchParams.set("code", code);
+    if (loginReq.state) redirect.searchParams.set("state", loginReq.state);
+    res.redirect(redirect.toString());
+  };
+
   app.get("/login", async (req: Request, res: Response) => {
     const token = String(req.query.req ?? "");
     if (!token) {
       res.status(400).send("Missing authorization request.");
       return;
     }
+    let loginReq: LoginRequest;
     try {
-      const loginReq = await provider.readLoginRequest(token);
-      const client = await provider.clientsStore.getClient(loginReq.client_id);
-      res
-        .status(200)
-        .type("html")
-        .send(
-          loginPage({
-            reqToken: token,
-            webUrl: config.webUrl,
-            clientName: client?.client_name,
-          }),
-        );
+      loginReq = await provider.readLoginRequest(token);
     } catch {
       res.status(400).send("This sign-in link has expired. Please start again.");
+      return;
     }
+    await sendLoginPage(res, 200, token, loginReq.client_id);
   });
+
+  // "Continue with Google": the page posts the ID token Google Identity
+  // Services gave it. Accounts created with Google often have no password,
+  // so this is the only way they can connect.
+  app.post(
+    "/login/google",
+    express.urlencoded({ extended: false }),
+    async (req: Request, res: Response) => {
+      const token = String(req.body.req ?? "");
+      const credential = String(req.body.credential ?? "");
+      let loginReq: LoginRequest;
+      try {
+        loginReq = await provider.readLoginRequest(token);
+      } catch {
+        res.status(400).send("This sign-in link has expired. Please start again.");
+        return;
+      }
+      try {
+        if (!credential) throw new Error("No Google credential was posted.");
+        const code = await provider.issueAuthorizationCodeWithGoogle(loginReq, credential);
+        redirectWithCode(res, loginReq, code);
+      } catch (error) {
+        // Status and backend message only; never the token itself.
+        const status = isAxiosError(error) ? error.response?.status : undefined;
+        const backendMessage = isAxiosError(error)
+          ? (error.response?.data as { message?: string } | undefined)?.message
+          : error instanceof Error
+            ? error.message
+            : String(error);
+        console.error("[savetrix-mcp] /login/google error:", status ?? "", backendMessage);
+
+        let userError: string;
+        if (isAxiosError(error) && !error.response) {
+          userError = "Could not reach Scantrix servers. Please check your connection and try again.";
+        } else if (status && status >= 400 && status < 500) {
+          userError =
+            "Google sign-in didn't go through. Please try again, or sign in with your email and password.";
+        } else {
+          userError = "Sign-in failed. Please try again in a moment.";
+        }
+        await sendLoginPage(res, 401, token, loginReq.client_id, userError);
+      }
+    },
+  );
 
   app.post(
     "/login",
@@ -181,15 +248,11 @@ export const createRemoteApp = (config: Config): express.Express => {
       }
       try {
         const code = await provider.issueAuthorizationCode(loginReq, email, password);
-        const redirect = new URL(loginReq.redirect_uri);
-        redirect.searchParams.set("code", code);
-        if (loginReq.state) redirect.searchParams.set("state", loginReq.state);
-        res.redirect(redirect.toString());
+        redirectWithCode(res, loginReq, code);
       } catch (error) {
         // Structural only (no credentials) — helps distinguish real backend
         // failures from bad-password attempts when debugging via Vercel logs.
         console.error("[savetrix-mcp] /login POST error:", error instanceof Error ? error.message : error);
-        const client = await provider.clientsStore.getClient(loginReq.client_id);
         const msg = error instanceof Error ? error.message : String(error);
 
         let userError: string;
@@ -197,24 +260,14 @@ export const createRemoteApp = (config: Config): express.Express => {
           userError = "Incorrect email or password. Please try again.";
         } else if (/social|google|apple|microsoft|oauth|provider|no.*password|password.*not.*set/i.test(msg)) {
           userError =
-            "This account uses social login (Google / Apple / Microsoft). Please set a password at scantrix.ai/forgot-password, then try again.";
+            "This account uses social login. If it's Google, use Continue with Google above. For Apple or Microsoft, set a password at scantrix.ai/forgot-password, then try again.";
         } else if (/timeout|ETIMEDOUT|ECONNRESET|network|ENOTFOUND/i.test(msg)) {
           userError = "Could not reach Scantrix servers. Please check your connection and try again.";
         } else {
           userError = "Sign-in failed. Please try again. If this persists, reset your password at scantrix.ai.";
         }
 
-        res
-          .status(401)
-          .type("html")
-          .send(
-            loginPage({
-              reqToken: token,
-              webUrl: config.webUrl,
-              clientName: client?.client_name,
-              error: userError,
-            }),
-          );
+        await sendLoginPage(res, 401, token, loginReq.client_id, userError);
       }
     },
   );

@@ -3,6 +3,9 @@ const DEFAULT_API_URL = "https://api.savetrix.com/api";
 const DEFAULT_WEB_URL = "https://scantrix.ai";
 const DEFAULT_PORT = 8000;
 const DEFAULT_CONFIG_PATH = ".savetrix-mcp/config.json";
+// The website's Google client (NEXT_PUBLIC_GOOGLE_CLIENT_ID; also the
+// webClientId in the mobile app). A client ID is public, not a secret.
+const DEFAULT_GOOGLE_CLIENT_ID = "244169573027-ttt4i12jqi1coi0hhk90saslrra76t4a.apps.googleusercontent.com";
 export const parseArgs = (argv) => {
     let http = false;
     let remote = false;
@@ -69,5 +72,6 @@ export const loadConfig = (argv) => {
             .map((h) => h.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, ""))
             .filter((h) => h !== ""),
         tokenSecret: envStr("SAVETRIX_TOKEN_SECRET"),
+        googleClientId: envStr("SAVETRIX_GOOGLE_CLIENT_ID") ?? DEFAULT_GOOGLE_CLIENT_ID,
     };
 };

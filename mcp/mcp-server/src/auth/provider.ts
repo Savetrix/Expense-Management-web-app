@@ -140,12 +140,30 @@ export class SavetrixOAuthProvider implements OAuthServerProvider {
   ): Promise<string> {
     const client = createClientForLogin(this.config);
     const payload = await client.login(email, password);
+    return this.codeForLogin(req, payload, email);
+  }
+
+  /**
+   * Same as issueAuthorizationCode, for an account that signs in with Google
+   * (and may have no password at all): Savetrix verifies the Google ID token.
+   */
+  async issueAuthorizationCodeWithGoogle(req: LoginRequest, idToken: string): Promise<string> {
+    const client = createClientForLogin(this.config);
+    const payload = await client.loginWithGoogle(idToken);
+    return this.codeForLogin(req, payload);
+  }
+
+  private async codeForLogin(
+    req: LoginRequest,
+    payload: unknown,
+    fallbackEmail?: string,
+  ): Promise<string> {
     const data = (payload as any)?.data ?? {};
     const session: SavetrixSession = {
       st_at: data.accessToken,
       st_rt: data.refreshToken,
       userId: data.user?._id,
-      email: data.user?.email ?? email,
+      email: data.user?.email ?? fallbackEmail,
       user: payload,
     };
     const code: CodePayload = {

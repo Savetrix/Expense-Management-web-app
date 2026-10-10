@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "node --import tsx --test src/test/config.test.ts src/test/session.test.ts src/test/client.test.ts src/test/tools.test.ts src/test/httpServer.test.ts src/test/remoteServer.test.ts",
+    "test": "node --import tsx --test src/test/config.test.ts src/test/session.test.ts src/test/client.test.ts src/test/tools.test.ts src/test/httpServer.test.ts src/test/remoteServer.test.ts src/test/googleLogin.test.ts",
     "smoke": "tsx src/scripts/smoke.ts"
   },
   "dependencies": {

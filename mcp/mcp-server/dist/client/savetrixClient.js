@@ -112,7 +112,22 @@ export class SavetrixClient {
     }
     async login(email, password) {
         const res = await this.api.post("/auth/login", { email, password });
+        return this.adoptLogin(res.data, email);
+    }
+    /**
+     * Sign in with a Google ID token (from Google Identity Services), the same
+     * call the website's "Continue with Google" makes. Savetrix verifies the
+     * token and answers with the same payload as /auth/login.
+     */
+    async loginWithGoogle(idToken) {
+        // _retry: a 401 here means Google's token was rejected, not that a session
+        // expired, so the refresh interceptor must not turn it into "Not logged in".
+        const res = await this.api.post("/auth/google", { idToken }, { _retry: true });
         const payload = res.data;
+        const email = payload?.data?.user?.email;
+        return this.adoptLogin(payload, email);
+    }
+    async adoptLogin(payload, email) {
         const d = payload?.data;
         if (!d?.accessToken || !d?.refreshToken) {
             throw new Error("Login response missing accessToken/refreshToken.");
