@@ -9,11 +9,13 @@
 // build time. Product claims must match the code — see SEO-AUDIT.md §3.
 import type { BlogPostSource } from "@/lib/blog";
 
+import { post as stateOfDocumentCapture2026 } from "./2026-state-of-document-capture-and-data-extraction";
 import { post as clearMonthEndAccountsPayableBacklog } from "./clear-month-end-accounts-payable-backlog";
 import { post as enterBillsIntoQuickBooksOnlineFaster } from "./enter-bills-into-quickbooks-online-faster";
 import { post as forwardSupplierInvoicesToQuickBooksByEmail } from "./forward-supplier-invoices-to-quickbooks-by-email";
 
 export const POST_SOURCES: readonly BlogPostSource[] = [
+  stateOfDocumentCapture2026,
   enterBillsIntoQuickBooksOnlineFaster,
   clearMonthEndAccountsPayableBacklog,
   forwardSupplierInvoicesToQuickBooksByEmail,
