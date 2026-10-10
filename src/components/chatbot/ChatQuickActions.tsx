@@ -22,9 +22,9 @@ const GROUPS: { label: string; items: string[] }[] = [
     label: "Make a change",
     items: [
       "Create a new vendor named [vendor name] with currency USD",
-      "Post invoice [invoice id] to QuickBooks",
+      "Post invoice [invoice id]",
       "Reject invoice [invoice id] because [reason]",
-      "Sync my GL accounts and tax codes from QuickBooks",
+      "Sync my GL accounts and tax codes",
     ],
   },
 ];

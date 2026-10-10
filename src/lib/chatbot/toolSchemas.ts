@@ -11,7 +11,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     function: {
       name: "list_invoices",
       description:
-        "List invoices for the signed-in user's currently active QuickBooks company, optionally filtered by status, vendor name, or date range. Use for questions like 'what invoices are pending' or 'show invoices from Acme'.",
+        "List invoices for the signed-in user's currently active company, optionally filtered by status, vendor name, or date range. Use for questions like 'what invoices are pending' or 'show invoices from Acme'.",
       parameters: {
         type: "object",
         properties: {
@@ -67,7 +67,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     type: "function",
     function: {
       name: "list_vendors",
-      description: "List vendors for the active QuickBooks company, including their default GL account/tax code.",
+      description: "List vendors for the active company, including their default GL account/tax code.",
       parameters: {
         type: "object",
         properties: {
@@ -80,7 +80,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     type: "function",
     function: {
       name: "list_gl_accounts",
-      description: "List the GL (general ledger) accounts configured for the active QuickBooks company.",
+      description: "List the GL (general ledger) accounts configured for the active company.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -88,7 +88,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     type: "function",
     function: {
       name: "list_tax_codes",
-      description: "List the tax codes configured for the active QuickBooks company.",
+      description: "List the tax codes configured for the active company.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -99,7 +99,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
       name: "update_invoice",
       description:
         "Patch extracted fields on a single invoice (vendor, amount, GL account, tax code, dates, description, line items). " +
-        "Does NOT post to QuickBooks — use post_invoice_to_qb for that. Pass only the fields you want to change. " +
+        "Does NOT post to the accounting software — use post_invoice_to_qb for that. Pass only the fields you want to change. " +
         "invoiceId comes from list_invoices or get_invoice_detail.",
       parameters: {
         type: "object",
@@ -146,7 +146,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     function: {
       name: "post_invoice_to_qb",
       description:
-        "Post an approved invoice to QuickBooks (sets postedStatus to 'manual'). " +
+        "Post an approved invoice to the connected accounting software (QuickBooks or Xero; sets postedStatus to 'manual'). " +
         "Before calling this, the model MUST describe exactly what it will do and wait for the user to confirm. " +
         "The confirm field MUST be set to true only after the user explicitly agrees — otherwise the tool returns a confirmation-required message. " +
         "invoiceId comes from list_invoices; vendorId comes from list_vendors.",
@@ -185,7 +185,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
               },
             },
           },
-          confirm: { type: "boolean", description: "Must be true — this action posts to QuickBooks and cannot be undone." },
+          confirm: { type: "boolean", description: "Must be true — this action posts to the accounting software and cannot be undone." },
         },
         required: ["invoiceId", "vendorId", "extractedData", "confirm"],
       },
@@ -216,8 +216,8 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     function: {
       name: "create_vendor",
       description:
-        "Create a new vendor in QuickBooks. Requires display name, currency, AND a default GL account — " +
-        "QuickBooks rejects vendor creation without one, same rule the app's own 'add vendor' form enforces. " +
+        "Create a new vendor in the connected accounting software. Requires display name, currency, AND a default GL account — " +
+        "the app's own 'add vendor' form enforces the same rule. " +
         "Call list_gl_accounts first and ask the user which account to use if they didn't already say. " +
         "Tax code, email, phone, and address are optional.",
       parameters: {
@@ -297,14 +297,19 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     function: {
       name: "create_gl_account",
       description:
-        "Create a new GL (general ledger) account in QuickBooks — e.g. a new expense category. " +
-        "Pass the account name, account type (e.g. 'Expense'), and optionally an account sub-type.",
+        "Create a new GL (general ledger) account in the connected accounting software — e.g. a new expense category. " +
+        "Pass the account name and account type, and: for QuickBooks optionally an account sub-type; " +
+        "for Xero a unique account code (Xero requires one).",
       parameters: {
         type: "object",
         properties: {
           name: { type: "string", description: "The account name, e.g. 'Office Supplies'." },
-          accountType: { type: "string", description: "QuickBooks account type, e.g. 'Expense', 'Bank', 'Accounts Payable'." },
-          accountSubType: { type: "string", description: "Optional QuickBooks account sub-type, e.g. 'Supplies'." },
+          accountType: {
+            type: "string",
+            description: "Account type in the connected software's own terms — QuickBooks e.g. 'Expense', 'Cost of Goods Sold'; Xero e.g. 'EXPENSE', 'OVERHEADS', 'DIRECTCOSTS'.",
+          },
+          accountSubType: { type: "string", description: "Optional QuickBooks account sub-type, e.g. 'Supplies'. Ignored by Xero." },
+          code: { type: "string", description: "Account code, e.g. '429'. Required for Xero, ignored by QuickBooks." },
         },
         required: ["name", "accountType"],
       },
@@ -316,7 +321,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     function: {
       name: "sync_accounts",
       description:
-        "Pull the latest GL accounts from QuickBooks into the app. Use when the user wants to refresh their account list after adding one in QuickBooks directly.",
+        "Pull the latest GL accounts from the connected accounting software into the app. Use when the user wants to refresh their account list after adding one there directly.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -325,7 +330,7 @@ export const chatToolSchemas: ChatCompletionFunctionTool[] = [
     function: {
       name: "sync_tax_codes",
       description:
-        "Pull the latest tax codes from QuickBooks into the app. Use when the user wants to refresh their tax code list after adding one in QuickBooks directly.",
+        "Pull the latest tax codes from the connected accounting software into the app. Use when the user wants to refresh their tax code list after adding one there directly.",
       parameters: { type: "object", properties: {} },
     },
   },

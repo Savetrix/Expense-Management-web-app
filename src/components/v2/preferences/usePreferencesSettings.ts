@@ -21,7 +21,7 @@ export function usePreferencesSettings() {
   const [savingLineItem, setSavingLineItem] = useState(false);
   const [savingAttachInvoiceCopy, setSavingAttachInvoiceCopy] = useState(false);
 
-  const { activeConnections, activeConnectionId, checkingStatus, connecting, handleConnect } =
+  const { activeConnections, activeConnectionId, checkingStatus } =
     useQuickBooksConnections("/preferences");
 
   // With exactly one connected company there's nothing to choose, so use it
@@ -70,8 +70,6 @@ export function usePreferencesSettings() {
   return {
     activeConnections,
     checkingStatus,
-    connecting,
-    handleConnect,
     activeConnection,
     currentRole,
     canManage,

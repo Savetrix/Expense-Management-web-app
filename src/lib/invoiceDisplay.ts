@@ -192,11 +192,11 @@ const KNOWN_REASON_TRANSLATIONS: { test: RegExp; message: string }[] = [
   {
     test: /\(code:\s*6000\)/i,
     message:
-      "This invoice's currency doesn't match what QuickBooks expects for this vendor. Update the currency or contact support.",
+      "This invoice's currency doesn't match what your accounting software expects for this vendor. Update the currency or contact support.",
   },
   {
     test: /invalid_grant|invalid_token|refresh token/i,
-    message: "The QuickBooks connection needs to be reconnected.",
+    message: "The accounting software connection needs to be reconnected.",
   },
 ];
 

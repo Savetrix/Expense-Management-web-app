@@ -11,6 +11,8 @@ interface ModalProps {
   footer?: ReactNode;
   /** Escape hatch for the invoice-review line-item editor's wider form layout. */
   widthClassName?: string;
+  /** Accessible name when `title` isn't plain text (e.g. an icon + label). */
+  ariaLabel?: string;
 }
 
 // Generic overlay + panel shell — DialogHost only covers the global
@@ -18,7 +20,7 @@ interface ModalProps {
 // needs arbitrary modal content (integration connection details, invoice
 // review's line-item editor) composes this instead of hand-rolling another
 // `hidden`/`flex` class-toggle like the raw mockups do.
-export function Modal({ open, onClose, title, children, footer, widthClassName = "max-w-md" }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, widthClassName = "max-w-md", ariaLabel }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export function Modal({ open, onClose, title, children, footer, widthClassName =
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={typeof title === "string" ? title : undefined}
+        aria-label={ariaLabel ?? (typeof title === "string" ? title : undefined)}
         onClick={(event) => event.stopPropagation()}
         className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl ${widthClassName}`}
       >

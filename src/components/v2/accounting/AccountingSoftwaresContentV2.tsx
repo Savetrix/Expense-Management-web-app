@@ -27,6 +27,7 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Switch } from "@/components/ui/Switch";
 import { Modal, ModalDefinitionRow, PageHeader, SearchInput } from "@/components/v2/ui";
 import { EmailForwardingPanelV2 } from "@/components/v2/accounting/EmailForwardingPanelV2";
+import { providerIdOf, providerInfoOf } from "@/lib/accountingProvider";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -64,12 +65,6 @@ const COMING_SOON: { key: string; brand: BrandName | null; name: string; descrip
     description: "Sync Sage Business Cloud Accounting invoices and GL codes with Scantrix.",
   },
   {
-    key: "xero",
-    brand: "xero",
-    name: "Xero",
-    description: "Automate invoice posting and multi-currency reconciliation with Xero.",
-  },
-  {
     // Tally and FreshBooks have no legitimately-licensed brand mark in
     // simple-icons — never hand-approximate a trademarked logo, so this one
     // renders a generic glyph. See BrandIcon.tsx.
@@ -89,7 +84,7 @@ const COMING_SOON: { key: string; brand: BrandName | null; name: string; descrip
 const MCP_EXAMPLES = [
   "What invoices are pending review?",
   "Show me this month's vendor totals.",
-  "Which invoices failed to post to QuickBooks?",
+  "Which invoices failed to post?",
 ];
 
 // Carries no display utility on purpose — every call site pairs it with
@@ -269,6 +264,7 @@ export function AccountingSoftwaresContentV2() {
     disconnectedConnections,
     checkingStatus,
     connecting,
+    connectingProvider,
     disconnectingId,
     reconnectingId,
     activeConnectionId,
@@ -284,6 +280,7 @@ export function AccountingSoftwaresContentV2() {
   const isSelectedDisconnected = selectedConnection?.status === "disconnected";
   const isSelectedReconnectRequired = selectedConnection?.status === "reconnect_required";
   const isSelectedActive = Boolean(selectedConnection) && selectedConnection?._id === activeConnectionId;
+  const selectedProvider = providerInfoOf(selectedConnection);
 
   const closeDetail = () => {
     setDetail(null);
@@ -392,7 +389,7 @@ export function AccountingSoftwaresContentV2() {
         const payload = result.payload as { message?: string } | undefined;
         showToast(
           payload?.message === "X-QB-Id header is required"
-            ? "Connect a QuickBooks company first — Google Drive is linked to your QuickBooks workspace."
+            ? "Connect an accounting company first — Google Drive is linked to that company's workspace."
             : payload?.message || "Could not start Google Drive connection. Please try again.",
           "error",
         );
@@ -415,7 +412,7 @@ export function AccountingSoftwaresContentV2() {
       setRealmCopied(true);
       setTimeout(() => setRealmCopied(false), 2000);
     } catch {
-      showToast("Couldn't copy. Select the Realm ID and copy it manually.", "error");
+      showToast(`Couldn't copy. Select the ${selectedProvider.companyIdLabel} and copy it manually.`, "error");
     }
   };
 
@@ -487,12 +484,11 @@ export function AccountingSoftwaresContentV2() {
   // subscription is only null before fetchMySubscription resolves — don't
   // disable the button on that brief gap, only once the real numbers say
   // the plan's QuickBooks slots are actually full.
-  const qbSlotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
-  const qbConnectActionTitle = qbSlotsFull
-    ? `All ${subscription!.maxSlots} QuickBooks slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
-    : activeConnections.length > 0
-      ? "Connect another QuickBooks company to Scantrix."
-      : "Sync vendors and post invoices automatically.";
+  // A slot holds one company in any accounting software.
+  const slotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  const slotsFullMessage = slotsFull
+    ? `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+    : undefined;
 
   // Client-side filter over every section — the "Filter connectors" field
   // narrows Connected / Available / Coming soon at once.
@@ -506,11 +502,12 @@ export function AccountingSoftwaresContentV2() {
   );
 
   const visibleActiveConnections = useMemo(
-    () => activeConnections.filter((connection) => matches(connection.name, "QuickBooks Online", connection.realmId)),
+    () =>
+      activeConnections.filter((connection) => matches(connection.name, providerInfoOf(connection).productName, connection.realmId)),
     [activeConnections, matches],
   );
   const visibleDisconnectedConnections = useMemo(
-    () => disconnectedConnections.filter((connection) => matches(connection.name, "QuickBooks Online")),
+    () => disconnectedConnections.filter((connection) => matches(connection.name, providerInfoOf(connection).productName)),
     [disconnectedConnections, matches],
   );
   const visibleComingSoon = useMemo(
@@ -533,9 +530,10 @@ export function AccountingSoftwaresContentV2() {
   // QuickBooks itself is no longer offered in "Available to connect" — adding
   // a company now happens from the header's company switcher, or from the
   // "Add account" row at the bottom of Connected below.
-  const showAddAccountRow = matches("QuickBooks", "QuickBooks Online", "Add account", "Connect a company");
+  const showAddAccountRow = matches("QuickBooks", "QuickBooks Online", "Xero", "Add account", "Connect a company");
   const showDriveAvailable = !driveConnected && matches("Google Drive", "Save a copy of every posted invoice");
   const showMcpAvailable = matches("Claude MCP", "Ask Claude about your invoices and vendors");
+  const showXeroAvailable = matches("Xero", "Post invoices as bills to a Xero organisation");
 
   const connectedCount = activeConnections.length + (driveConnected ? 1 : 0);
   const showConnectedSection =
@@ -544,7 +542,7 @@ export function AccountingSoftwaresContentV2() {
     driveVisible ||
     visibleDisconnectedConnections.length > 0 ||
     showAddAccountRow;
-  const showAvailableSection = showDriveAvailable || showMcpAvailable;
+  const showAvailableSection = showDriveAvailable || showMcpAvailable || showXeroAvailable;
   const nothingMatchesFilter =
     query.trim().length > 0 && !showConnectedSection && !showAvailableSection && visibleComingSoon.length === 0;
 
@@ -579,7 +577,7 @@ export function AccountingSoftwaresContentV2() {
               disabled={!accessToken || !activeConnectionId}
               title={
                 activeConnections.length === 0
-                  ? "Connect a QuickBooks company first"
+                  ? "Connect an accounting company first"
                   : !activeConnectionId
                     ? "Pick a company in the top bar first"
                     : "Pull the latest vendors, GL accounts and tax codes for the active company"
@@ -610,17 +608,18 @@ export function AccountingSoftwaresContentV2() {
                   const isActive = connection._id === activeConnectionId;
                   const needsReconnect = connection.status === "reconnect_required";
                   const isSelected = detail?.type === "connection" && detail.id === connection._id;
+                  const productName = providerInfoOf(connection).productName;
                   return (
                     <IntegrationRow
                       key={connection._id}
-                      icon={<BrandIcon name="quickbooks" size={22} />}
+                      icon={<BrandIcon name={providerIdOf(connection)} size={22} />}
                       name={connection.name}
                       description={
                         needsReconnect
-                          ? "QuickBooks Online · needs reconnect"
+                          ? `${productName} · needs reconnect`
                           : isActive
-                            ? "QuickBooks Online · active company"
-                            : "QuickBooks Online"
+                            ? `${productName} · active company`
+                            : productName
                       }
                       selected={isSelected}
                       onOpen={() => setDetail({ type: "connection", id: connection._id })}
@@ -731,6 +730,27 @@ export function AccountingSoftwaresContentV2() {
           <section>
             <SectionHeading label="Available to connect" meta="Connect once, sync continuously" />
             <div className="flex flex-col gap-[var(--space-sm)]">
+              {showXeroAvailable && (
+                <IntegrationRow
+                  icon={<BrandIcon name="xero" size={22} />}
+                  name="Xero"
+                  description="Post invoices as bills to a Xero organisation."
+                  actions={
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => handleConnect("xero")}
+                      loading={connectingProvider === "xero"}
+                      disabled={connecting || slotsFull}
+                      title={slotsFull ? slotsFullMessage : undefined}
+                      className="shrink-0"
+                    >
+                      {connectingProvider !== "xero" && <Plug size={14} strokeWidth={2.25} />}
+                      Connect
+                    </Button>
+                  }
+                />
+              )}
               {showDriveAvailable && (
                 <IntegrationRow
                   icon={<BrandIcon name="google-drive" size={22} />}
@@ -819,11 +839,11 @@ export function AccountingSoftwaresContentV2() {
           selectedConnection ? (
             <span className="flex min-w-0 items-center gap-[var(--space-sm)]">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt">
-                <BrandIcon name="quickbooks" size={18} />
+                <BrandIcon name={providerIdOf(selectedConnection)} size={18} />
               </span>
               <span className="flex min-w-0 flex-col">
                 <span className="text-tiny font-bold uppercase tracking-[0.08em] text-content-secondary">
-                  QuickBooks Online
+                  {selectedProvider.productName}
                 </span>
                 <span className="truncate text-h3 font-bold text-content-primary">{selectedConnection.name}</span>
               </span>
@@ -855,12 +875,12 @@ export function AccountingSoftwaresContentV2() {
               >
                 {formatConnectedDate(isSelectedDisconnected ? selectedConnection.updatedAt : selectedConnection.createdAt)}
               </ModalDefinitionRow>
-              <ModalDefinitionRow label="Realm ID" icon={<Code2 size={14} strokeWidth={2} />}>
+              <ModalDefinitionRow label={selectedProvider.companyIdLabel} icon={<Code2 size={14} strokeWidth={2} />}>
                 <span className="truncate font-mono text-caption">{selectedConnection.realmId}</span>
                 <button
                   type="button"
                   onClick={() => handleCopyRealmId(selectedConnection.realmId)}
-                  aria-label={realmCopied ? "Realm ID copied" : "Copy Realm ID"}
+                  aria-label={realmCopied ? `${selectedProvider.companyIdLabel} copied` : `Copy ${selectedProvider.companyIdLabel}`}
                   className="flex h-6 shrink-0 cursor-pointer items-center gap-[var(--space-xs)] rounded-sm bg-accent-bg px-[var(--space-xs)] text-tiny font-bold text-accent-text-on-bg hover:opacity-90"
                 >
                   {realmCopied ? <Check size={11} strokeWidth={2.5} /> : <Copy size={11} strokeWidth={2.5} />}
@@ -884,7 +904,7 @@ export function AccountingSoftwaresContentV2() {
                 <div className="min-w-0">
                   <p className="text-body-sm font-semibold text-content-primary">Auto-post approved invoices</p>
                   <p className="text-caption text-content-secondary">
-                    Push reviewed invoices to QuickBooks without a second confirmation.
+                    Push reviewed invoices to {selectedProvider.name} without a second confirmation.
                   </p>
                 </div>
                 <Switch
@@ -928,7 +948,9 @@ export function AccountingSoftwaresContentV2() {
                   (ownerId, realmId), reviving this same record. */}
               <button
                 type="button"
-                onClick={() => (isSelectedDisconnected ? handleConnect() : handleReconnect(selectedConnection))}
+                onClick={() =>
+                  isSelectedDisconnected ? handleConnect(providerIdOf(selectedConnection)) : handleReconnect(selectedConnection)
+                }
                 disabled={isSelectedDisconnected ? connecting : reconnectingId === selectedConnection._id}
                 className={MODAL_GHOST_BUTTON_CLASS}
               >
@@ -991,7 +1013,7 @@ export function AccountingSoftwaresContentV2() {
           <ModalDefinitionRow label="Connected on" icon={<CalendarDays size={14} strokeWidth={2} />}>
             {formatConnectedDate(driveConnectedAt)}
           </ModalDefinitionRow>
-          <ModalDefinitionRow label="Linked QuickBooks company" icon={<Building2 size={14} strokeWidth={2} />}>
+          <ModalDefinitionRow label="Linked company" icon={<Building2 size={14} strokeWidth={2} />}>
             <span className="truncate">{linkedCompanyName}</span>
           </ModalDefinitionRow>
         </div>

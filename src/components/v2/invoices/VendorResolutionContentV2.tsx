@@ -13,6 +13,7 @@ import { SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { VendorRowV2 } from "./VendorRowV2";
 import { useVendorResolution } from "./useVendorResolution";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 // v2 counterpart of VendorResolutionContent (v1) — same store/thunks/handlers
 // (now shared with VendorResolutionDialogV2 via useVendorResolution)
@@ -24,6 +25,7 @@ import { useVendorResolution } from "./useVendorResolution";
 // cards) rather than inventing new patterns.
 export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) {
   const router = useRouter();
+  const provider = useActiveProvider();
 
   const fetchError = useAppSelector((state) => state.invoice.error);
   // Only this page's invoice — on back/forward between invoices the store
@@ -123,7 +125,7 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
           <div className="min-w-0 flex-1">
             <p className="text-caption text-content-secondary">Vendor on invoice</p>
             <p className="break-words font-bold text-content-primary">{invoiceVendor}</p>
-            <Badge variant="warning">Not found in QuickBooks</Badge>
+            <Badge variant="warning">Not found in {provider.name}</Badge>
           </div>
         </div>
 
@@ -205,7 +207,7 @@ export function VendorResolutionContentV2({ invoiceId }: { invoiceId: string }) 
           <div className="flex flex-col gap-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm">
             <div>
               <h2 className="font-bold text-content-primary">Create a new vendor</h2>
-              <p className="text-body-sm text-content-secondary">This will add the vendor directly to your QuickBooks account.</p>
+              <p className="text-body-sm text-content-secondary">This will add the vendor directly to your {provider.name} account.</p>
             </div>
 
             <div>

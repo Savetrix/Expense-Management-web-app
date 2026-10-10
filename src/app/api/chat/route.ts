@@ -25,6 +25,7 @@ import { CONFIRM_MARKER, CONSENT_FRAME_PREFIX, CONSENT_FRAME_SUFFIX } from "@/li
 import { chatToolSchemas } from "@/lib/chatbot/toolSchemas";
 import { buildSystemPrompt, CHAT_MODEL } from "@/lib/chatbot/systemPrompt";
 import { callTool, TOOL_NAMES } from "@/lib/chatbot/tools";
+import { PROVIDERS } from "@/lib/accountingProvider";
 
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_OUTPUT_TOKENS = 1000;
@@ -54,6 +55,8 @@ interface ChatRequestBody {
   message: string;
   history?: ChatRequestMessage[];
   companyName?: string;
+  /** Display name of the active company's accounting software (validated below). */
+  providerName?: string;
   /**
    * Set by the client only when the human accepted the confirmation dialog
    * immediately before this turn. This — not the model's own `confirm: true`
@@ -104,7 +107,7 @@ export async function POST(request: Request) {
   // A missing QB connection means "user hasn't connected QuickBooks yet" —
   // every retrieval tool needs this header (architecture doc §4.2).
   if (!qbConnectionId) {
-    return Response.json({ error: "Missing X-QB-Id header. Connect QuickBooks first." }, { status: 400 });
+    return Response.json({ error: "Missing X-QB-Id header. Connect an accounting company first." }, { status: 400 });
   }
 
   // Until now this route only checked that an Authorization header EXISTED —
@@ -144,7 +147,14 @@ export async function POST(request: Request) {
 
   const history = Array.isArray(body.history) ? body.history.slice(-MAX_HISTORY_MESSAGES) : [];
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt(body.companyName) },
+    // Client-supplied and it lands in the system prompt — only known names pass.
+    {
+      role: "system",
+      content: buildSystemPrompt(
+        body.companyName,
+        Object.values(PROVIDERS).some((p) => p.name === body.providerName) ? body.providerName : undefined,
+      ),
+    },
     ...history.map((m): ChatCompletionMessageParam => ({ role: m.role, content: m.content })),
     { role: "user", content: body.message },
   ];

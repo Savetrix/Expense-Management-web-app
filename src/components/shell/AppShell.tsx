@@ -20,14 +20,17 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 
 import { ChatWidget } from "@/components/chatbot/ChatWidget";
+import { BrandIcon } from "@/components/icons/BrandIcon";
 import { ExpandTransitionOverlay } from "@/components/shell/ExpandTransitionOverlay";
 import { GlobalSearchBar } from "@/components/shell/GlobalSearchBar";
 import { NotificationBell } from "@/components/shell/NotificationBell";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
+import { PendingConnectionPicker } from "@/components/v2/accounting/PendingConnectionPicker";
 import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
+import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
 import { showToast } from "@/lib/dialogManager";
 import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
@@ -131,7 +134,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const connections = useAppSelector((state) => state.quickBooks.connections);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
-  const [addingAccount, setAddingAccount] = useState(false);
+  // Which software's connect is in flight (null = none).
+  const [addingAccount, setAddingAccount] = useState<AccountingProviderId | null>(null);
   const [pinned, setPinned] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const collapsed = !pinned;
@@ -263,13 +267,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // subscription is only null before fetchMySubscription resolves — don't
   // disable the row on that brief gap, only once the real numbers say the
-  // plan's QuickBooks slots are actually full.
-  const qbSlotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
-  const addAccountTitle = qbSlotsFull
-    ? `All ${subscription!.maxSlots} QuickBooks slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+  // plan's slots are actually full. A slot holds one company in any
+  // accounting software.
+  const slotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  const addAccountTitle = slotsFull
+    ? `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
     : undefined;
 
-  // Opens the QB-slots modal instead of jumping straight into the OAuth
+  // Opens the slots modal instead of jumping straight into the OAuth
   // redirect — lets the user see how many of their plan's slots are already
   // used before leaving the app.
   const handleOpenAddAccount = () => {
@@ -277,25 +282,26 @@ export function AppShell({ children }: { children: ReactNode }) {
     setAddAccountModalOpen(true);
   };
 
-  const handleAddAccount = async () => {
-    if (!accessToken || addingAccount || qbSlotsFull) return;
+  const handleAddAccount = async (provider: AccountingProviderId) => {
+    if (!accessToken || addingAccount || slotsFull) return;
+    const providerName = PROVIDERS[provider].name;
     setAddAccountModalOpen(false);
-    setAddingAccount(true);
+    setAddingAccount(provider);
     try {
       const redirectAfter = `${window.location.origin}${pathname}`;
-      const result = await dispatch(connectQuickBooks({ accessToken, redirectAfter }));
+      const result = await dispatch(connectQuickBooks({ accessToken, redirectAfter, provider }));
       if (connectQuickBooks.fulfilled.match(result)) {
         const authUrl = result.payload?.data?.authUrl;
         if (authUrl) {
           window.location.href = authUrl;
           return;
         }
-        showToast("Could not start QuickBooks connection. Please try again.", "error");
+        showToast(`Could not start ${providerName} connection. Please try again.`, "error");
       } else {
-        showToast(typeof result.payload === "string" ? result.payload : "Could not start QuickBooks connection.", "error");
+        showToast(typeof result.payload === "string" ? result.payload : `Could not start ${providerName} connection.`, "error");
       }
     } finally {
-      setAddingAccount(false);
+      setAddingAccount(null);
     }
   };
 
@@ -508,24 +514,28 @@ export function AppShell({ children }: { children: ReactNode }) {
                             isActive ? "bg-accent-bg font-bold text-accent-text-on-bg" : "text-content-primary hover:bg-surface-alt"
                           }`}
                         >
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-bg text-caption font-bold text-accent-text-on-bg">
-                            {connection.name.charAt(0).toUpperCase()}
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-surface">
+                            <BrandIcon name={providerIdOf(connection)} size={16} />
                           </span>
-                          <span className="min-w-0 flex-1 truncate">{connection.name}</span>
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate">{connection.name}</span>
+                            <span className="truncate text-tiny font-normal text-content-muted">
+                              {providerInfoOf(connection).productName}
+                            </span>
+                          </span>
                           {isActive && <Check size={16} strokeWidth={2.5} className="shrink-0 text-accent" />}
                         </button>
                       );
                     })}
 
-                    {/* Same connect flow as the "Add account" row on the
-                        Integrations page — QuickBooks connection management
-                        used to live only there, this just offers the same
-                        action from wherever the switcher already is. */}
+                    {/* Same connect flow as the "Available to connect" rows on
+                        the Integrations page, offered from wherever the
+                        switcher already is. */}
                     <div className={connectedAccounts.length > 0 ? "mt-[var(--space-xs)] border-t border-border pt-[var(--space-xs)]" : ""}>
                       <button
                         type="button"
                         onClick={handleOpenAddAccount}
-                        disabled={addingAccount}
+                        disabled={Boolean(addingAccount)}
                         className="flex w-full items-center gap-[var(--space-sm)] rounded-md px-[var(--space-sm)] py-[var(--space-sm)] text-left text-body-sm font-semibold text-accent hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-content-secondary">
@@ -650,10 +660,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
+      {/* Accounting OAuth returns (?error=, ?pendingConnectionId=) can land
+          on any page — the connect flow redirects back to wherever it started. */}
+      <Suspense fallback={null}>
+        <PendingConnectionPicker />
+      </Suspense>
+
       <Modal
         open={addAccountModalOpen}
         onClose={() => setAddAccountModalOpen(false)}
-        title="Add a QuickBooks account"
+        title="Add an accounting account"
         footer={
           <>
             <button
@@ -663,7 +679,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               Cancel
             </button>
-            {qbSlotsFull ? (
+            {slotsFull && (
               <Link
                 href="/subscription"
                 onClick={() => setAddAccountModalOpen(false)}
@@ -671,22 +687,32 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 Upgrade plan
               </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={handleAddAccount}
-                disabled={addingAccount}
-                className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {addingAccount ? "Connecting…" : "Continue to QuickBooks"}
-              </button>
             )}
           </>
         }
       >
         <p className="text-body-sm text-content-secondary">
-          Each connected QuickBooks company uses one slot on your plan.
+          Each connected company uses one slot on your plan, whichever accounting software it&apos;s in.
         </p>
+        {!slotsFull && (
+          <div className="mt-[var(--space-md)] flex flex-col gap-[var(--space-sm)]">
+            {(Object.keys(PROVIDERS) as AccountingProviderId[]).map((provider) => (
+              <button
+                key={provider}
+                type="button"
+                onClick={() => handleAddAccount(provider)}
+                disabled={Boolean(addingAccount)}
+                className="flex w-full items-center gap-[var(--space-sm)] rounded-md border border-border px-[var(--space-md)] py-[var(--space-sm)] text-left text-body-sm font-semibold text-content-primary hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BrandIcon name={provider} size={20} />
+                <span className="flex-1">{PROVIDERS[provider].productName}</span>
+                <span className="text-caption text-accent">
+                  {addingAccount === provider ? "Connecting…" : `Continue to ${PROVIDERS[provider].name}`}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mt-[var(--space-md)]">
           {subscription ? (
             <ModalDefinitionRow label="Plan">{subscription.planName}</ModalDefinitionRow>
@@ -699,12 +725,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="mt-[var(--space-sm)]">
             <ProgressBar
               percent={(subscription.slotsUsed / Math.max(subscription.maxSlots, 1)) * 100}
-              colorClassName={qbSlotsFull ? "bg-status-danger" : "bg-accent"}
-              label="QuickBooks slots used"
+              colorClassName={slotsFull ? "bg-status-danger" : "bg-accent"}
+              label="Accounting slots used"
             />
           </div>
         )}
-        {qbSlotsFull && (
+        {slotsFull && (
           <p className="mt-[var(--space-md)] text-body-sm text-status-danger">{addAccountTitle}</p>
         )}
       </Modal>

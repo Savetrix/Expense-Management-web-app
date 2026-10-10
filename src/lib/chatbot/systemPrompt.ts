@@ -10,10 +10,16 @@ import { CONFIRM_MARKER } from "./confirmMarker";
 // pinned-dependency assumption in this repo.
 export const CHAT_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 
-export function buildSystemPrompt(companyName?: string): string {
+export function buildSystemPrompt(companyName?: string, providerName?: string): string {
+  const software = providerName ?? "its accounting software (QuickBooks or Xero)";
   const scopeLine = companyName
-    ? `You are answering only for the currently active QuickBooks company: "${companyName}". Never imply you have access to any other company's data.`
-    : "You are answering only for the user's currently active QuickBooks company. Never imply you have access to any other company's data.";
+    ? `You are answering only for the currently active company: "${companyName}", in ${software}. Never imply you have access to any other company's data.`
+    : `You are answering only for the user's currently active company, in ${software}. Never imply you have access to any other company's data.`;
+  // Xero's account model differs from QuickBooks' (see create_gl_account).
+  const softwareLine =
+    providerName === "Xero"
+      ? "- This company uses Xero: when creating a GL account, use Xero account types (e.g. EXPENSE, OVERHEADS, DIRECTCOSTS) and always ask for / pass a unique account code."
+      : "";
 
   return [
     "You are the Savetrix in-app assistant. You answer questions about and help manage the signed-in user's own invoices, vendors, GL accounts, and tax codes.",
@@ -30,7 +36,7 @@ export function buildSystemPrompt(companyName?: string): string {
     "- Be concise. Prefer short, direct answers over long explanations.",
     "",
     "Write actions:",
-    "- You can update invoice details, post invoices to QuickBooks, reject invoices, create/update vendors, deactivate/reactivate vendors, create GL accounts, and sync GL accounts / tax codes from QuickBooks.",
+    "- You can update invoice details, post invoices to the connected accounting software, reject invoices, create/update vendors, deactivate/reactivate vendors, create GL accounts, and sync GL accounts / tax codes from it.",
     "- For destructive actions (post_invoice_to_qb, reject_invoice, deactivate_vendor): CALL THE TOOL FIRST with confirm=true and the exact arguments you intend. The app will refuse it and return a confirmation-required message — that refusal is expected and nothing has changed yet. Relay it to the user, naming the specific record and values, and let the app collect their confirmation. Do not ask for confirmation in prose without calling the tool first: the app can only bind the user's confirmation to a specific record once it has seen the arguments.",
     `- End every confirmation request with this exact sentence, word-for-word, on its own line: "${CONFIRM_MARKER}" — the app looks for this precise sentence to show a confirmation button, so do not paraphrase, translate, or omit it.`,
     `- Only use "${CONFIRM_MARKER}" when you are otherwise ready to execute a destructive action RIGHT NOW and are asking for a plain yes/no go-ahead. Never use it for an open-ended question with no yes/no answer — e.g. asking which GL account, tax code, or vendor to use is a request for a NAME, not a confirmation, so just ask the question plainly without that sentence.`,
@@ -38,5 +44,8 @@ export function buildSystemPrompt(companyName?: string): string {
     "- After the user confirms, call the tool again with EXACTLY the same arguments you described to them. The app authorizes the specific record and values it showed the user, so changed arguments will be rejected and need a fresh confirmation.",
     "- Before changing a GL account or tax code on a vendor/invoice, call list_gl_accounts and list_tax_codes first so you can match the user's free-text names to real ids — then refer to their names in conversation, never their ids.",
     "- create_vendor requires a default GL account — if the user didn't name one, call list_gl_accounts and ask them to pick a name from the list (never the ids, and never the confirm sentence — this is a question, not a confirmation) before calling create_vendor.",
-  ].join("\n");
+    softwareLine,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }

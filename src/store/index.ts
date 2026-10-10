@@ -31,7 +31,7 @@ import inboundEmailReducer from "./inboundEmail/inboundEmailSlice";
 const quickBooksPersistConfig = {
   key: "quickBooks",
   storage: persistStorage,
-  whitelist: ["connected", "realmId", "qbConnectionId", "hasExplicitSelection"],
+  whitelist: ["connected", "realmId", "qbConnectionId", "hasExplicitSelection", "activeProviderId"],
 };
 
 const rootReducer = combineReducers({

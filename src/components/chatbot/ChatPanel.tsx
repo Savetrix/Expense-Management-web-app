@@ -23,6 +23,7 @@ import {
   streamFailed,
 } from "@/store/chat/chatSlice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 let nextMessageId = 0;
 const newMessageId = () => `chat-${Date.now()}-${++nextMessageId}`;
@@ -46,6 +47,7 @@ function stripConsentFrame(text: string): string {
 export function ChatPanel({ companyName, onClose }: { companyName?: string; onClose: () => void }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const provider = useActiveProvider();
   const accessToken: string | undefined = useAppSelector((state) => state.auth.user?.data?.accessToken);
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
   const messages = useAppSelector((state) => state.chat.messages);
@@ -122,6 +124,7 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
           message: text,
           history,
           companyName,
+          providerName: provider.name,
           ...(opts.userConfirmed ? { userConfirmed: true } : {}),
           ...(opts.confirmationToken ? { confirmationToken: opts.confirmationToken } : {}),
         }),
@@ -333,8 +336,8 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={<Puzzle size={28} strokeWidth={1.75} />}
-            title="Connect QuickBooks to chat"
-            description="The assistant answers questions about your invoices, vendors, and accounts — connect a QuickBooks company first."
+            title="Connect your accounting software to chat"
+            description="The assistant answers questions about your invoices, vendors, and accounts — connect a QuickBooks or Xero company first."
             actionLabel="Go to Integrations"
             onAction={() => router.push("/accounting-software")}
           />
@@ -358,7 +361,7 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
             {messages.length === 0 && (
               <p className="pt-[var(--space-xl)] text-center text-body-sm text-text-secondary">
                 Ask me to look something up — or to make a change, like creating a vendor or posting an
-                invoice to QuickBooks. Tap <Sparkles size={14} strokeWidth={2} className="inline align-text-bottom" /> above
+                invoice to {provider.name}. Tap <Sparkles size={14} strokeWidth={2} className="inline align-text-bottom" /> above
                 for examples. Answers only cover your currently active company.
               </p>
             )}

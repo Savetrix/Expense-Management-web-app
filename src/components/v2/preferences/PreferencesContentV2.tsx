@@ -7,13 +7,15 @@ import { Spinner } from "@/components/ui/Spinner";
 import { PageHeader, RoleInfoBanner } from "@/components/v2/ui";
 import { PreferenceRow } from "./PreferenceRow";
 import { usePreferencesSettings } from "./usePreferencesSettings";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
+import { useRouter } from "next/navigation";
 
 export function PreferencesContentV2() {
+  const provider = useActiveProvider();
+  const router = useRouter();
   const {
     activeConnections,
     checkingStatus,
-    connecting,
-    handleConnect,
     activeConnection,
     currentRole,
     canManage,
@@ -46,10 +48,10 @@ export function PreferencesContentV2() {
             description={
               activeConnections.length > 0
                 ? "Choose a company from the switcher up top to manage its posting preferences."
-                : "Connect a QuickBooks company to manage posting preferences."
+                : "Connect an accounting company to manage posting preferences."
             }
-            actionLabel={activeConnections.length > 0 ? undefined : connecting ? "Connecting…" : "Connect QuickBooks"}
-            onAction={activeConnections.length > 0 ? undefined : handleConnect}
+            actionLabel={activeConnections.length > 0 ? undefined : "Go to Integrations"}
+            onAction={activeConnections.length > 0 ? undefined : () => router.push("/accounting-software")}
           />
         </div>
       </div>
@@ -58,7 +60,7 @@ export function PreferencesContentV2() {
 
   return (
     <div className="w-full max-w-2xl p-[var(--space-md)] sm:p-[var(--space-lg)]">
-      <PageHeader title="Preferences" subtitle={`Control how invoices post to QuickBooks for ${activeConnection.name}.`} />
+      <PageHeader title="Preferences" subtitle={`Control how invoices post to ${provider.name} for ${activeConnection.name}.`} />
 
       {!canManage && (
         <div className="mt-[var(--space-md)]">
@@ -73,7 +75,7 @@ export function PreferencesContentV2() {
         <PreferenceRow
           icon={<Rows3 size={18} strokeWidth={2} />}
           title="Line item wise Entry"
-          description="Book every extracted invoice line item as its own line in the QuickBooks entry. When off, each invoice posts as a single consolidated line."
+          description={`Book every extracted invoice line item as its own line in the ${provider.name} bill. When off, each invoice posts as a single consolidated line.`}
           checked={lineItemWiseEnabled}
           saving={savingLineItem}
           disabled={!canManage}
@@ -82,7 +84,7 @@ export function PreferencesContentV2() {
         <PreferenceRow
           icon={<Zap size={18} strokeWidth={2} />}
           title="Auto-Post"
-          description="Automatically post invoices to QuickBooks once they're scanned with high confidence. Turn this off to always review invoices yourself before posting, no matter how confident the scan is."
+          description={`Automatically post invoices to ${provider.name} once they're scanned with high confidence. Turn this off to always review invoices yourself before posting, no matter how confident the scan is.`}
           checked={autoPostEnabled}
           saving={savingAutoPost}
           disabled={!canManage}
@@ -91,7 +93,7 @@ export function PreferencesContentV2() {
         <PreferenceRow
           icon={<Paperclip size={18} strokeWidth={2} />}
           title="Attach Invoice Copy"
-          description="Attach a copy of the scanned invoice file to the QuickBooks bill. Turn this off to post the bill without the original file attached."
+          description={`Attach a copy of the scanned invoice file to the ${provider.name} bill. Turn this off to post the bill without the original file attached.`}
           checked={attachInvoiceCopyEnabled}
           saving={savingAttachInvoiceCopy}
           disabled={!canManage}

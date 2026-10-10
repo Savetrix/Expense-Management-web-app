@@ -1,6 +1,14 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../../lib/api";
 import { RootState } from "..";
+import { PROVIDERS, providerIdOf, type AccountingProviderId } from "../../lib/accountingProvider";
+
+// Name of the accounting software for a connection id (default: the company
+// selected in the header) — for user-facing fallback error messages.
+const providerNameFor = (state: RootState, connectionId?: string) => {
+  const id = connectionId ?? state?.quickBooks?.qbConnectionId;
+  return PROVIDERS[providerIdOf(state?.quickBooks?.connections?.find((c) => c._id === id))].name;
+};
 
 // ================================
 // CONNECT QUICKBOOKS
@@ -10,6 +18,8 @@ interface ConnectQuickBooksPayload {
   redirectAfter?: string;
   /** Present → re-auth an existing connection instead of creating a new one */
   qbConnectionId?: string;
+  /** Which software to connect. QuickBooks keeps the original /quickbooks/connect route. */
+  provider?: AccountingProviderId;
 }
 
 export const connectQuickBooks = createAsyncThunk(
@@ -21,8 +31,14 @@ export const connectQuickBooks = createAsyncThunk(
         ...(data.redirectAfter ? { redirectAfter: data.redirectAfter } : {}),
         ...(data.qbConnectionId ? { qbConnectionId: data.qbConnectionId } : {}),
       };
-      console.log("GET /quickbooks/connect", params);
-      const response = await api.get("/quickbooks/connect", {
+      // Re-auth always resolves the provider from the connection itself, so
+      // only a NEW non-QuickBooks connection needs the provider-specific route.
+      const path =
+        data.provider && data.provider !== "quickbooks" && !data.qbConnectionId
+          ? `/accounting/connect/${data.provider}`
+          : "/quickbooks/connect";
+      console.log(`GET ${path}`, params);
+      const response = await api.get(path, {
         headers: { Authorization: `Bearer ${data.accessToken}` },
         params,
       });
@@ -35,7 +51,7 @@ export const connectQuickBooks = createAsyncThunk(
         error?.response?.data?.message ||
         error?.response?.data?.error ||
         error?.message ||
-        "Failed to connect QuickBooks";
+        `Failed to connect ${PROVIDERS[data.provider ?? "quickbooks"].name}`;
       return thunkAPI.rejectWithValue(errorMessage);
     }
   },
@@ -65,7 +81,7 @@ export const getMyQBConnections = createAsyncThunk(
       const message =
         error?.response?.data?.message ||
         error?.message ||
-        "Failed to fetch QB connections";
+        "Failed to fetch accounting connections";
       const statusCode = error?.response?.status;
       return thunkAPI.rejectWithValue({ message, statusCode });
     }
@@ -104,7 +120,7 @@ export const getQuickBooksStatus = createAsyncThunk(
       const message =
         error?.response?.data?.message ||
         error?.message ||
-        "Failed to fetch QuickBooks status";
+        `Failed to fetch ${providerNameFor(thunkAPI.getState() as RootState, data.qbConnectionId)} status`;
       const statusCode = error?.response?.status;
       return thunkAPI.rejectWithValue({ message, statusCode });
     }
@@ -143,7 +159,7 @@ export const updateQuickBooksSettings = createAsyncThunk(
       return response.data;
     } catch (error: any) {
       console.log("========== UPDATE QB SETTINGS ERROR ==========");
-      const message = error?.response?.data?.message || error?.message || "Failed to update QuickBooks settings";
+      const message = error?.response?.data?.message || error?.message || `Failed to update ${providerNameFor(thunkAPI.getState() as RootState)} settings`;
       return thunkAPI.rejectWithValue(message);
     }
   },
@@ -190,7 +206,7 @@ export const disconnectQuickBooks = createAsyncThunk(
         error?.response?.data?.message ||
         error?.response?.data?.error ||
         error?.message ||
-        "Failed to disconnect QuickBooks";
+        `Failed to disconnect ${providerNameFor(thunkAPI.getState() as RootState, data.qbConnectionId)}`;
       return thunkAPI.rejectWithValue(errorMessage);
     }
   },
@@ -528,7 +544,7 @@ export const syncQuickBooksVendors = createAsyncThunk(
       return response.data;
     } catch (error: any) {
       console.log("========== SYNC VENDORS ERROR ==========");
-      const message = error?.response?.data?.message || error?.message || "Failed to sync vendors from QuickBooks";
+      const message = error?.response?.data?.message || error?.message || `Failed to sync vendors from ${providerNameFor(thunkAPI.getState() as RootState)}`;
       return thunkAPI.rejectWithValue({ message, statusCode: error?.response?.data?.statusCode });
     }
   },
@@ -579,6 +595,8 @@ interface CreateAccountPayload {
   name: string;
   accountType: string;
   accountSubType?: string;
+  /** Account code — required by Xero, ignored by QuickBooks. */
+  code?: string;
 }
 
 export const createQuickBooksAccount = createAsyncThunk(
@@ -599,6 +617,7 @@ export const createQuickBooksAccount = createAsyncThunk(
           name: data.name,
           accountType: data.accountType,
           ...(data.accountSubType ? { accountSubType: data.accountSubType } : {}),
+          ...(data.code ? { code: data.code } : {}),
         },
         { headers },
       );
@@ -643,7 +662,7 @@ export const syncQuickBooksAccounts = createAsyncThunk(
     } catch (error: any) {
       console.log("========== SYNC GL ACCOUNTS ERROR ==========");
       const message =
-        error?.response?.data?.message || error?.message || "Failed to sync GL accounts from QuickBooks";
+        error?.response?.data?.message || error?.message || `Failed to sync GL accounts from ${providerNameFor(thunkAPI.getState() as RootState)}`;
       return thunkAPI.rejectWithValue({ message, statusCode: error?.response?.data?.statusCode });
     }
   },
@@ -729,7 +748,7 @@ export const syncQuickBooksTaxCodes = createAsyncThunk(
     } catch (error: any) {
       console.log("========== SYNC TAX CODES ERROR ==========");
       const message =
-        error?.response?.data?.message || error?.message || "Failed to sync tax codes from QuickBooks";
+        error?.response?.data?.message || error?.message || `Failed to sync tax codes from ${providerNameFor(thunkAPI.getState() as RootState)}`;
       return thunkAPI.rejectWithValue({ message, statusCode: error?.response?.data?.statusCode });
     }
   },
@@ -887,6 +906,53 @@ export const acceptQBInvite = createAsyncThunk(
         message,
         statusCode: error?.response?.status,
       });
+    }
+  },
+);
+
+// ================================
+// PENDING CONNECTION (multi-organisation consent)
+// ================================
+// A Xero consent can authorise several organisations at once; the backend
+// parks it and redirects back with ?pendingConnectionId=… so the user picks
+// one (one organisation per slot).
+type RequestError = { response?: { data?: { message?: string } }; message?: string };
+const messageOf = (error: unknown, fallback: string) => {
+  const e = error as RequestError;
+  return e?.response?.data?.message || e?.message || fallback;
+};
+
+interface PendingConnectionPayload {
+  accessToken: string;
+  pendingConnectionId: string;
+}
+
+export const getPendingConnection = createAsyncThunk(
+  "quickbooks/getPendingConnection",
+  async (data: PendingConnectionPayload, thunkAPI) => {
+    try {
+      const response = await api.get(`/accounting/pending/${data.pendingConnectionId}`, {
+        headers: { Authorization: `Bearer ${data.accessToken}` },
+      });
+      return response.data;
+    } catch (error) {
+      return thunkAPI.rejectWithValue(messageOf(error, "Could not load the organisations to connect"));
+    }
+  },
+);
+
+export const selectPendingConnection = createAsyncThunk(
+  "quickbooks/selectPendingConnection",
+  async (data: PendingConnectionPayload & { tenantId: string }, thunkAPI) => {
+    try {
+      const response = await api.post(
+        `/accounting/pending/${data.pendingConnectionId}/select`,
+        { tenantId: data.tenantId },
+        { headers: { Authorization: `Bearer ${data.accessToken}` } },
+      );
+      return response.data;
+    } catch (error) {
+      return thunkAPI.rejectWithValue(messageOf(error, "Could not connect the organisation"));
     }
   },
 );
