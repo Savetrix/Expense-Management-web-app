@@ -10,6 +10,7 @@ import {
   updateQuickBooksVendor,
 } from "./quickBooksApi";
 import { isSessionBoundary } from "../sessionBoundary";
+import { DEFAULT_PROVIDER, providerIdOf, type AccountingProviderId } from "../../lib/accountingProvider";
 import type { QBConnection } from "./useQuickBooksConnections";
 
 export interface Vendor {
@@ -107,6 +108,10 @@ interface QuickBooksState {
   // False until the first fetch settles (success or failure), so screens can
   // tell "still loading" from "no companies".
   connectionsLoaded: boolean;
+  // Accounting software of the selected company, persisted (connections
+  // aren't) so a reload doesn't label a Xero company "QuickBooks" until
+  // GET /connections returns. Kept current by the matcher below.
+  activeProviderId: AccountingProviderId | null;
 }
 
 const initialState: QuickBooksState = {
@@ -114,6 +119,7 @@ const initialState: QuickBooksState = {
   realmId: "",
   qbConnectionId: "",
   hasExplicitSelection: false,
+  activeProviderId: null,
   statusLoading: false,
   statusError: null,
   disconnectReason: null,
@@ -222,7 +228,7 @@ const quickBooksSlice = createSlice({
         } else {
           // A transient failure keeps the last known list rather than
           // briefly showing every screen's "no company" state.
-          state.statusError = payload?.message || "Failed to fetch QB connections";
+          state.statusError = payload?.message || "Failed to fetch accounting connections";
         }
       });
 
@@ -257,7 +263,7 @@ const quickBooksSlice = createSlice({
       .addCase(getQuickBooksStatus.rejected, (state, action) => {
         state.statusLoading = false;
         const payload = action.payload as { message?: string; statusCode?: number } | undefined;
-        state.statusError = payload?.message || "Failed to fetch QuickBooks status";
+        state.statusError = payload?.message || "Failed to fetch connection status";
       });
 
     // ── Settings (auto-post / line-item-wise entry) ───────────────────
@@ -356,8 +362,26 @@ const quickBooksSlice = createSlice({
     // browser last. Must come after every addCase above — RTK's builder
     // requires all addCase calls before any addMatcher call.
     builder.addMatcher(isSessionBoundary, () => initialState);
+    // After any quickBooks/* action: re-derive the selected company's
+    // provider whenever the connection list is known.
+    builder.addMatcher(
+      (action) => /^quickbooks\//i.test(action.type),
+      (state) => {
+        if (state.connections.length === 0) return;
+        state.activeProviderId = providerIdOf(state.connections.find((c) => c._id === state.qbConnectionId));
+      },
+    );
   },
 });
 
 export const { setConnected } = quickBooksSlice.actions;
 export default quickBooksSlice.reducer;
+
+// The accounting software of the company currently selected in the header —
+// from the live connection list once loaded, before that the persisted value;
+// QuickBooks when nothing is selected or the data predates provider info.
+export const selectActiveProviderId = (state: { quickBooks: QuickBooksState }): AccountingProviderId => {
+  const { connections, qbConnectionId, activeProviderId } = state.quickBooks;
+  if (connections?.length) return providerIdOf(connections.find((c) => c._id === qbConnectionId));
+  return activeProviderId ?? DEFAULT_PROVIDER;
+};

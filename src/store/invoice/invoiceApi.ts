@@ -3,6 +3,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 import api from "../../lib/api";
 import { RootState } from "..";
 import type { InvoiceRecord } from "./invoiceSlice";
+import { PROVIDERS, providerIdOf } from "../../lib/accountingProvider";
 
 // ======================================
 // TYPES
@@ -239,6 +240,10 @@ export const postInvoiceToQuickBooks = createAsyncThunk(
   "invoice/postInvoiceToQuickBooks",
 
   async (data: PostInvoicePayload, thunkAPI) => {
+    // The invoice belongs to the company selected in the header (X-QB-Id).
+    // Only a label — must never be what fails a post, so tolerate a partial state.
+    const quickBooks = (thunkAPI.getState() as RootState)?.quickBooks;
+    const providerName = PROVIDERS[providerIdOf(quickBooks?.connections?.find((c) => c._id === quickBooks.qbConnectionId))].name;
     // A post with no resolved vendor is exactly the "invoice for a new vendor
     // threw an error but was still posted" failure mode: an empty vendorId
     // must never be sent, regardless of which caller reaches this thunk.
@@ -246,13 +251,13 @@ export const postInvoiceToQuickBooks = createAsyncThunk(
     // choke point every posting path funnels through.
     if (!data.vendorId || !String(data.vendorId).trim()) {
       return thunkAPI.rejectWithValue(
-        "Cannot post to QuickBooks: no vendor is resolved for this invoice. Resolve the vendor first.",
+        `Cannot post to ${providerName}: no vendor is resolved for this invoice. Resolve the vendor first.`,
       );
     }
 
     if (postingInFlight.has(data.invoiceId)) {
       return thunkAPI.rejectWithValue(
-        "This invoice is already being posted to QuickBooks. Wait for the current post to finish.",
+        `This invoice is already being posted to ${providerName}. Wait for the current post to finish.`,
       );
     }
     postingInFlight.add(data.invoiceId);
@@ -282,7 +287,7 @@ export const postInvoiceToQuickBooks = createAsyncThunk(
 
           if (alreadyPosted) {
             return thunkAPI.rejectWithValue(
-              `Invoice is already posted to QuickBooks${existing.quickbooks?.billId ? ` (bill #${existing.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
+              `Invoice is already posted to ${providerName}${existing.quickbooks?.billId ? ` (bill #${existing.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
             );
           }
         }
@@ -311,7 +316,7 @@ export const postInvoiceToQuickBooks = createAsyncThunk(
 
             if (serverSaysPosted) {
               return thunkAPI.rejectWithValue(
-                `Invoice is already posted to QuickBooks${serverInvoice.quickbooks?.billId ? ` (bill #${serverInvoice.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
+                `Invoice is already posted to ${providerName}${serverInvoice.quickbooks?.billId ? ` (bill #${serverInvoice.quickbooks.billId})` : ""}. It was not re-posted to avoid creating a duplicate bill.`,
               );
             }
           }

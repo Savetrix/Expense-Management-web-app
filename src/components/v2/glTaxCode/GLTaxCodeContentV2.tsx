@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
+import { PROVIDERS, type AccountingProviderId } from "@/lib/accountingProvider";
 import { showToast } from "@/lib/dialogManager";
 import { formatTaxRate, taxCodeId as getTaxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -20,35 +21,26 @@ import {
   syncQuickBooksAccounts,
   syncQuickBooksTaxCodes,
 } from "@/store/quickBooks/quickBooksApi";
-import type { GLAccount, TaxCode } from "@/store/quickBooks/quickBooksSlice";
+import { selectActiveProviderId, type GLAccount, type TaxCode } from "@/store/quickBooks/quickBooksSlice";
 import { DataTable, Modal, PageHeader, RoleInfoBanner, SearchInput, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 
 type GLTab = "accounts" | "taxCodes";
 
-// Mirrors account.service.js's INVOICE_GL_TYPES on the backend — GET
-// /quickbooks/accounts only ever returns these types, so creating any other
-// type would be invisible in every account picker in the app.
-const GL_ACCOUNT_TYPES = [
-  "Expense",
-  "Other Expense",
-  "Cost of Goods Sold",
-  "Fixed Asset",
-  "Other Asset",
-  "Other Current Asset",
-];
-
 interface AccountFormState {
   name: string;
   accountType: string;
   accountSubType: string;
+  code: string;
 }
 
-const EMPTY_ACCOUNT_FORM: AccountFormState = {
+// Account types differ per accounting software (see PROVIDERS.accountTypes).
+const emptyAccountForm = (provider: AccountingProviderId): AccountFormState => ({
   name: "",
-  accountType: GL_ACCOUNT_TYPES[0],
+  accountType: PROVIDERS[provider].accountTypes[0].value,
   accountSubType: "",
-};
+  code: "",
+});
 
 const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 const FIELD_INPUT_CLASS =
@@ -74,7 +66,9 @@ export function GLTaxCodeContentV2() {
   const [searchText, setSearchText] = useState("");
 
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [form, setForm] = useState<AccountFormState>(EMPTY_ACCOUNT_FORM);
+  const activeProviderId = useAppSelector(selectActiveProviderId);
+  const provider = PROVIDERS[activeProviderId];
+  const [form, setForm] = useState<AccountFormState>(() => emptyAccountForm(activeProviderId));
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,7 +112,7 @@ export function GLTaxCodeContentV2() {
   }, [taxCodes, searchText]);
 
   const openCreateSheet = () => {
-    setForm(EMPTY_ACCOUNT_FORM);
+    setForm(emptyAccountForm(activeProviderId));
     setFormError("");
     setSheetVisible(true);
   };
@@ -153,6 +147,11 @@ export function GLTaxCodeContentV2() {
       setFormError("Account name is required");
       return;
     }
+    const trimmedCode = form.code.trim();
+    if (provider.accountCodeRequired && !trimmedCode) {
+      setFormError(`Account code is required in ${provider.name}`);
+      return;
+    }
 
     setFormError("");
     setSaving(true);
@@ -162,7 +161,8 @@ export function GLTaxCodeContentV2() {
           accessToken,
           name: trimmedName,
           accountType: form.accountType,
-          accountSubType: form.accountSubType.trim() || undefined,
+          accountSubType: provider.accountSubTypeSupported ? form.accountSubType.trim() || undefined : undefined,
+          code: provider.accountCodeRequired ? trimmedCode : undefined,
         }),
       );
       if (createQuickBooksAccount.fulfilled.match(result)) {
@@ -195,12 +195,12 @@ export function GLTaxCodeContentV2() {
       }
 
       if (accountsOk && taxCodesOk) {
-        showToast("GL accounts and tax codes refreshed from QuickBooks.", "success");
+        showToast(`GL accounts and tax codes refreshed from ${provider.name}.`, "success");
       } else if (accountsOk || taxCodesOk) {
         showToast("Refreshed, but one part failed. Try again to complete the sync.", "error");
       } else {
         const payload = (accountsResult.payload || taxCodesResult.payload) as { message?: string } | undefined;
-        showToast(payload?.message || "Could not refresh from QuickBooks. Please try again.", "error");
+        showToast(payload?.message || `Could not refresh from ${provider.name}. Please try again.`, "error");
       }
     } finally {
       setRefreshing(false);
@@ -218,7 +218,12 @@ export function GLTaxCodeContentV2() {
       key: "type",
       header: "Type",
       width: "30%",
-      render: (account) => <span className="block truncate py-[var(--space-sm)] text-content-secondary">{account.accountType || "—"}</span>,
+      // Xero types are codes (DIRECTCOSTS) — show the provider's friendly label when known.
+      render: (account) => (
+        <span className="block truncate py-[var(--space-sm)] text-content-secondary">
+          {provider.accountTypes.find((t) => t.value === account.accountType)?.label ?? (account.accountType || "—")}
+        </span>
+      ),
     },
     {
       key: "subtype",
@@ -265,7 +270,7 @@ export function GLTaxCodeContentV2() {
       header: "",
       width: "20%",
       align: "right",
-      render: () => <Badge variant="neutral">QuickBooks</Badge>,
+      render: () => <Badge variant="neutral">{provider.name}</Badge>,
     },
   ];
 
@@ -287,7 +292,7 @@ export function GLTaxCodeContentV2() {
             description={
               connections.length > 0
                 ? "Choose a company from the switcher up top to manage its GL accounts and tax codes."
-                : "Connect a QuickBooks company before managing GL accounts and tax codes."
+                : "Connect an accounting company before managing GL accounts and tax codes."
             }
           />
         </div>
@@ -313,8 +318,8 @@ export function GLTaxCodeContentV2() {
               type="button"
               onClick={handleRefresh}
               disabled={refreshing}
-              aria-label="Refresh from QuickBooks"
-              title="Refresh from QuickBooks"
+              aria-label={`Refresh from ${provider.name}`}
+              title={`Refresh from ${provider.name}`}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-content-primary transition-opacity hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw size={18} strokeWidth={2.25} className={refreshing ? "animate-spin" : ""} />
@@ -372,8 +377,8 @@ export function GLTaxCodeContentV2() {
             title={activeTab === "accounts" ? "No GL accounts yet" : "No tax codes found"}
             description={
               activeTab === "accounts"
-                ? "GL accounts sync automatically from QuickBooks, or add one manually."
-                : "Tax codes come from your QuickBooks company's tax settings — set them up in QuickBooks to see them here."
+                ? `GL accounts sync automatically from ${provider.name}, or add one manually.`
+                : `Tax codes come from your ${provider.name} ${provider.companyNoun}'s tax settings — set them up in ${provider.name} to see them here.`
             }
             actionLabel={activeTab === "accounts" && canManage ? "Add GL Account" : undefined}
             onAction={activeTab === "accounts" && canManage ? openCreateSheet : undefined}
@@ -419,24 +424,40 @@ export function GLTaxCodeContentV2() {
               disabled={saving}
               className="mt-[var(--space-xs)] h-[50px] w-full rounded-md border border-border bg-page px-[var(--space-md)] text-body text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40"
             >
-              {GL_ACCOUNT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
+              {provider.accountTypes.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
                 </option>
               ))}
             </select>
           </div>
 
-          <div>
-            <label className={FIELD_LABEL_CLASS}>Account subtype</label>
-            <input
-              value={form.accountSubType}
-              onChange={(e) => setForm((f) => ({ ...f, accountSubType: e.target.value }))}
-              placeholder="e.g. RentOrLeaseOfBuildings (optional)"
-              disabled={saving}
-              className={FIELD_INPUT_CLASS}
-            />
-          </div>
+          {provider.accountCodeRequired && (
+            <div>
+              <label className={FIELD_LABEL_CLASS}>Account code *</label>
+              <input
+                value={form.code}
+                onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                placeholder="e.g. 429"
+                maxLength={10}
+                disabled={saving}
+                className={FIELD_INPUT_CLASS}
+              />
+            </div>
+          )}
+
+          {provider.accountSubTypeSupported && (
+            <div>
+              <label className={FIELD_LABEL_CLASS}>Account subtype</label>
+              <input
+                value={form.accountSubType}
+                onChange={(e) => setForm((f) => ({ ...f, accountSubType: e.target.value }))}
+                placeholder="e.g. RentOrLeaseOfBuildings (optional)"
+                disabled={saving}
+                className={FIELD_INPUT_CLASS}
+              />
+            </div>
+          )}
 
           {formError && <p className="text-caption font-semibold text-status-danger-text">{formError}</p>}
         </div>

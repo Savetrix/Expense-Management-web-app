@@ -10,7 +10,7 @@ import { Lock, X } from "lucide-react";
 const MOCK_BLOCK = {
   reasonCode: "SUBSCRIPTION_REQUIRED",
   title: "Subscription Required",
-  message: "Your trial has ended. Upgrade to a paid plan to keep scanning invoices and syncing with QuickBooks.",
+  message: "Your trial has ended. Upgrade to a paid plan to keep scanning invoices and syncing with your accounting software.",
 };
 
 export function SubscriptionPaywallContent() {

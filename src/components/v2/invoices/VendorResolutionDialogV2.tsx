@@ -9,6 +9,7 @@ import { Modal, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { VendorRowV2 } from "./VendorRowV2";
 import { useVendorResolution } from "./useVendorResolution";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 // In-place counterpart of VendorResolutionContentV2 — same
 // useVendorResolution hook (same store reads, thunks, and QuickBooks API
@@ -24,6 +25,7 @@ export function VendorResolutionDialogV2({
   open: boolean;
   onClose: () => void;
 }) {
+  const provider = useActiveProvider();
   const {
     invoiceVendor,
     vendorsLoading,
@@ -96,7 +98,7 @@ export function VendorResolutionDialogV2({
           <div className="min-w-0 flex-1">
             <p className="text-caption text-content-secondary">Vendor on invoice</p>
             <p className="break-words font-bold text-content-primary">{invoiceVendor}</p>
-            <Badge variant="warning">Not found in QuickBooks</Badge>
+            <Badge variant="warning">Not found in {provider.name}</Badge>
           </div>
         </div>
 
@@ -182,7 +184,7 @@ export function VendorResolutionDialogV2({
           <div className="flex flex-col gap-[var(--space-md)]">
             <div>
               <h2 className="font-bold text-content-primary">Create a new vendor</h2>
-              <p className="text-body-sm text-content-secondary">This will add the vendor directly to your QuickBooks account.</p>
+              <p className="text-body-sm text-content-secondary">This will add the vendor directly to your {provider.name} account.</p>
             </div>
 
             <div>

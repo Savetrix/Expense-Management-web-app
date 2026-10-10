@@ -14,6 +14,7 @@ import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { setSelectedVendor } from "@/store/vendor/vendorSlice";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { showToast } from "@/lib/dialogManager";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 export type VendorResolutionTab = "suggested" | "all" | "create";
 
@@ -26,6 +27,7 @@ export type VendorResolutionTab = "suggested" | "all" | "create";
 // itself.
 export function useVendorResolution(invoiceId: string, onResolved: () => void) {
   const dispatch = useAppDispatch();
+  const provider = useActiveProvider();
 
   // Only this page's invoice — on back/forward between invoices the store
   // still holds the previous one until the fetch lands, and showing it here
@@ -128,7 +130,7 @@ export function useVendorResolution(invoiceId: string, onResolved: () => void) {
     // had filled everything in. The Vendors page has always required it; these
     // two paths now agree.
     if (!selectedGlAccountId) {
-      showToast("Choose a GL account — QuickBooks requires one for a new vendor.", "error");
+      showToast("Choose a GL account — a new vendor needs one.", "error");
       return;
     }
     if (creatingVendor || !accessToken) return;
@@ -210,7 +212,7 @@ export function useVendorResolution(invoiceId: string, onResolved: () => void) {
               taxCodeId: fresh.taxCodeId ?? null,
             }),
           );
-          showToast(`"${fresh.displayName}" was created in QuickBooks.`, "success");
+          showToast(`"${fresh.displayName}" was created in ${provider.name}.`, "success");
           onResolved();
           return;
         }

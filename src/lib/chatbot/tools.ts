@@ -468,13 +468,13 @@ export async function postInvoiceToQuickBooks(
   qbConnectionId: string,
   args: PostInvoiceToQbArgs,
 ): Promise<unknown> {
-  const gate = requireConfirm(args, "post invoice to QuickBooks");
+  const gate = requireConfirm(args, "post invoice to the accounting software");
   if (!gate.ok) return { success: false, message: gate.message, confirmationRequired: true };
   const missing = missingFields(args, ["invoiceId", "vendorId"]);
   if (missing.length) return { success: false, message: `Missing required field(s): ${missing.join(", ")}.` };
 
   if (postingInFlight.has(args.invoiceId)) {
-    return { success: false, message: "That invoice is already being posted to QuickBooks — not posting it again." };
+    return { success: false, message: "That invoice is already being posted to the accounting software — not posting it again." };
   }
   postingInFlight.add(args.invoiceId);
 
@@ -505,7 +505,7 @@ export async function postInvoiceToQuickBooks(
         if (alreadyPosted) {
           return {
             success: false,
-            message: `Invoice ${args.invoiceId} is already posted to QuickBooks${invoice.quickbooks?.billId ? ` (bill #${invoice.quickbooks.billId})` : ""}. Refusing to post again so no duplicate bill is created.`,
+            message: `Invoice ${args.invoiceId} is already posted to the accounting software${invoice.quickbooks?.billId ? ` (bill #${invoice.quickbooks.billId})` : ""}. Refusing to post again so no duplicate bill is created.`,
           };
         }
       }
@@ -689,9 +689,12 @@ export interface CreateGLAccountArgs {
   name: string;
   accountType: string;
   accountSubType?: string;
+  /** Account code — required by Xero, ignored by QuickBooks. */
+  code?: string;
 }
 
-// POST /quickbooks/accounts — creates a new GL account in QuickBooks.
+// POST /quickbooks/accounts — creates a new GL account in the connected
+// company's accounting software (QuickBooks or Xero).
 // Mirrors mcp/mcp-server/src/client/accounts.ts's createAccount and
 // src/store/quickBooks/quickBooksApi.ts's createQuickBooksAccount thunk.
 export async function createGLAccount(
@@ -704,7 +707,12 @@ export async function createGLAccount(
 
   const res = await savetrixPost(
     "/quickbooks/accounts",
-    { name: args.name, accountType: args.accountType, ...(args.accountSubType ? { accountSubType: args.accountSubType } : {}) },
+    {
+      name: args.name,
+      accountType: args.accountType,
+      ...(args.accountSubType ? { accountSubType: args.accountSubType } : {}),
+      ...(args.code ? { code: args.code } : {}),
+    },
     accessToken,
     qbConnectionId,
   );

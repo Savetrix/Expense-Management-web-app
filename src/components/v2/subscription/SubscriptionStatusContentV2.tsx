@@ -23,7 +23,7 @@ const PLAN_FEATURES: Record<string, string[]> = {
   trial: [
     "Unlimited scans during trial",
     "Unlimited team members",
-    "1 QuickBooks slot",
+    "1 QuickBooks or Xero slot",
   ],
   standard: [
     "Unlimited scans & automated push",
@@ -169,7 +169,7 @@ export function SubscriptionStatusContentV2() {
                   </p>
                 </div>
                 <div className="rounded-lg bg-surface/60 p-[var(--space-sm)]">
-                  <p className="text-caption text-text-secondary">QB slots</p>
+                  <p className="text-caption text-text-secondary">Accounting slots</p>
                   <p className="mt-1 text-body-sm font-bold text-text-primary">
                     {subscription.slotsUsed}/{subscription.maxSlots}
                   </p>

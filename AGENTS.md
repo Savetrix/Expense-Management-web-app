@@ -31,6 +31,25 @@ that consumes them is the current work.
   to the known-working hardcoded values — see .env.local.example.
   Never hardcode a new URL inline.
 
+## Accounting software (QuickBooks, Xero)
+A connection is one company in one accounting software. The backend sends
+`provider` ({id, name, capabilities}) on each connection; older cached rows
+have none and are QuickBooks. Read it through `src/lib/accountingProvider.ts`
+(`providerIdOf`, `providerInfoOf`, `PROVIDERS`) and, for the company picked
+in the header, `selectActiveProviderId` — never hardcode "QuickBooks" in new
+UI text, labels, GL account types or icons. Connection-scoped calls keep
+using the `/quickbooks/*` paths + `X-QB-Id` (the backend resolves the
+provider from the connection); only *starting* a new non-QB connection uses
+`/accounting/connect/:provider` (`connectQuickBooks({ provider })`). Xero can
+return `?pendingConnectionId=` when the user authorised several organisations
+— `PendingConnectionPicker` (mounted once in AppShell) handles it and the
+`?error=` return on every page. In components use `useActiveProvider()`
+(`store/quickBooks/useActiveProvider.ts`) for `name` / `id` / `companyNoun`;
+in thunks read the provider from state (see `providerNameFor` in
+quickBooksApi.ts) and keep it tolerant of a partial state — a label must
+never be what fails a request. Where no company is in play, say "accounting
+software" or "QuickBooks or Xero".
+
 ## Build & verify
 - Typecheck: `npx tsc --noEmit`
 - Full gate (required, not optional — tsc alone misses SSR failures):

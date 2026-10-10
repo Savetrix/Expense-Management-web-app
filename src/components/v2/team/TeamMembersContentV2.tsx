@@ -90,7 +90,7 @@ const INVITABLE_ROLES: {
   {
     key: "admin",
     label: "Admin",
-    description: "Manages team and reconnects QuickBooks.",
+    description: "Manages team and reconnects accounting software.",
   },
   {
     key: "accountant",
@@ -373,12 +373,12 @@ export function TeamMembersContentV2() {
           <p className="mt-[var(--space-xs)] text-body-sm text-text-secondary">
             {connections.length > 0
               ? "Choose a company from the switcher up top to manage its team."
-              : "Connect a QuickBooks company before inviting your team to collaborate on it."}
+              : "Connect an accounting company before inviting your team to collaborate on it."}
           </p>
           {connections.length === 0 && (
-            <Link href="/quickbooks">
+            <Link href="/accounting-software">
               <Button className="mt-[var(--space-md)]">
-                Connect QuickBooks
+                Connect accounting software
               </Button>
             </Link>
           )}
