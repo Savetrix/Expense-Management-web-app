@@ -7,6 +7,7 @@ import { KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ChatHistoryList } from "@/components/chatbot/ChatHistoryList";
 import { ChatMessage } from "@/components/chatbot/ChatMessage";
 import { ChatQuickActions } from "@/components/chatbot/ChatQuickActions";
+import { BetaBadge } from "@/components/ui/BetaBadge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -280,8 +281,9 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
         )}
 
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-h3 font-bold text-trust-navy">
-            {view === "history" ? "Chat history" : "Assistant"}
+          <h2 className="flex items-center gap-[var(--space-xs)] text-h3 font-bold text-trust-navy">
+            <span className="truncate">{view === "history" ? "Chat history" : "Assistant"}</span>
+            {view === "chat" && <BetaBadge />}
           </h2>
           {companyName && <p className="truncate text-caption text-text-secondary">{companyName}</p>}
         </div>

@@ -34,7 +34,8 @@ export function ChatWidget({ companyName }: { companyName?: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Open chat assistant"
+        aria-label="Open chat assistant (beta)"
+        title="Chat assistant (beta)"
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border text-text-secondary hover:bg-background-alt"
       >
         <MessageCircle size={18} strokeWidth={2} />
