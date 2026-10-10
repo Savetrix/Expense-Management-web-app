@@ -27,7 +27,8 @@ export function TopVendorsCardV2({ invoices, className = "" }: { invoices: Invoi
           const pct = max > 0 ? Math.max(Math.round((total / max) * 100), 8) : 8;
           const amount = `${currency} ${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`.trim();
           return (
-            <div key={vendor}>
+            // vendor + currency: one vendor can now appear once per currency.
+            <div key={`${vendor}-${currency}`}>
               <div className="flex items-center justify-between gap-[var(--space-sm)] text-body-sm">
                 <span className="truncate text-content-primary">{vendor}</span>
                 <span className="shrink-0 font-bold text-content-primary">{amount}</span>

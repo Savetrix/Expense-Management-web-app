@@ -30,8 +30,10 @@ import {
 import { ReactNode, useEffect, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import type { BlogPostSummary } from "@/lib/blog";
 import { FAQ_ITEMS } from "@/lib/seo";
 import { CustomPlanEnquiryModal } from "@/components/subscription/CustomPlanEnquiryModal";
+import { LandingFooter } from "./LandingFooter";
 import { LandingNav } from "./LandingNav";
 import {
   DashboardPreview,
@@ -40,7 +42,7 @@ import {
   PostVisual,
   ScanVisual,
 } from "./mockups";
-import { LoadIn, Reveal, SectionLabel, Wordmark } from "./primitives";
+import { LoadIn, Reveal, SectionLabel } from "./primitives";
 import { trackSignupClick } from "./pixel";
 
 function PrimaryCta({ href, children, className = "" }: { href: string; children: ReactNode; className?: string }) {
@@ -1223,41 +1225,68 @@ function FinalCta() {
   );
 }
 
-// --- Footer ----------------------------------------------------------------
+// --- From the blog -----------------------------------------------------------
 
-function Footer() {
+// The homepage's link into the blog, which is also what gets the posts crawled
+// from the site's strongest page (SEO-AUDIT.md §7: "cross-link from the
+// homepage"). Posts arrive as props from the server component in
+// src/app/page.tsx — this file must not import the blog loader itself, or the
+// Markdown renderer would ship in the homepage's JavaScript.
+function LatestPosts({ posts }: { posts: BlogPostSummary[] }) {
   return (
-    <footer className="border-t border-border bg-surface">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-        <div className="max-w-xs">
-          <Wordmark />
-          <p className="mt-3 text-[13px] leading-relaxed text-text-secondary">
-            AI-assisted invoice scanning, QuickBooks sync and team management for
-            accountants and small businesses.
+    <section id="blog" className="scroll-mt-20 mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <Reveal className="max-w-2xl">
+          <SectionLabel>From the blog</SectionLabel>
+          <h2 className="mt-4 text-[clamp(1.8rem,3.6vw,2.6rem)] font-bold leading-[1.1] tracking-[-0.02em] text-trust-navy">
+            Guides for faster, cleaner accounts payable.
+          </h2>
+          <p className="mt-4 text-[16px] leading-relaxed text-text-secondary">
+            Practical advice on bill entry, month-end and QuickBooks Online, useful
+            whether or not you use Scantrix.
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13.5px] font-medium text-text-secondary">
-          <a href="#how" className="transition-colors hover:text-trust-navy">How it works</a>
-          <a href="#capabilities" className="transition-colors hover:text-trust-navy">Capabilities</a>
-          <a href="#pricing" className="transition-colors hover:text-trust-navy">Pricing</a>
-          <a href="#faq" className="transition-colors hover:text-trust-navy">FAQ</a>
-          <a href="#about" className="transition-colors hover:text-trust-navy">About</a>
-          <Link href="/login" className="transition-colors hover:text-trust-navy">Log in</Link>
-          <Link href="/register" onClick={trackSignupClick} className="font-semibold text-trust-navy">Start free</Link>
-        </div>
+        </Reveal>
+        <Reveal>
+          <Link
+            href="/blog"
+            className="group inline-flex items-center gap-1.5 text-[15px] font-semibold text-[color:var(--lp-teal-700)] hover:text-trust-navy"
+          >
+            All articles
+            <ArrowRight size={16} strokeWidth={2.25} className="transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        </Reveal>
       </div>
-      <div className="border-t border-border">
-        <div className="mx-auto max-w-6xl px-5 py-5 text-[12.5px] text-text-secondary sm:px-8">
-          © {new Date().getFullYear()} Scantrix. All rights reserved.
-        </div>
+
+      <div className="mt-10 grid gap-5 md:grid-cols-3">
+        {posts.map((post, i) => (
+          <Reveal key={post.slug} delay={i * 90} className="h-full">
+            <Link
+              href={post.href}
+              className="group flex h-full flex-col rounded-2xl border border-border bg-surface p-6 shadow-sm transition-all hover:-translate-y-0.5 hover:border-[color:var(--lp-teal)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)]"
+            >
+              <span className="w-fit rounded-pill bg-[color:var(--lp-teal-050)] px-2.5 py-1 text-[12px] font-semibold text-[color:var(--lp-teal-700)]">
+                {post.category}
+              </span>
+              <h3 className="mt-4 text-[17px] font-bold leading-snug text-trust-navy group-hover:text-[color:var(--lp-teal-700)]">
+                {post.title}
+              </h3>
+              <p className="mt-2 line-clamp-3 flex-1 text-[14px] leading-relaxed text-text-secondary">
+                {post.description}
+              </p>
+              <p className="mt-5 text-[12.5px] font-medium text-text-secondary">
+                <time dateTime={post.publishedAt}>{post.publishedLabel}</time> · {post.readingMinutes} min read
+              </p>
+            </Link>
+          </Reveal>
+        ))}
       </div>
-    </footer>
+    </section>
   );
 }
 
 // --- Page ------------------------------------------------------------------
 
-export function LandingPage() {
+export function LandingPage({ latestPosts = [] }: { latestPosts?: BlogPostSummary[] }) {
   // Smooth-scroll for the in-page anchor nav, scoped to the landing route only
   // (reset on unmount so the rest of the app keeps default scroll behavior),
   // and never applied when the visitor prefers reduced motion.
@@ -1291,9 +1320,10 @@ export function LandingPage() {
         <Pricing />
         <About />
         <Faq />
+        {latestPosts.length > 0 && <LatestPosts posts={latestPosts} />}
         <FinalCta />
       </main>
-      <Footer />
+      <LandingFooter />
     </div>
   );
 }

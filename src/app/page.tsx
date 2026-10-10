@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { LandingPage } from "@/components/landing/LandingPage";
+import { getLatestPostSummaries } from "@/lib/blog";
 import {
   faqPageJsonLd,
   jsonLdScriptProps,
@@ -17,7 +18,11 @@ export const metadata: Metadata = {
   title: "QuickBooks Invoice Scanning & AP Automation | Scantrix",
   description:
     "Scantrix reads every supplier invoice, matches the vendor in QuickBooks Online and posts the bill — so your team only reviews the exceptions. Free 14-day trial, no credit card.",
-  alternates: { canonical: "/" },
+  alternates: {
+    canonical: "/",
+    // Lets feed readers discover the blog from the homepage.
+    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "Scantrix Blog" }] },
+  },
   keywords: [
     "QuickBooks invoice scanning",
     "accounts payable automation",
@@ -36,7 +41,7 @@ export default function RootPage() {
       <script {...jsonLdScriptProps(organizationJsonLd)} />
       <script {...jsonLdScriptProps(softwareApplicationJsonLd)} />
       <script {...jsonLdScriptProps(faqPageJsonLd)} />
-      <LandingPage />
+      <LandingPage latestPosts={getLatestPostSummaries(3)} />
     </>
   );
 }

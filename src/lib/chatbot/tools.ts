@@ -366,7 +366,7 @@ export async function listVendors(
   accessToken: string,
   qbConnectionId: string,
   args: { status?: "active" | "inactive" },
-): Promise<{ vendors: VendorChatContext[] }> {
+): Promise<{ vendors: VendorChatContext[]; totalMatched: number }> {
   const res = await savetrixGet<{ data?: { vendors?: Vendor[] } }>(
     "/quickbooks/vendors",
     accessToken,
@@ -374,26 +374,28 @@ export async function listVendors(
     args.status === "inactive" ? { status: "inactive" } : undefined,
   );
   const vendors = res.data?.data?.vendors || [];
-  return { vendors: vendors.slice(0, MAX_RESULTS_RETURNED).map(toVendorChatContext) };
+  // totalMatched carries the real count: only the first 20 rows are sent, and
+  // without it "how many vendors do I have?" was answered with 20.
+  return { vendors: vendors.slice(0, MAX_RESULTS_RETURNED).map(toVendorChatContext), totalMatched: vendors.length };
 }
 
 export async function listGLAccounts(
   accessToken: string,
   qbConnectionId: string,
-): Promise<{ accounts: GLAccountChatContext[] }> {
+): Promise<{ accounts: GLAccountChatContext[]; totalMatched: number }> {
   const res = await savetrixGet<{ data?: { accounts?: GLAccount[] } }>(
     "/quickbooks/accounts",
     accessToken,
     qbConnectionId,
   );
   const accounts = res.data?.data?.accounts || [];
-  return { accounts: accounts.slice(0, MAX_RESULTS_RETURNED).map(toGLAccountChatContext) };
+  return { accounts: accounts.slice(0, MAX_RESULTS_RETURNED).map(toGLAccountChatContext), totalMatched: accounts.length };
 }
 
 export async function listTaxCodes(
   accessToken: string,
   qbConnectionId: string,
-): Promise<{ taxCodes: TaxCodeChatContext[] }> {
+): Promise<{ taxCodes: TaxCodeChatContext[]; totalMatched: number }> {
   // /quickbooks/taxcodes wraps its payload as data.items, not data.taxCodes —
   // see quickBooksApi.ts's fetchQuickBooksTaxCodes comment. Fall back across
   // every shape that's been observed, same as that thunk.
@@ -405,7 +407,7 @@ export async function listTaxCodes(
   const items: TaxCode[] = Array.isArray(payload)
     ? payload
     : payload?.items || payload?.taxCodes || payload?.taxcodes || [];
-  return { taxCodes: items.slice(0, MAX_RESULTS_RETURNED).map(toTaxCodeChatContext) };
+  return { taxCodes: items.slice(0, MAX_RESULTS_RETURNED).map(toTaxCodeChatContext), totalMatched: items.length };
 }
 
 // ── Write: Invoice ───────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ import { ChatQuickActions } from "@/components/chatbot/ChatQuickActions";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { CONFIRM_MARKER, CONSENT_FRAME_PREFIX, CONSENT_FRAME_SUFFIX } from "@/lib/chatbot/confirmMarker";
+import { CONFIRM_MARKER, extractConsentTicket, stripConsentFrame } from "@/lib/chatbot/confirmMarker";
 import { confirmDialog } from "@/lib/dialogManager";
 import { SESSION_EXPIRED, sessionEmitter } from "@/lib/sessionManager";
 import { deleteConversation, fetchConversations, openConversation, saveCurrentConversation } from "@/store/chat/chatApi";
@@ -30,19 +30,6 @@ const newMessageId = () => `chat-${Date.now()}-${++nextMessageId}`;
 
 type View = "chat" | "history";
 
-// The server appends the consent ticket as a U+001F-delimited control frame
-// after the assistant's text (see /api/chat). It must never be rendered.
-const CONSENT_FRAME_RE = new RegExp(`${CONSENT_FRAME_PREFIX}([^${CONSENT_FRAME_SUFFIX}]*)${CONSENT_FRAME_SUFFIX}`);
-
-function extractConsentTicket(text: string): string | undefined {
-  return CONSENT_FRAME_RE.exec(text)?.[1] || undefined;
-}
-
-function stripConsentFrame(text: string): string {
-  // Removes a complete frame, and also any dangling prefix from a chunk that
-  // split mid-frame.
-  return text.replace(CONSENT_FRAME_RE, "").split(CONSENT_FRAME_PREFIX)[0];
-}
 
 export function ChatPanel({ companyName, onClose }: { companyName?: string; onClose: () => void }) {
   const dispatch = useAppDispatch();
@@ -141,6 +128,7 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
       const reader = res.body?.getReader();
       if (!reader) throw new Error("Streaming isn't supported in this browser.");
       const decoder = new TextDecoder();
+      let shownText = "";
 
       for (;;) {
         const { done, value } = await reader.read();
@@ -148,11 +136,16 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
         const delta = decoder.decode(value, { stream: true });
         if (delta) {
           assistantText += delta;
-          // The consent frame is a control message, not content. Buffer it out
-          // rather than rendering it: it arrives only at the very end, so
-          // holding back any partial frame costs nothing visually.
-          const visible = stripConsentFrame(delta);
-          if (visible) dispatch(appendAssistantChunk({ id: assistantId, delta: visible }));
+          // The consent frame is a control message, not content. Work out the
+          // visible text from the WHOLE reply so far and append only what's
+          // new: stripping each chunk separately leaked a frame split across
+          // two chunks (its second half carries no marker), showing the
+          // ticket and saving it into history.
+          const visible = stripConsentFrame(assistantText);
+          if (visible.length > shownText.length) {
+            dispatch(appendAssistantChunk({ id: assistantId, delta: visible.slice(shownText.length) }));
+            shownText = visible;
+          }
         }
       }
 
