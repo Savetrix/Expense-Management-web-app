@@ -55,6 +55,7 @@ import { formatDetailAmount, formatDetailDateTime, resolveInvoiceDetailType } fr
 import { getUserDisplayName, translateInvoiceReason } from "@/lib/invoiceDisplay";
 import { formatTaxRate, taxCodeId as getTaxCodeId, taxCodeLabel as getTaxCodeLabel } from "@/lib/quickbooks/taxCode";
 import type { TaxCode } from "@/store/quickBooks/quickBooksSlice";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 // Zoom only applies to the <img> case — a PDF's own embedded viewer already
 // has native zoom/scroll. Ported from InvoiceReviewContent (v1) so the two
@@ -270,8 +271,9 @@ function getConfidenceTier(score: number): ConfidenceTier {
   return "danger";
 }
 
+// "{provider}" is replaced with the active company's accounting software.
 const TIER_COPY: Record<ConfidenceTier, { status: string; action: string }> = {
-  success: { status: "High confidence", action: "Post to QuickBooks" },
+  success: { status: "High confidence", action: "Post to {provider}" },
   warning: { status: "Review required", action: "Review & Approve" },
   danger: { status: "Low confidence", action: "Post Manually" },
 };
@@ -380,6 +382,7 @@ function FieldRow({
 export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const provider = useActiveProvider();
 
   // Only this page's invoice — on back/forward between invoices the store
   // still holds the previous one until the fetch lands, and showing it here
@@ -1118,12 +1121,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     );
 
     if (postInvoiceToQuickBooks.fulfilled.match(result)) {
-      showToast("Invoice posted to QuickBooks successfully.", "success");
+      showToast(`Invoice posted to ${provider.name} successfully.`, "success");
       router.push("/invoices?type=pending");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
       showToast(
-        typeof payload === "string" ? payload : payload?.message || "Failed to post invoice to QuickBooks.",
+        typeof payload === "string" ? payload : payload?.message || `Failed to post invoice to ${provider.name}.`,
         "error",
       );
     }
@@ -1146,7 +1149,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (vendorResolutionRequired && !vendorIsResolved) {
       const confirmed = await confirmDialog({
         title: "Vendor not registered",
-        message: "This vendor is not registered in QuickBooks. Resolve the vendor now?",
+        message: `This vendor is not registered in ${provider.name}. Resolve the vendor now?`,
         confirmLabel: "Resolve vendor",
       });
       if (confirmed) setVendorDialogOpen(true);
@@ -1182,7 +1185,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
       const confirmed = await confirmDialog({
         title: "Possible duplicate invoice",
         message:
-          `Invoice #${invoice.invoiceNumber} for ${invoice.vendor} already exists in QuickBooks as bill ` +
+          `Invoice #${invoice.invoiceNumber} for ${invoice.vendor} already exists in ${provider.name} as bill ` +
           `#${existingBill.quickbooks?.billId} (${formatDetailAmount(Number(existingBill.extractedData?.totalAmount))}).` +
           (Math.round(Number(existingBill.extractedData?.totalAmount) * 100) !==
           Math.round(Number(invoice.totalAfterTax) * 100)
@@ -1199,7 +1202,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     }
 
     const confirmed = await confirmDialog({
-      title: "Post to QuickBooks?",
+      title: `Post to ${provider.name}?`,
       message: "Please verify all details are correct before confirming.",
       confirmLabel: "Post invoice",
     });
@@ -1262,7 +1265,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     );
 
     if (updateInvoiceExtractedData.fulfilled.match(result)) {
-      showToast("Invoice updated and synced to QuickBooks.", "success");
+      showToast(`Invoice updated and synced to ${provider.name}.`, "success");
       router.push(`/invoices/${invoiceId}`);
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
@@ -1421,7 +1424,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 disabled={isPostDisabled}
                 className="h-9 rounded-md bg-accent px-[var(--space-md)] text-caption font-bold text-accent-ink hover:bg-accent-hover disabled:opacity-45"
               >
-                {posting ? "Posting…" : TIER_COPY[tier].action}
+                {posting ? "Posting…" : TIER_COPY[tier].action.replace("{provider}", provider.name)}
               </button>
             </>
           ) : (
@@ -1680,7 +1683,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
             <div className="border-t border-border px-[var(--space-md)] py-[var(--space-sm)] text-caption text-content-muted">
               {lastModifiedByName && <>Last modified by {lastModifiedByName}</>}
               {lastModifiedByName && realmId && " · "}
-              {realmId && <>Linked to QBO Realm: {realmId}</>}
+              {realmId && <>Linked to {provider.name} ({provider.companyIdLabel}): {realmId}</>}
               {!lastModifiedByName && !realmId && "—"}
             </div>
           </SectionCard>
@@ -1743,7 +1746,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               )}
               {lineItemsTax.hasUnknownRate && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
-                  A tax code on these line items has no rate from QuickBooks yet — sync tax codes, or its tax is counted
+                  A tax code on these line items has no rate from {provider.name} yet — sync tax codes, or its tax is counted
                   as 0.
                 </p>
               )}

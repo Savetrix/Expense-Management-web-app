@@ -598,7 +598,7 @@ export function EmailForwardingPanelV2({
           downloading and re-uploading. They land in the same review queue as an upload.
         </p>
         <button type="button" onClick={handleEnable} disabled={enabling || disabled} className={GHOST_BUTTON_CLASS}>
-          {enabling ? "Setting up…" : disabled ? "Reconnect QuickBooks first" : "Turn on email forwarding"}
+          {enabling ? "Setting up…" : disabled ? "Reconnect this company first" : "Turn on email forwarding"}
         </button>
       </Section>
     );

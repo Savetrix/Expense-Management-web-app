@@ -55,6 +55,8 @@ import { resolveInvoiceDetailType } from "@/lib/invoiceDetailTheme";
 import { requestExpandTransition } from "@/lib/pageTransition";
 import { setSelectedInvoice } from "@/store/invoice/invoiceSlice";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
+import { BrandIcon } from "@/components/icons/BrandIcon";
 
 /**
  * v2 redesign of DashboardContent (see .claude/skills/redesign-v2). All
@@ -319,6 +321,7 @@ function RecentInvoiceRowV2({
 export function DashboardContentV2() {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const provider = useActiveProvider();
   const [uploading, setUploading] = useState(false);
   const [uploadCount, setUploadCount] = useState<number | null>(null);
   const [connectingQB, setConnectingQB] = useState(false);
@@ -416,7 +419,7 @@ export function DashboardContentV2() {
           ? taxCodesResult.payload?.data?.count
           : undefined;
         showToast(
-          `Synced ${vendorCount ?? 0} vendor(s), ${accountCount ?? 0} GL account(s), and ${taxCodeCount ?? 0} tax code(s) from QuickBooks.`,
+          `Synced ${vendorCount ?? 0} vendor(s), ${accountCount ?? 0} GL account(s), and ${taxCodeCount ?? 0} tax code(s) from ${provider.name}.`,
           "success",
         );
       } else if (okCount > 0) {
@@ -425,7 +428,7 @@ export function DashboardContentV2() {
           "error",
         );
       } else {
-        showToast("Could not sync with QuickBooks. Please try again.", "error");
+        showToast(`Could not sync with ${provider.name}. Please try again.`, "error");
       }
     } finally {
       setLastQBSyncAt(Date.now());
@@ -435,15 +438,15 @@ export function DashboardContentV2() {
 
   const handleConnectQuickBooks = async () => {
     if (!accessToken || connectingQB) return;
+    // Nothing connected yet: the user picks QuickBooks or Xero on Integrations.
+    // Reconnect re-authorises the active connection with its own software.
+    if (!(needsReconnect && qbConnectionId)) {
+      router.push("/accounting-software");
+      return;
+    }
     setConnectingQB(true);
     try {
-      const result = await dispatch(
-        connectQuickBooks(
-          needsReconnect && qbConnectionId
-            ? { accessToken, qbConnectionId }
-            : { accessToken },
-        ),
-      );
+      const result = await dispatch(connectQuickBooks({ accessToken, qbConnectionId }));
       if (connectQuickBooks.fulfilled.match(result)) {
         const authUrl = result.payload?.data?.authUrl;
         if (authUrl) {
@@ -451,14 +454,14 @@ export function DashboardContentV2() {
           return;
         }
         showToast(
-          "Could not start QuickBooks connection. Please try again.",
+          `Could not start ${provider.name} connection. Please try again.`,
           "error",
         );
       } else {
         showToast(
           typeof result.payload === "string"
             ? result.payload
-            : "Could not start QuickBooks connection.",
+            : `Could not start ${provider.name} connection.`,
           "error",
         );
       }
@@ -619,7 +622,7 @@ export function DashboardContentV2() {
     async (files: File[]) => {
       if (!qbConnectionId) {
         showToast(
-          "Please connect a QuickBooks account before scanning invoices.",
+          "Please connect your accounting software (QuickBooks or Xero) before scanning invoices.",
           "error",
         );
         return;
@@ -700,15 +703,15 @@ export function DashboardContentV2() {
             <div>
               <p className="font-bold text-status-warning-text">
                 {needsReconnect
-                  ? "QuickBooks Needs Reconnecting"
-                  : "QuickBooks Not Connected"}
+                  ? `${provider.name} Needs Reconnecting`
+                  : "Accounting Software Not Connected"}
               </p>
               <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
                 {connectingQB
                   ? "Connecting…"
                   : needsReconnect
-                    ? "QuickBooks revoked access to this connection. Reconnect to resume syncing and posting."
-                    : "Connect QuickBooks to sync vendors and post invoices."}
+                    ? `${provider.name} revoked access to this connection. Reconnect to resume syncing and posting.`
+                    : "Connect QuickBooks or Xero to sync vendors and post invoices."}
               </p>
             </div>
             <ArrowRight
@@ -786,11 +789,11 @@ export function DashboardContentV2() {
         {connected && (
           <Card>
             <div className="flex items-center gap-[var(--space-sm)]">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md  text-[11px] font-bold border border-border text-text-primary">
-                qb
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border">
+                <BrandIcon name={provider.id} size={16} />
               </span>
               <h4 className="text-body font-bold text-text-primary">
-                QuickBooks
+                {provider.name}
               </h4>
               <span className="ml-auto inline-flex shrink-0 items-center gap-[var(--space-xs)] rounded-pill bg-status-success-bg px-[var(--space-sm)] py-[2px] text-caption font-bold text-status-success-text">
                 <span className="h-1.5 w-1.5 rounded-full bg-status-success-text" />

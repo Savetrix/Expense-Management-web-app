@@ -31,7 +31,7 @@ const PLAN_META: Record<
     features: [
       "Unlimited scans during trial",
       "Unlimited team members",
-      "1 QuickBooks connection slot",
+      "1 QuickBooks or Xero connection slot",
       // "Standard OCR text parsing",
       // "Email inbox intake",
     ],

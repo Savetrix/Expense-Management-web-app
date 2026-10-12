@@ -31,6 +31,7 @@ import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { VendorCleanupSuggestions } from "@/components/vendors/VendorCleanupSuggestions";
 import { VendorDetailV2 } from "@/components/v2/vendors/VendorDetailV2";
 import { CompactListRow, Modal, PageHeader, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 type VendorTab = "active" | "inactive";
 
@@ -76,6 +77,7 @@ const FIELD_INPUT_CLASS =
 
 export function VendorsContentV2() {
   const dispatch = useAppDispatch();
+  const provider = useActiveProvider();
   const router = useRouter();
   const searchParams = useSearchParams();
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
@@ -311,7 +313,7 @@ export function VendorsContentV2() {
     if (!accessToken) return;
     const confirmed = await confirmDialog({
       title: "Deactivate vendor?",
-      message: `"${vendor.displayName}" will be marked inactive in Scantrix and won't be matched against new invoices. It stays active in QuickBooks — this only affects Scantrix. Existing bills already posted for this vendor are not affected.`,
+      message: `"${vendor.displayName}" will be marked inactive in Scantrix and won't be matched against new invoices. It stays active in ${provider.name} — this only affects Scantrix. Existing bills already posted for this vendor are not affected.`,
       confirmLabel: "Deactivate",
       tone: "destructive",
     });
@@ -394,10 +396,10 @@ export function VendorsContentV2() {
       if (syncQuickBooksVendors.fulfilled.match(result)) {
         refetchVendors();
         refetchInactiveVendors();
-        showToast("Vendors refreshed from QuickBooks.", "success");
+        showToast(`Vendors refreshed from ${provider.name}.`, "success");
       } else {
         const payload = result.payload as { message?: string } | undefined;
-        showToast(payload?.message || "Could not refresh from QuickBooks. Please try again.", "error");
+        showToast(payload?.message || `Could not refresh from ${provider.name}. Please try again.`, "error");
       }
     } finally {
       setRefreshing(false);
@@ -422,7 +424,7 @@ export function VendorsContentV2() {
             description={
               connections.length > 0
                 ? "Choose a company from the switcher up top to manage its vendors."
-                : "Connect a QuickBooks company before managing vendors."
+                : "Connect an accounting company before managing vendors."
             }
           />
         </div>
@@ -444,8 +446,8 @@ export function VendorsContentV2() {
                 type="button"
                 onClick={handleRefresh}
                 disabled={refreshing}
-                aria-label="Refresh from QuickBooks"
-                title="Refresh from QuickBooks"
+                aria-label={`Refresh from ${provider.name}`}
+                title={`Refresh from ${provider.name}`}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-content-primary transition-opacity hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <RefreshCw size={18} strokeWidth={2.25} className={refreshing ? "animate-spin" : ""} />
@@ -500,7 +502,7 @@ export function VendorsContentV2() {
                 <EmptyState
                   icon={<Store size={28} strokeWidth={1.75} />}
                   title="No vendors yet"
-                  description="Vendors sync automatically from QuickBooks, or add one manually."
+                  description={`Vendors sync automatically from ${provider.name}, or add one manually.`}
                   actionLabel={canManageVendors ? "Add Vendor" : undefined}
                   onAction={canManageVendors ? openCreateSheet : undefined}
                 />
@@ -697,7 +699,7 @@ export function VendorsContentV2() {
             </SelectDropdown>
             {!editingVendor && glAccounts.length === 0 && (
               <p className="mt-[var(--space-xs)] text-caption text-content-secondary">
-                No GL accounts found. Sync them from QuickBooks first.
+                No GL accounts found. Sync them from {provider.name} first.
               </p>
             )}
           </div>
@@ -709,7 +711,7 @@ export function VendorsContentV2() {
               onChange={(e) => setForm((f) => ({ ...f, taxCodeId: e.target.value }))}
               disabled={saving}
             >
-              <option value="">Select tax code (not applicable if your QB company doesn&apos;t use tax codes)</option>
+              <option value="">Select tax code (not applicable if your {provider.companyNoun} doesn&apos;t use tax codes)</option>
               {taxCodes.map((code) => (
                 <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
                   {formatTaxCodeLabel(code)}

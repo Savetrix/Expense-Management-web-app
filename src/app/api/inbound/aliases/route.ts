@@ -96,7 +96,7 @@ export async function POST(request: Request) {
   const qbConnectionId = typeof payload.qbConnectionId === "string" ? payload.qbConnectionId.trim() : "";
 
   if (!qbConnectionId) {
-    return Response.json({ error: "Choose a QuickBooks company first." }, { status: 400 });
+    return Response.json({ error: "Choose a company first." }, { status: 400 });
   }
   // NOTE: no refreshToken is read here any more. Turning forwarding on used to
   // require delegating the caller's session; it now provisions a service member
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
     }
     if (lookup.reason === "not_found") {
       return Response.json(
-        { error: "That QuickBooks company is not available on your account." },
+        { error: "That company is not available on your account." },
         { status: 403 },
       );
     }
@@ -118,12 +118,12 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error:
-            "Reconnect this company to QuickBooks first — invoices can't be filed into it until you do.",
+            "Reconnect this company's accounting software first — invoices can't be filed into it until you do.",
         },
         { status: 409 },
       );
     }
-    return Response.json({ error: "Couldn't reach QuickBooks. Please try again." }, { status: 503 });
+    return Response.json({ error: "Couldn't reach the accounting software. Please try again." }, { status: 503 });
   }
 
   // ── Give the service account access to this company ──────────────────────
