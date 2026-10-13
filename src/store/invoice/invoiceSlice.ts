@@ -45,7 +45,9 @@ export interface Discount {
    * Never send a negative value here. */
   amount: number;
   /** Per-discount GL override; unset = invoice-level glAccountId. */
-  glAccountId?: string | null;
+  glAccountId?: string | null;  /** Tax code the discount is applied against: its amount reduces the
+   * taxable base for that code's rates. null/unset = not tax-adjusting. */
+  taxCodeId?: string | null;
 }
 
 export interface ExtractedData {

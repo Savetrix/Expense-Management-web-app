@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Building2,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   Copy,
   Download,
+  GripVertical,
   Maximize2,
   Minimize2,
   Plus,
@@ -25,13 +25,15 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { CSSProperties } from "react";
-import { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
-import { InlineEditField, SelectDropdown } from "@/components/v2/ui";
+import { InlineEditField, SelectDropdown, CreatableCombobox } from "@/components/v2/ui";
 import type { InlineEditFieldHandle } from "@/components/v2/ui";
+import { AddGlAccountModalV2 } from "@/components/v2/glTaxCode/AddGlAccountModalV2";
+import { AddVendorModalV2 } from "@/components/v2/vendors/AddVendorModalV2";
 import { VendorResolutionDialogV2 } from "@/components/v2/invoices/VendorResolutionDialogV2";
 import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -127,15 +129,17 @@ function withLineDefaults(items: LineItem[], glAccountId: string, taxCodeId: str
 }
 
 // GL-only counterpart of withLineDefaults for extra charges and discounts —
-// both are always posted non-taxable, so there's no tax code to default.
+// extra charges are always posted non-taxable and a discount's tax code is
+// only ever set explicitly, so there's no tax code to default.
 function withGlDefaults<T extends { glAccountId?: string | null }>(rows: T[], glAccountId: string): T[] {
   return rows.map((row) => ({ ...row, glAccountId: row.glAccountId || glAccountId || null }));
 }
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-// Tax is computed from line items only — never extra charges or discounts
-// (both post to QuickBooks as non-taxable). Each line uses its own taxCodeId,
+// Tax is computed from line items, less any discount that carries a tax code
+// (that discount's amount comes off the taxable base of its code's rates).
+// Extra charges are never taxed. Each line uses its own taxCodeId,
 // else the invoice-level (vendor) one, else 0%. Mirrors how QuickBooks itself
 // computes a Bill's tax: taxable amounts are pooled per tax RATE (so GST on
 // a "GST" line and a "GST/PST BC" line is one pool) and each pool is rounded
@@ -146,6 +150,7 @@ function computeLineItemsTax(
   items: LineItem[],
   fallbackTaxCodeId: string,
   taxCodeById: Map<string, TaxCode>,
+  discounts: Discount[] = [],
 ): {
   tax: number;
   hasUnknownRate: boolean;
@@ -157,8 +162,16 @@ function computeLineItemsTax(
   const usedCodeIds = new Set<string>();
   let hasUnknownRate = false;
 
-  for (const item of items) {
-    const codeId = item.taxCodeId || fallbackTaxCodeId;
+  // Line items add to their code's taxable base; discounts with an explicit
+  // tax code subtract from it (a discount with none leaves tax untouched).
+  const taxedRows = [
+    ...items.map((item) => ({ codeId: item.taxCodeId || fallbackTaxCodeId, amount: Number(item.amount) || 0 })),
+    ...discounts
+      .filter((d) => d.taxCodeId)
+      .map((d) => ({ codeId: d.taxCodeId as string, amount: -(Number(d.amount) || 0) })),
+  ];
+
+  for (const { codeId, amount } of taxedRows) {
     if (!codeId) continue;
     usedCodeIds.add(codeId);
     const code = taxCodeById.get(codeId);
@@ -169,13 +182,14 @@ function computeLineItemsTax(
     for (const component of code.taxRateIds ?? []) {
       if (component.rate == null) continue;
       const pool = pools.get(component.value) ?? { name: component.name, rate: component.rate, base: 0 };
-      pool.base += Number(item.amount) || 0;
+      pool.base += amount;
       pools.set(component.value, pool);
     }
   }
 
   const breakdown = [...pools.entries()]
-    .map(([rateId, { name, rate, base }]) => ({ rateId, name, rate, amount: roundMoney((base * rate) / 100) }))
+    // base floored at 0 — a discount can never produce negative tax.
+    .map(([rateId, { name, rate, base }]) => ({ rateId, name, rate, amount: roundMoney((Math.max(0, base) * rate) / 100) }))
     .filter((entry) => entry.rate > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
   const tax = breakdown.reduce((sum, entry) => sum + entry.amount, 0);
@@ -433,6 +447,10 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
+  const [addVendorOpen, setAddVendorOpen] = useState(false);
+  const [addVendorName, setAddVendorName] = useState("");
+  const [addGlOpen, setAddGlOpen] = useState(false);
+  const [addGlName, setAddGlName] = useState("");
   const quickActionsRef = useRef<HTMLDivElement>(null);
 
   // Pointer capture (not document-level listeners) so the drag keeps
@@ -812,8 +830,15 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     editDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, glAccountId: glAccountId || null } : d)));
   };
 
+  const updateDiscountTaxCode = (index: number, taxCodeIdValue: string) => {
+    editDiscounts((prev) => prev.map((d, i) => (i === index ? { ...d, taxCodeId: taxCodeIdValue || null } : d)));
+  };
+
   const addDiscount = () => {
-    editDiscounts((prev) => [...prev, { description: "", amount: 0, glAccountId: cleanValue(invoice.glAccountId) || null }]);
+    editDiscounts((prev) => [
+      ...prev,
+      { description: "", amount: 0, taxCodeId: null, glAccountId: cleanValue(invoice.glAccountId) || null },
+    ]);
   };
 
   const duplicateDiscount = (index: number) => {
@@ -858,8 +883,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   // it off). invoice.taxAmount is left untouched as the extracted reference.
   const taxCodeById = useMemo(() => new Map(taxCodes.map((code) => [getTaxCodeId(code), code])), [taxCodes]);
   const lineItemsTax = useMemo(
-    () => computeLineItemsTax(lineItems, cleanValue(invoice.taxCodeId), taxCodeById),
-    [lineItems, invoice.taxCodeId, taxCodeById],
+    () => computeLineItemsTax(lineItems, cleanValue(invoice.taxCodeId), taxCodeById, discounts),
+    [lineItems, invoice.taxCodeId, taxCodeById, discounts],
   );
   const computedTax = lineItemsTax.tax;
 
@@ -869,7 +894,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   // line, the field showing one specific code as if it applied everywhere
   // would be misleading while lines actually differ.
   // GL covers extra charges and discounts too — the invoice-level GL
-  // dropdown overwrites those as well (see handleGlAccountChange).
+  // dropdown overwrites those as well (see applyGlAccount).
   const glAccountsMixedAcrossLines = useMemo(() => {
     const rows = [...lineItems, ...extraCharges, ...discounts];
     if (rows.length < 2) return false;
@@ -1005,8 +1030,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     }
   };
 
-  const handleVendorChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const vendor = vendors.find((v) => v._id === event.target.value);
+  const handleVendorSelect = (vendorId: string) => {
+    const vendor = vendors.find((v) => v._id === vendorId);
     if (!vendor) return;
     updateField("vendor", vendor.displayName);
     dispatch(
@@ -1024,16 +1049,13 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     );
   };
 
-  // Same overwrite-all-lines rule as handleGlAccountChange below.
-  const handleTaxCodeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextTaxCodeId = event.target.value;
+  // Same overwrite-all-lines rule as applyGlAccount below.
+  const handleTaxCodeSelect = (nextTaxCodeId: string) => {
     updateField("taxCodeId", nextTaxCodeId);
     editLineItems((prev) => prev.map((item) => ({ ...item, taxCodeId: nextTaxCodeId || null })));
   };
 
-  const handleGlAccountChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const account = glAccounts.find((acc) => acc.qbAccountId === event.target.value);
-    if (!account) return;
+  const applyGlAccount = (account: { qbAccountId: string }) => {
     editInvoice((prev) => ({ ...prev, glAccountId: account.qbAccountId }));
     // Invoice-level GL is the default for every line — changing it
     // deliberately overwrites all lines, including ones changed by hand.
@@ -1048,6 +1070,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     });
   };
 
+  const handleGlAccountSelect = (qbAccountId: string) => {
+    const account = glAccounts.find((acc) => acc.qbAccountId === qbAccountId);
+    if (account) applyGlAccount(account);
+  };
+
   const validateQuickBooksFields = (): Record<string, string> => {
     const errors: Record<string, string> = {};
     if (!cleanValue(invoice.vendor)) errors.vendor = "Vendor name is required";
@@ -1055,7 +1082,10 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (!cleanValue(invoice.invoiceNumber)) errors.invoiceNumber = "Invoice number is required";
     if (!cleanValue(invoice.amountBeforeTax)) errors.amountBeforeTax = "Amount before tax is required";
     if (!cleanValue(invoice.totalAfterTax)) errors.totalAfterTax = "Total amount is required";
-    if (!cleanValue(invoice.glAccountId)) errors.glAccountId = "GL account is required";
+    // Satisfied by the invoice-level GL, or by every row carrying its own.
+    const glRows = [...lineItems, ...extraCharges, ...discounts];
+    const everyRowHasGl = glRows.length > 0 && glRows.every((row) => row.glAccountId);
+    if (!cleanValue(invoice.glAccountId) && !everyRowHasGl) errors.glAccountId = "GL account is required";
     return errors;
   };
 
@@ -1302,7 +1332,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   // a problem. Field-validation errors take priority over "couldn't load
   // the dropdown options" errors, since fixing the field is the more
   // actionable of the two.
+  const vendorInfoTopError =
+    (vendorResolutionRequired && !vendorIsResolved ? "Vendor not resolved" : null) || fieldErrors.vendor || null;
+
   const invoiceInfoTopError =
+    vendorInfoTopError ||
     fieldErrors.invoiceNumber ||
     fieldErrors.currency ||
     fieldErrors.glAccountId ||
@@ -1310,14 +1344,35 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     taxCodesErrorDisplay?.message ||
     null;
 
+  // Everything wrong with the invoice right now, listed in the hero card's
+  // "Why this requires review" box. Computed live from the current form state
+  // (not the stale fieldErrors snapshot) so each line disappears as it's fixed.
+  // The backend's own reason leads, except a vendor reason once the vendor has
+  // been resolved — it would be stale. A vendor reason also covers the
+  // unresolved-vendor case, so that isn't repeated below.
+  const reviewIssues: string[] = [];
+  if (reasonDisplay?.message && !(vendorResolutionRequired && vendorIsResolved)) {
+    reviewIssues.push(reasonDisplay.message);
+  }
+  if (!cleanValue(invoice.vendor)) reviewIssues.push("Vendor name is missing.");
+  if (!cleanValue(invoice.invoiceNumber)) reviewIssues.push("Invoice number is missing.");
+  if (!cleanValue(invoice.currency)) reviewIssues.push("Currency is missing.");
+  if (!cleanValue(invoice.glAccountId)) reviewIssues.push("GL account is missing. Select one under Invoice Information.");
+  if (!cleanValue(invoice.taxCodeId)) reviewIssues.push("Tax code is not selected.");
+  if (!cleanValue(invoice.amountBeforeTax)) reviewIssues.push("Amount before tax is missing.");
+  if (!cleanValue(invoice.totalAfterTax)) reviewIssues.push("Total amount is missing.");
+  if (totalMismatch && originalExtractedTotal !== null) {
+    reviewIssues.push(
+      `Financial summary doesn't match the invoice: calculated total is ${formatDetailAmount(computedTotal, currencyForAmount)} but the scanned invoice says ${formatDetailAmount(originalExtractedTotal, currencyForAmount)}.`,
+    );
+  }
+
   // `fieldErrors.vendor` only fires when the vendor NAME text is blank —
   // doesn't cover the far more common case of a vendor name that extracted
   // fine but was never matched/created against an actual QuickBooks vendor
   // record (the "+ Resolve Vendor" prompt above, gated the same way by
   // vendorResolutionRequired/vendorIsResolved). Check that first since it's
   // the one the dropdown in this section actually reflects.
-  const vendorInfoTopError =
-    (vendorResolutionRequired && !vendorIsResolved ? "Vendor not resolved" : null) || fieldErrors.vendor || null;
 
   return (
     <div className="w-full">
@@ -1463,35 +1518,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                     raw: reasonDisplay.raw,
                     showTechnicalReason,
                     onToggleTechnicalReason: () => setShowTechnicalReason((v) => !v),
+                    issues: reviewIssues,
                   }
                 : null
-            }
-            reasonExtra={
-              vendorResolutionRequired &&
-              (vendorIsResolved ? (
-                <div className="mt-[var(--space-sm)] flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-success-border bg-status-success-bg px-[var(--space-sm)] py-[var(--space-xs)]">
-                  <span className="flex min-w-0 items-center gap-[var(--space-xs)] text-body-sm font-semibold text-status-success-text">
-                    <CheckCircle2 size={16} strokeWidth={2} className="shrink-0" />
-                    <span className="truncate">Vendor resolved: {selectedVendor?.displayName || createdVendor?.name}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setVendorDialogOpen(true)}
-                    className="shrink-0 text-body-sm font-bold text-accent"
-                  >
-                    Change
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setVendorDialogOpen(true)}
-                  className="mt-[var(--space-sm)] flex w-full items-center justify-between border-t border-border pt-[var(--space-sm)] font-semibold text-accent"
-                >
-                  <span>+ Resolve Vendor</span>
-                  <ChevronLeft size={18} strokeWidth={2} className="rotate-180" />
-                </button>
-              ))
             }
           />
 
@@ -1506,6 +1535,61 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               )
             }
           >
+            <FieldRow id="field-vendor" label="Vendor Name" required>
+              {isPendingReview ? (
+                // Falls back to the backend's own auto-match when the user
+                // never went through the manual "Change vendor" flow — mirrors
+                // the fallback chain submitToQuickBooks uses when posting.
+                //
+                // linkedVendorId can be a dangling reference (the vendor
+                // record it points to was deleted and recreated under a new
+                // _id, e.g. after a disconnect/resync) — a raw <select>
+                // whose value matches no <option> falls back to displaying
+                // the FIRST option, which misleadingly looked "selected" when
+                // a same-named vendor happened to be first in the list. Only
+                // ever pass a value that's actually in `vendors`; otherwise
+                // show the real "nothing selected" placeholder.
+                (() => {
+                  const linkedVendorId = selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "";
+                  const linkedVendorExists = vendors.some((v) => v._id === linkedVendorId);
+                  const vendorIsStale = Boolean(linkedVendorId) && !linkedVendorExists && !vendorsLoading;
+                  return (
+                    <>
+                      <div className="flex justify-end">
+                        <CreatableCombobox
+                          options={vendors.map((v) => ({ id: v._id, label: v.displayName }))}
+                          noun="vendor"
+                          ariaLabel="Vendor Name"
+                          value={linkedVendorExists ? linkedVendorId : ""}
+                          error={fieldErrors.vendor}
+                          onSelect={handleVendorSelect}
+                          onAddNew={(name) => {
+                            setAddVendorName(name || invoice.vendor || "");
+                            setAddVendorOpen(true);
+                          }}
+                          className="max-w-[18rem]"
+                        />
+                      </div>
+                      {vendorIsStale && (
+                        <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                          Linked vendor record no longer exists (it may have been deleted and re-synced) — please
+                          re-select the vendor above.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()
+              ) : (
+                // Not editable outside pending review — the vendor is already
+                // linked to a QB vendor record with no safe way to change it here.
+                <span className="block w-full text-right text-body-sm font-bold text-content-primary">{invoice.vendor || "—"}</span>
+              )}
+              {fieldErrors.vendor && (
+                <p className="mt-[var(--space-xs)] text-right text-caption font-semibold text-status-danger-text">
+                  {fieldErrors.vendor}
+                </p>
+              )}
+            </FieldRow>
             <FieldRow id="field-invoiceNumber" label="Invoice Number" required>
               <InlineEditField
                 ariaLabel="Invoice Number"
@@ -1573,35 +1657,32 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
             </FieldRow>
             <FieldRow id="field-glAccountId" label="GL Code / Category (vendor default)" required>
               <div className="flex justify-end">
-                <SelectDropdown
-                  uiSize="sm"
-                  error={fieldErrors.glAccountId}
-                  value={invoice.glAccountId}
-                  onChange={handleGlAccountChange}
-                  title={resolvedGlAccountName || undefined}
-                  className="w-56 max-w-full"
-                >
-                  <option value="" disabled>
-                    {glAccountsLoading
+                <CreatableCombobox
+                  options={glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name }))}
+                  noun="GL account"
+                  ariaLabel="GL Code / Category"
+                  // Mixed: no single account applies, so nothing is selected
+                  // in the list and the box just says so.
+                  value={glAccountsMixedAcrossLines ? "" : invoice.glAccountId}
+                  valueLabel={glAccountsMixedAcrossLines ? "Multiple GLs selected" : undefined}
+                  error={glAccountsMixedAcrossLines ? undefined : fieldErrors.glAccountId}
+                  placeholder={
+                    glAccountsLoading
                       ? "Loading accounts…"
                       : resolvedGlAccountName ||
-                        (!glAccountsError && glAccounts.length === 0 ? "No GL accounts configured" : "Select GL Account")}
-                  </option>
-                  {glAccounts.map((account) => (
-                    <option key={account._id} value={account.qbAccountId}>
-                      {account.name}
-                    </option>
-                  ))}
-                </SelectDropdown>
+                        (!glAccountsError && glAccounts.length === 0 ? "No GL accounts configured" : "Select GL Account")
+                  }
+                  onSelect={handleGlAccountSelect}
+                  onAddNew={(name) => {
+                    setAddGlName(name);
+                    setAddGlOpen(true);
+                  }}
+                  className="max-w-[18rem]"
+                />
               </div>
               {fieldErrors.glAccountId && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-semibold text-status-danger-text">
                   {fieldErrors.glAccountId}
-                </p>
-              )}
-              {glAccountsMixedAcrossLines && (
-                <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
-                  Multiple GL codes selected across line items, extra charges and discounts — picking one here replaces all of them.
                 </p>
               )}
               {glAccountsErrorDisplay && (
@@ -1628,25 +1709,21 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
             </FieldRow>
             <FieldRow label="Tax Code (vendor default)">
               <div className="flex justify-end">
-                <SelectDropdown
-                  uiSize="sm"
+                <CreatableCombobox
+                  options={taxCodes.map((code) => ({ id: getTaxCodeId(code), label: getTaxCodeLabel(code) }))}
+                  noun="tax code"
+                  ariaLabel="Tax Code"
                   value={invoice.taxCodeId}
-                  onChange={handleTaxCodeChange}
-                  title={resolvedTaxCodeName || undefined}
-                  className="w-56 max-w-full"
-                >
-                  <option value="">
-                    {taxCodesLoading
+                  clearLabel="No tax code"
+                  placeholder={
+                    taxCodesLoading
                       ? "Loading tax codes…"
                       : resolvedTaxCodeName ||
-                        (!taxCodesError && taxCodes.length === 0 ? "No tax codes configured" : "Select Tax Code (optional)")}
-                  </option>
-                  {taxCodes.map((code) => (
-                    <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
-                      {getTaxCodeLabel(code)}
-                    </option>
-                  ))}
-                </SelectDropdown>
+                        (!taxCodesError && taxCodes.length === 0 ? "No tax codes configured" : "Select Tax Code (optional)")
+                  }
+                  onSelect={handleTaxCodeSelect}
+                  className="max-w-[18rem]"
+                />
               </div>
               {taxCodesMixedAcrossLines && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
@@ -1691,7 +1768,14 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           {/* Financial Summary */}
           <SectionCard
             title="Financial Summary"
-            badge={!isBalanced && <Badge variant="warning">Mismatch</Badge>}
+            badge={
+              !isBalanced ? (
+                <Badge variant="warning">Mismatch</Badge>
+              ) : originalExtractedTotal !== null && originalExtractedTotal > 0 ? (
+                // Only when there was a scanned total to actually compare against.
+                <Badge variant="success">Match</Badge>
+              ) : null
+            }
             defaultOpen={false}
             forceOpen={Boolean(fieldErrors.amountBeforeTax || fieldErrors.taxAmount || fieldErrors.totalAfterTax)}
           >
@@ -1728,8 +1812,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               </FieldRow>
             )}
             {/* Not independently editable — each line item × its tax code's
-                QuickBooks rate (vendor default unless the line overrides it).
-                Extra charges and discounts are never taxed. With more than one
+                QuickBooks rate (vendor default unless the line overrides it),
+                less discounts that carry a tax code. Extra charges are never taxed. With more than one
                 rate charged, each gets its own row, then the total. */}
             {taxBreakdown.length > 1 &&
               taxBreakdown.map((entry) => (
@@ -2029,6 +2113,24 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                         </option>
                       ))}
                     </SelectDropdown>
+                    <SelectDropdown
+                      uiSize="sm"
+                      value={discount.taxCodeId || ""}
+                      onChange={(e) => updateDiscountTaxCode(index, e.target.value)}
+                      title={(() => {
+                        const code = taxCodeById.get(discount.taxCodeId || "");
+                        return code ? getTaxCodeLabel(code) : "No tax adjustment";
+                      })()}
+                      className="w-40 shrink-0 text-tiny"
+                    >
+                      {/* Optional — a discount with no code leaves tax unchanged. */}
+                      <option value="">{taxCodesLoading ? "Loading…" : "Select Tax"}</option>
+                      {taxCodes.map((code) => (
+                        <option key={getTaxCodeId(code)} value={getTaxCodeId(code)}>
+                          {getTaxCodeLabel(code)}
+                        </option>
+                      ))}
+                    </SelectDropdown>
                     <InlineEditField
                       ref={(handle) => {
                         discountAmountFieldRefs.current[index] = handle;
@@ -2073,22 +2175,27 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           </SectionCard>
         </div>
 
-        {/* Column-width drag handle — widening/narrowing the panel here
-            resizes Scanned Copy, Vendor Details, Item Description Notes and
-            Status History together, since they all share this one column. */}
-        <div
-          onPointerDown={handleAsideResizeStart}
-          onPointerMove={handleAsideResizeMove}
-          onPointerUp={handleAsideResizeEnd}
-          onPointerCancel={handleAsideResizeEnd}
-          onDoubleClick={() => setAsideWidth(ASIDE_DEFAULT_WIDTH)}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize panel"
-          title="Drag to resize · double-click to reset"
-          className="hidden shrink-0 cursor-col-resize touch-none items-center justify-center self-stretch rounded-md bg-surface-alt hover:bg-border lg:flex lg:w-2"
-        >
-          <span className="h-10 w-1 rounded-full bg-border-strong" />
+        {/* Column-width drag handle — only the grip pill is draggable (the
+            thin track around it is just a visual divider). Widening/narrowing
+            the panel here resizes Scanned Copy, Vendor Details, Item
+            Description Notes and Status History together, since they all
+            share this one column. */}
+        <div className="hidden shrink-0 items-start justify-center self-stretch rounded-md bg-surface-alt lg:flex lg:w-2">
+          {/* Sticky so the grip stays at mid-screen however tall the page is. */}
+          <div
+            onPointerDown={handleAsideResizeStart}
+            onPointerMove={handleAsideResizeMove}
+            onPointerUp={handleAsideResizeEnd}
+            onPointerCancel={handleAsideResizeEnd}
+            onDoubleClick={() => setAsideWidth(ASIDE_DEFAULT_WIDTH)}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            title="Drag to resize · double-click to reset"
+            className="sticky top-[45vh] z-10 flex h-10 w-5 shrink-0 cursor-grab touch-none items-center justify-center rounded-full border border-border-strong bg-surface text-content-secondary shadow-sm hover:border-accent hover:text-accent active:cursor-grabbing"
+          >
+            <GripVertical size={14} strokeWidth={2.25} />
+          </div>
         </div>
 
         <aside
@@ -2251,73 +2358,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
           <SectionCard
             title="Vendor Details"
             defaultOpen={false}
-            forceOpen={Boolean(vendorInfoTopError)}
-            badge={
-              vendorInfoTopError && (
-                <Badge variant="error" className="max-w-[260px] truncate">
-                  {vendorInfoTopError}
-                </Badge>
-              )
-            }
           >
-            <FieldRow id="field-vendor" label="Vendor Entity" required>
-              {isPendingReview ? (
-                // Falls back to the backend's own auto-match when the user
-                // never went through the manual "Change vendor" flow — mirrors
-                // the fallback chain submitToQuickBooks uses when posting.
-                //
-                // linkedVendorId can be a dangling reference (the vendor
-                // record it points to was deleted and recreated under a new
-                // _id, e.g. after a disconnect/resync) — a raw <select>
-                // whose value matches no <option> falls back to displaying
-                // the FIRST option, which misleadingly looked "selected" when
-                // a same-named vendor happened to be first in the list. Only
-                // ever pass a value that's actually in `vendors`; otherwise
-                // show the real "nothing selected" placeholder.
-                (() => {
-                  const linkedVendorId = selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "";
-                  const linkedVendorExists = vendors.some((v) => v._id === linkedVendorId);
-                  const vendorIsStale = Boolean(linkedVendorId) && !linkedVendorExists && !vendorsLoading;
-                  return (
-                    <>
-                      <div className="flex justify-end">
-                        <SelectDropdown
-                          uiSize="sm"
-                          error={fieldErrors.vendor}
-                          value={linkedVendorExists ? linkedVendorId : ""}
-                          onChange={handleVendorChange}
-                          className="max-w-sm"
-                        >
-                          <option value="" disabled>
-                            Select Vendor
-                          </option>
-                          {vendors.map((vendor) => (
-                            <option key={vendor._id} value={vendor._id}>
-                              {vendor.displayName}
-                            </option>
-                          ))}
-                        </SelectDropdown>
-                      </div>
-                      {vendorIsStale && (
-                        <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
-                          Linked vendor record no longer exists (it may have been deleted and re-synced) — please
-                          re-select the vendor above.
-                        </p>
-                      )}
-                    </>
-                  );
-                })()
-              ) : (
-                // Not editable outside pending review — the vendor is already
-                // linked to a QB vendor record with no safe way to change it here.
-                <span className="block w-full text-right text-body-sm font-bold text-content-primary">{invoice.vendor || "—"}</span>
-              )}
-              {fieldErrors.vendor && (
-                <p className="mt-[var(--space-xs)] text-right text-caption font-semibold text-status-danger-text">
-                  {fieldErrors.vendor}
-                </p>
-              )}
-            </FieldRow>
             <FieldRow label="Vendor Address" stacked>
               <InlineEditField
                 ariaLabel="Vendor Address"
@@ -2395,6 +2436,23 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
 
         </aside>
       </div>
+
+      <AddVendorModalV2
+        open={addVendorOpen}
+        onClose={() => setAddVendorOpen(false)}
+        initialName={addVendorName}
+        onCreated={(vendor) => {
+          updateField("vendor", vendor.displayName);
+          dispatch(setSelectedVendor({ forInvoiceId: invoiceId, ...vendor }));
+        }}
+      />
+
+      <AddGlAccountModalV2
+        open={addGlOpen}
+        onClose={() => setAddGlOpen(false)}
+        initialName={addGlName}
+        onCreated={applyGlAccount}
+      />
 
       <VendorResolutionDialogV2
         invoiceId={invoiceId}
