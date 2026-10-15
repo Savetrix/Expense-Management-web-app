@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
-  Cloud,
   Copy,
   Download,
   Maximize2,
@@ -1401,7 +1400,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                       onClick={() => setQuickActionsOpen(false)}
                       className="flex w-full items-center gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)] text-left text-body-sm text-content-primary hover:bg-surface-alt"
                     >
-                      <Cloud size={14} strokeWidth={2} />
+                      <BrandIcon name="onedrive" size={14} />
                       Open in OneDrive
                     </a>
                   )}
@@ -2169,8 +2168,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                   </a>
                 )}
                 {oneDriveFileUrl && (
-                  <a href={oneDriveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in OneDrive" className="text-content-secondary hover:text-accent">
-                    <Cloud size={16} strokeWidth={2} />
+                  <a href={oneDriveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in OneDrive">
+                    <BrandIcon name="onedrive" size={16} />
                   </a>
                 )}
                 {previewHref && (

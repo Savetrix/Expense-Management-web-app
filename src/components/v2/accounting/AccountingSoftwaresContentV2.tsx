@@ -6,7 +6,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Cloud,
   Code2,
   Copy,
   ExternalLink,
@@ -57,8 +56,6 @@ type DetailView =
 // returns {connected, email}), so this is the most specific destination that
 // actually exists. Microsoft's launch link routes personal accounts to
 // onedrive.live.com and work/school accounts to their SharePoint OneDrive.
-// OneDrive has no entry in simple-icons (same as Tally — see BrandIcon.tsx),
-// so it renders a generic cloud glyph rather than a hand-approximated logo.
 const STORAGE_UI: Record<StorageDriveId, { icon: (size: number) => ReactNode; webUrl: string; accountLabel: string }> = {
   "google-drive": {
     icon: (size) => <BrandIcon name="google-drive" size={size} />,
@@ -66,7 +63,7 @@ const STORAGE_UI: Record<StorageDriveId, { icon: (size: number) => ReactNode; we
     accountLabel: "Google account",
   },
   onedrive: {
-    icon: (size) => <Cloud size={size} strokeWidth={1.75} className="text-content-secondary" />,
+    icon: (size) => <BrandIcon name="onedrive" size={size} />,
     webUrl: "https://www.microsoft365.com/launch/onedrive",
     accountLabel: "Microsoft account",
   },

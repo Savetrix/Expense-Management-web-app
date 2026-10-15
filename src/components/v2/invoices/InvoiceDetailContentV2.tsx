@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronUp, Cloud, Pencil, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronUp, Pencil, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import type { CSSProperties } from "react";
 import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -539,8 +539,8 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
                   </a>
                 )}
                 {oneDriveFileUrl && (
-                  <a href={oneDriveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in OneDrive" className="text-content-secondary hover:text-accent">
-                    <Cloud size={16} strokeWidth={2} />
+                  <a href={oneDriveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in OneDrive">
+                    <BrandIcon name="onedrive" size={16} />
                   </a>
                 )}
                 {previewHref && (
