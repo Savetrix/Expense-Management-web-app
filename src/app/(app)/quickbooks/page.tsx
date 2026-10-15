@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { QuickBooksConnectContentV2 } from "@/components/v2/quickbooks/QuickBooksConnectContentV2";
 
 export const metadata: Metadata = {
-  title: "QuickBooks — Scantrix",
+  title: "Accounting connections — Scantrix",
 };
 
 export default function QuickBooksV2Page() {

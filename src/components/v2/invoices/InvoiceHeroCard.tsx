@@ -4,6 +4,7 @@ import { AlertTriangle, Building2 } from "lucide-react";
 import { ReactNode, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 // r chosen so the circle's circumference is exactly 100 (2πr ≈ 100) — lets
 // stroke-dasharray/stroke-dashoffset values be plain percentages instead of
@@ -90,6 +91,7 @@ export function InvoiceHeroCard({
   reason,
   reasonExtra,
 }: InvoiceHeroCardProps) {
+  const provider = useActiveProvider();
   const [showConfidenceInfo, setShowConfidenceInfo] = useState(false);
   const hasConfidence = confidenceScore !== null;
 
@@ -116,7 +118,7 @@ export function InvoiceHeroCard({
           )}
           {realmId && (
             <span className="rounded-pill bg-surface px-[var(--space-sm)] py-1 text-caption font-semibold text-content-secondary">
-              QBO Realm: {realmId}
+              {provider.name} {provider.companyIdLabel}: {realmId}
             </span>
           )}
         </div>

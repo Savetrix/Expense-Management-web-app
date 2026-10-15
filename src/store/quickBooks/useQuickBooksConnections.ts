@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { PROVIDERS, providerInfoOf, type AccountingProviderId, type ConnectionProvider } from "@/lib/accountingProvider";
 import {
   connectQuickBooks,
   disconnectQuickBooks,
@@ -25,6 +26,8 @@ export interface QBConnection {
    * re-authorize before it'll work again.
    */
   status?: "active" | "disconnected" | "reconnect_required";
+  /** Which accounting software — absent on older cached data, treat as QuickBooks (see providerIdOf). */
+  provider?: ConnectionProvider;
 }
 
 // Shared between QuickBooksConnectContent (the dedicated /quickbooks page)
@@ -107,24 +110,30 @@ export function useQuickBooksConnections(redirectPath: string) {
     await dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: connection._id }));
   };
 
-  const handleConnect = async () => {
+  // Which provider's connect is in flight, so only that button spins.
+  const [connectingProvider, setConnectingProvider] = useState<AccountingProviderId | null>(null);
+
+  const handleConnect = async (provider: AccountingProviderId = "quickbooks") => {
     if (!accessToken || connecting) return;
+    const name = PROVIDERS[provider].name;
     setConnecting(true);
+    setConnectingProvider(provider);
     try {
       const redirectAfter = `${window.location.origin}${redirectPath}`;
-      const result = await dispatch(connectQuickBooks({ accessToken, redirectAfter }));
+      const result = await dispatch(connectQuickBooks({ accessToken, redirectAfter, provider }));
       if (connectQuickBooks.fulfilled.match(result)) {
         const authUrl = result.payload?.data?.authUrl;
         if (authUrl) {
           window.location.href = authUrl;
           return;
         }
-        showToast("Could not start QuickBooks connection. Please try again.", "error");
+        showToast(`Could not start ${name} connection. Please try again.`, "error");
       } else {
-        showToast(typeof result.payload === "string" ? result.payload : "Could not start QuickBooks connection.", "error");
+        showToast(typeof result.payload === "string" ? result.payload : `Could not start ${name} connection.`, "error");
       }
     } finally {
       setConnecting(false);
+      setConnectingProvider(null);
     }
   };
 
@@ -161,8 +170,9 @@ export function useQuickBooksConnections(redirectPath: string) {
   // has a non-destructive refresh option right next to it.
   const handleDisconnect = async (connection: QBConnection): Promise<boolean> => {
     if (!accessToken) return false;
+    const providerName = providerInfoOf(connection).name;
     const choice = await confirmDialog({
-      title: "Disconnect QuickBooks account?",
+      title: `Disconnect ${providerName} account?`,
       message: `Disconnect "${connection.name}"? This cannot be undone.\n\nReconnect instead to refresh the connection without removing it.`,
       confirmLabel: "Disconnect",
       altLabel: "Reconnect instead",
@@ -187,7 +197,7 @@ export function useQuickBooksConnections(redirectPath: string) {
           const unlockNote = unlockAt
             ? ` Slot reserved until ${new Date(unlockAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.`
             : "";
-          showToast(`QuickBooks access revoked.${unlockNote} Reconnect the same company anytime.`, "success");
+          showToast(`${providerName} access revoked.${unlockNote} Reconnect the same company anytime.`, "success");
         } else {
           setConnections((prev) => prev.filter((c) => c._id !== connection._id));
         }
@@ -216,6 +226,7 @@ export function useQuickBooksConnections(redirectPath: string) {
     disconnectedConnections,
     checkingStatus,
     connecting,
+    connectingProvider,
     disconnectingId,
     reconnectingId,
     activeConnectionId,

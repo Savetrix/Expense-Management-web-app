@@ -35,7 +35,7 @@ function requireCredentials(state: RootState): { accessToken: string; qbConnecti
   const accessToken: string | undefined = state.auth.user?.data?.accessToken;
   const qbConnectionId = state.quickBooks.qbConnectionId;
   if (!accessToken) throw new HistoryRequestError("You need to sign in to use chat history.", 401);
-  if (!qbConnectionId) throw new HistoryRequestError("Connect a QuickBooks company first.", 400);
+  if (!qbConnectionId) throw new HistoryRequestError("Connect an accounting company first.", 400);
   return { accessToken, qbConnectionId };
 }
 

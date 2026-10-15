@@ -1,8 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronRight, Plug } from "lucide-react";
-import { useEffect } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { Badge } from "@/components/ui/Badge";
@@ -10,8 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { PageHeader } from "@/components/v2/ui";
-import { showToast } from "@/lib/dialogManager";
 import { useQuickBooksConnections } from "@/store/quickBooks/useQuickBooksConnections";
+import { providerIdOf, providerInfoOf } from "@/lib/accountingProvider";
 
 // v2 redesign of src/components/quickbooks/QuickBooksConnectContent.tsx — the
 // dedicated QuickBooks route the OAuth callback can land on. Full connection
@@ -24,9 +22,6 @@ const ROW_DANGER_CLASS =
   "flex h-8 shrink-0 cursor-pointer items-center rounded-md border border-status-danger-border bg-status-danger-bg px-[var(--space-sm)] text-caption font-semibold text-status-danger-text hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60";
 
 export function QuickBooksConnectContentV2() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
   const {
     activeConnections: connections,
     checkingStatus,
@@ -40,30 +35,19 @@ export function QuickBooksConnectContentV2() {
     handleDisconnect,
   } = useQuickBooksConnections("/quickbooks");
 
-  // Backend's QB OAuth callback redirects errors back here as ?error=<code>
-  // (success carries no query param — the hook's own checkStatus already
-  // re-fetches the connection list, which is enough to reflect a successful
-  // connect).
-  useEffect(() => {
-    const error = searchParams.get("error");
-    if (!error) return;
-    showToast(error, "error");
-    router.replace("/quickbooks");
-  }, [searchParams, router]);
-
   return (
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <p className="mb-[var(--space-xs)] flex items-center gap-[var(--space-xs)] text-tiny font-bold uppercase tracking-[0.08em] text-accent-text-on-bg">
         Integrations
         <ChevronRight size={11} strokeWidth={2.5} className="text-content-muted" />
-        QuickBooks
+        Accounting connections
       </p>
 
       <PageHeader
-        title="QuickBooks"
-        subtitle="Manage the QuickBooks companies connected to Scantrix."
+        title="Accounting connections"
+        subtitle="Manage the QuickBooks and Xero companies connected to Scantrix."
         action={
-          <Button type="button" size="sm" onClick={handleConnect} loading={connecting} className="shrink-0">
+          <Button type="button" size="sm" onClick={() => handleConnect()} loading={connecting} className="shrink-0">
             {!connecting && <Plug size={14} strokeWidth={2.25} />}
             {connections.length > 0 ? "Add another account" : "Connect QuickBooks"}
           </Button>
@@ -86,10 +70,10 @@ export function QuickBooksConnectContentV2() {
           <div className="rounded-md border border-border bg-surface">
             <EmptyState
               icon={<BrandIcon name="quickbooks" size={26} />}
-              title="No QuickBooks companies yet"
+              title="No companies connected yet"
               description="Connect a company to sync its vendors, GL accounts and tax codes, and to post approved invoices."
               actionLabel={connecting ? "Connecting…" : "Connect QuickBooks"}
-              onAction={handleConnect}
+              onAction={() => handleConnect()}
             />
           </div>
         ) : (
@@ -111,7 +95,7 @@ export function QuickBooksConnectContentV2() {
                 >
                   <div className="flex min-w-0 items-center gap-[var(--space-md)]">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt">
-                      <BrandIcon name="quickbooks" size={22} />
+                      <BrandIcon name={providerIdOf(connection)} size={22} />
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-body-sm font-semibold text-content-primary">{connection.name}</p>
@@ -120,7 +104,7 @@ export function QuickBooksConnectContentV2() {
                           needsReconnect ? "font-semibold text-status-warning-text" : "text-content-secondary"
                         }`}
                       >
-                        {needsReconnect ? "Needs reconnect — QuickBooks revoked access" : `Connected ${date}`}
+                        {needsReconnect ? `Needs reconnect — ${providerInfoOf(connection).name} revoked access` : `Connected ${date}`}
                       </p>
                     </div>
                   </div>
@@ -163,7 +147,7 @@ export function QuickBooksConnectContentV2() {
             <Button
               type="button"
               size="sm"
-              onClick={handleConnect}
+              onClick={() => handleConnect()}
               loading={connecting}
               className="mt-[var(--space-xs)] self-start"
             >

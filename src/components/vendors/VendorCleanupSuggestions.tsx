@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { taxCodeId as getTaxCodeId, taxCodeName } from "@/lib/quickbooks/taxCode";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import type { GLAccount, TaxCode, Vendor } from "@/store/quickBooks/quickBooksSlice";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 // A vendor with no posted invoice in this long is flagged as possibly unused.
 const STALE_MONTHS = 6;
@@ -50,6 +51,7 @@ function buildSuggestions(
   glAccounts: GLAccount[],
   taxCodes: TaxCode[],
   invoices: InvoiceRecord[],
+  providerName: string,
 ): Suggestion[] {
   const glById = new Map(glAccounts.map((a) => [a.qbAccountId, a]));
   const taxById = new Map(taxCodes.map((t) => [getTaxCodeId(t), t]));
@@ -78,7 +80,7 @@ function buildSuggestions(
           id: `${vendor._id}-gl-deleted`,
           kind: "gl-deleted",
           vendor,
-          message: `"${vendor.displayName}"'s default GL account no longer exists in QuickBooks.`,
+          message: `"${vendor.displayName}"'s default GL account no longer exists in ${providerName}.`,
           actionLabel: "Fix GL account",
         });
       }
@@ -108,7 +110,7 @@ function buildSuggestions(
           id: `${vendor._id}-tax-deleted`,
           kind: "tax-deleted",
           vendor,
-          message: `"${vendor.displayName}"'s default tax code no longer exists in QuickBooks.`,
+          message: `"${vendor.displayName}"'s default tax code no longer exists in ${providerName}.`,
           actionLabel: "Fix tax code",
         });
       }
@@ -194,10 +196,11 @@ export function VendorCleanupSuggestions({
   const [open, setOpen] = useState(true);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const providerName = useActiveProvider().name;
 
   const suggestions = useMemo(
-    () => buildSuggestions(vendors, glAccounts, taxCodes, invoices).filter((s) => !dismissed.has(s.id)),
-    [vendors, glAccounts, taxCodes, invoices, dismissed],
+    () => buildSuggestions(vendors, glAccounts, taxCodes, invoices, providerName).filter((s) => !dismissed.has(s.id)),
+    [vendors, glAccounts, taxCodes, invoices, providerName, dismissed],
   );
 
   if (suggestions.length === 0) return null;

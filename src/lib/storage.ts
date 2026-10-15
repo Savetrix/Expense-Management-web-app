@@ -235,6 +235,22 @@ export const clearDriveConnectedAt = (): void => {
   removeItem(DRIVE_CONNECTED_AT_KEY);
 };
 
+// Same client-side approximation for OneDrive (/onedrive/status also returns
+// only {connected, email}).
+const ONEDRIVE_CONNECTED_AT_KEY = "oneDriveConnectedAt";
+
+export const getOneDriveConnectedAt = (): string | null => {
+  return getItem(ONEDRIVE_CONNECTED_AT_KEY);
+};
+
+export const setOneDriveConnectedAt = (isoDate: string): void => {
+  setItem(ONEDRIVE_CONNECTED_AT_KEY, isoDate);
+};
+
+export const clearOneDriveConnectedAt = (): void => {
+  removeItem(ONEDRIVE_CONNECTED_AT_KEY);
+};
+
 // ==============================
 // SIDEBAR PINNED (UI preference, not session data — kept synchronous
 // since AppShell reads it once on mount to set local component state,
