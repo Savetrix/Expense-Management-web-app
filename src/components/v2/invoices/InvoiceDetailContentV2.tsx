@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronUp, Pencil, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronUp, Cloud, Pencil, RotateCcw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
 import type { CSSProperties } from "react";
 import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -258,6 +258,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
   const previewMimeType = invoiceObject?.file?.mimeType ?? "";
   const isPdf = previewMimeType.includes("pdf") || (invoiceUrl ?? "").toLowerCase().includes(".pdf");
   const driveFileUrl = invoiceObject?.googleDrive?.fileUrl;
+  const oneDriveFileUrl = invoiceObject?.oneDrive?.fileUrl;
 
   const resolvedGlAccount = useMemo(
     () => glAccounts.find((acc) => acc.qbAccountId === String(rawData?.glAccountId ?? "")),
@@ -535,6 +536,11 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
                 {driveFileUrl && (
                   <a href={driveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in Google Drive">
                     <BrandIcon name="google-drive" size={16} />
+                  </a>
+                )}
+                {oneDriveFileUrl && (
+                  <a href={oneDriveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in OneDrive" className="text-content-secondary hover:text-accent">
+                    <Cloud size={16} strokeWidth={2} />
                   </a>
                 )}
                 {previewHref && (

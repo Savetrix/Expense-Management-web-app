@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
+  Cloud,
   Copy,
   Download,
   Maximize2,
@@ -986,6 +987,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   const previewMimeType = invoiceObject?.file?.mimeType || "";
   const isPdf = previewMimeType.includes("pdf") || (previewUrl ?? "").toLowerCase().includes(".pdf");
   const driveFileUrl = invoiceObject?.googleDrive?.fileUrl;
+  const oneDriveFileUrl = invoiceObject?.oneDrive?.fileUrl;
   const previewHref = previewUrl
     ? `/invoices/preview?url=${encodeURIComponent(previewUrl)}&mimeType=${encodeURIComponent(previewMimeType)}`
     : null;
@@ -1389,6 +1391,18 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                     >
                       <BrandIcon name="google-drive" size={14} />
                       Open in Google Drive
+                    </a>
+                  )}
+                  {oneDriveFileUrl && (
+                    <a
+                      href={oneDriveFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setQuickActionsOpen(false)}
+                      className="flex w-full items-center gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)] text-left text-body-sm text-content-primary hover:bg-surface-alt"
+                    >
+                      <Cloud size={14} strokeWidth={2} />
+                      Open in OneDrive
                     </a>
                   )}
                 </div>
@@ -2152,6 +2166,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 {driveFileUrl && (
                   <a href={driveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in Google Drive">
                     <BrandIcon name="google-drive" size={16} />
+                  </a>
+                )}
+                {oneDriveFileUrl && (
+                  <a href={oneDriveFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View in OneDrive" className="text-content-secondary hover:text-accent">
+                    <Cloud size={16} strokeWidth={2} />
                   </a>
                 )}
                 {previewHref && (
