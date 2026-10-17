@@ -9,6 +9,7 @@ import {
   Mail,
   Plus,
   RefreshCw,
+  ShieldCheck,
   UserX,
   X,
 } from "lucide-react";
@@ -22,6 +23,11 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar, PageHeader } from "@/components/v2/ui";
+import {
+  InviteLinkPanel,
+  InvitePermissionsStep,
+  MemberPermissionsModal,
+} from "@/components/v2/team/MemberPermissionsModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchQBMembers,
@@ -133,6 +139,8 @@ export function TeamMembersContentV2() {
   const [inviteRole, setInviteRole] = useState<QBMemberRole>("accountant");
   const [sending, setSending] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
+  // Front-end-only permission presets — see MemberPermissionsModal.
+  const [permissionsMember, setPermissionsMember] = useState<QBMember | null>(null);
 
   // With exactly one connected company there's nothing to choose, so use it
   // directly. With 2+, only use a match for an id the user actually
@@ -497,6 +505,17 @@ export function TeamMembersContentV2() {
                       {removable && (
                         <button
                           type="button"
+                          onClick={() => setPermissionsMember(member)}
+                          aria-label={`Permissions for ${memberDisplayName(member)}`}
+                          title="Permissions"
+                          className="flex h-10 w-10 items-center justify-center rounded-md text-text-secondary hover:bg-surface-alt lg:h-8 lg:w-8"
+                        >
+                          <ShieldCheck size={16} strokeWidth={2} />
+                        </button>
+                      )}
+                      {removable && (
+                        <button
+                          type="button"
                           onClick={() => handleRemoveMember(member)}
                           disabled={isRemoving}
                           className="flex h-10 w-10 items-center justify-center rounded-md bg-error/10 text-error disabled:opacity-60 lg:h-8 lg:w-8"
@@ -583,6 +602,12 @@ export function TeamMembersContentV2() {
               {activeRoleMeta.label}
             </span>
           </div>
+
+          {canInvite && (
+            <div className="mt-[var(--space-lg)]">
+              <InviteLinkPanel companyName={activeConnection.name} />
+            </div>
+          )}
 
           {!canInvite && (
             <>
@@ -697,6 +722,8 @@ export function TeamMembersContentV2() {
               })}
             </div>
 
+            <InvitePermissionsStep disabled={sending} />
+
             <Button
               onClick={handleSendInvite}
               loading={sending}
@@ -707,6 +734,16 @@ export function TeamMembersContentV2() {
             </Button>
           </div>
         </div>
+      )}
+
+      {permissionsMember && (
+        <MemberPermissionsModal
+          key={permissionsMember._id}
+          open
+          onClose={() => setPermissionsMember(null)}
+          memberName={memberDisplayName(permissionsMember)}
+          memberRole={permissionsMember.role}
+        />
       )}
     </div>
   );

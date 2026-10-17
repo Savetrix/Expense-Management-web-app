@@ -11,10 +11,12 @@ import {
   ExternalLink,
   FolderOpen,
   Mail,
+  MessageCircle,
   Plug,
   Receipt,
   RefreshCw,
   Settings2,
+  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
@@ -28,6 +30,8 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Switch } from "@/components/ui/Switch";
 import { Modal, ModalDefinitionRow, PageHeader, SearchInput } from "@/components/v2/ui";
 import { EmailForwardingPanelV2 } from "@/components/v2/accounting/EmailForwardingPanelV2";
+import { AllowedSendersModal } from "@/components/v2/capture/AllowedSendersModal";
+import { WhatsAppCaptureModal } from "@/components/v2/capture/WhatsAppCaptureModal";
 import { providerIdOf, providerInfoOf } from "@/lib/accountingProvider";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
@@ -261,6 +265,9 @@ export function AccountingSoftwaresContentV2() {
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [savingAutoPost, setSavingAutoPost] = useState(false);
   const [realmCopied, setRealmCopied] = useState(false);
+  // Front-end-only capture flows (WhatsApp, allowed senders) — see src/components/v2/capture.
+  const [captureModal, setCaptureModal] = useState<"whatsapp" | "senders" | null>(null);
+  const [whatsAppConnected, setWhatsAppConnected] = useState(false);
 
   // Falls back to the live production server — see .env.local.example.
   const mcpServerUrl = process.env.NEXT_PUBLIC_MCP_SERVER_URL || "https://mcp.scantrix.ai/mcp";
@@ -797,6 +804,22 @@ export function AccountingSoftwaresContentV2() {
                   }
                 />
               )}
+              <IntegrationRow
+                icon={<MessageCircle size={20} strokeWidth={1.75} className="text-content-secondary" />}
+                name="WhatsApp"
+                nameBadge={<BetaBadge />}
+                description="Send photos or PDFs of receipts and bills to Scantrix on WhatsApp."
+                onOpen={() => setCaptureModal("whatsapp")}
+                openLabel="Set up WhatsApp capture"
+                actions={whatsAppConnected ? <Badge variant="success">Connected</Badge> : undefined}
+              />
+              <IntegrationRow
+                icon={<ShieldCheck size={20} strokeWidth={1.75} className="text-content-secondary" />}
+                name="Allowed senders"
+                description="Limit email capture to specific senders or domains, and see supported files."
+                onOpen={() => setCaptureModal("senders")}
+                openLabel="Manage allowed senders"
+              />
             </div>
           </section>
         )}
@@ -1137,6 +1160,13 @@ export function AccountingSoftwaresContentV2() {
           </McpStep>
         </div>
       </Modal>
+
+      <WhatsAppCaptureModal
+        open={captureModal === "whatsapp"}
+        onClose={() => setCaptureModal(null)}
+        onConnectedChange={setWhatsAppConnected}
+      />
+      <AllowedSendersModal open={captureModal === "senders"} onClose={() => setCaptureModal(null)} />
     </div>
   );
 }

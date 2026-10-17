@@ -8,6 +8,7 @@ import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRe
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
+import { InvoiceInsightsPanel } from "@/components/v2/invoiceInsights/InvoiceInsightsPanel";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { deleteInvoice, getInvoiceDetails } from "@/store/invoice/invoiceApi";
@@ -612,6 +613,19 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
               <span className="h-1 w-10 rounded-full bg-border-strong" />
             </div>
           </div>
+
+          {/* AI insights — front-end-only flows, see src/components/v2/invoiceInsights. */}
+          <InvoiceInsightsPanel
+            vendorName={vendorName}
+            glCode={glCode}
+            publishedBy={uploadedByName}
+            isAutopilot={type === "auto"}
+            isPosted={type === "auto" || type === "manual"}
+            totalAmount={Number(rawData?.totalAmount) || 0}
+            totalAmountDisplay={totalAfterTax}
+            currency={currency}
+            invoiceDate={invoiceDate}
+          />
 
         {/* Status History */}
           {statusHistory.length > 0 && (
