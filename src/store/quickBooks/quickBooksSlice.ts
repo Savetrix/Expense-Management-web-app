@@ -1,4 +1,4 @@
-import { createSlice, PayloadAction } from "@reduxjs/toolkit";
+import { createSelector, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import {
   deleteQuickBooksVendor,
   fetchQuickBooksAccounts,
@@ -385,3 +385,13 @@ export const selectActiveProviderId = (state: { quickBooks: QuickBooksState }): 
   if (connections?.length) return providerIdOf(connections.find((c) => c._id === qbConnectionId));
   return activeProviderId ?? DEFAULT_PROVIDER;
 };
+
+// Companies the user can actually work in — the connection list also carries
+// disconnected ones (for the Integrations page's history). Same rule as the
+// header's company switcher, so a page and the switcher always agree on
+// whether there's a company to pick. Memoized: a fresh filtered array on every
+// call would re-render every subscriber on any state change.
+export const selectConnectedAccounts = createSelector(
+  [(state: { quickBooks: QuickBooksState }) => state.quickBooks.connections],
+  (connections) => connections.filter((c) => c.status !== "disconnected"),
+);

@@ -3,6 +3,7 @@ import { PURGE } from "redux-persist";
 
 import api from "../../lib/api";
 import { RootState } from "..";
+import type { DeletionPreview } from "../../lib/accountDeletion";
 
 import {
   saveAccessToken,
@@ -755,6 +756,46 @@ export const updateUserProfile = createAsyncThunk(
         "Could not update profile";
 
       return thunkAPI.rejectWithValue(errorMessage);
+    }
+  }
+);
+
+
+
+// ================================
+// ACCOUNT DELETION
+// ================================
+// Contract + rules live in lib/accountDeletion.ts. Neither thunk touches
+// auth state: once the delete succeeds the caller dispatches logoutUser,
+// which already clears storage and resets every session-scoped slice — the
+// backend's /auth/logout needs no valid token, so it still succeeds after
+// the account (and its tokens) are gone.
+
+export const fetchDeletionPreview = createAsyncThunk(
+  "auth/fetchDeletionPreview",
+  async (_: void, thunkAPI) => {
+    try {
+      const response = await api.get("/users/me/deletion-preview");
+      return response.data?.data as DeletionPreview;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(
+        error?.response?.data?.message || error?.message || "Could not load account details"
+      );
+    }
+  }
+);
+
+export const deleteAccount = createAsyncThunk(
+  "auth/deleteAccount",
+  async (data: { confirmText: string }, thunkAPI) => {
+    // An expired token is refreshed (and the request re-sent) by the api
+    // client itself — see lib/api.ts.
+    try {
+      return (await api.delete("/users/me", { data })).data;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(
+        error?.response?.data?.message || error?.message || "Could not delete your account"
+      );
     }
   }
 );
