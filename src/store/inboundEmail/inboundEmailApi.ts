@@ -14,7 +14,7 @@
 // nothing but the company id.
 import { createAsyncThunk } from "@reduxjs/toolkit";
 
-import { SESSION_EXPIRED, sessionEmitter } from "../../lib/sessionManager";
+import { authFetch } from "../../lib/authFetch";
 // Type-only: the slice imports this file and store/index imports the slice, so
 // a value import here would close a runtime cycle.
 import type { RootState } from "..";
@@ -106,21 +106,19 @@ function accountEmail(state: RootState): string | null {
 }
 
 async function inboundFetch(state: RootState, path: string, init?: RequestInit): Promise<Response> {
-  const accessToken = requireAccessToken(state);
-  const response = await fetch(`${BASE_URL}${path}`, {
+  requireAccessToken(state);
+  // authFetch attaches the (refreshed-if-needed) token, retries once after a
+  // refresh on 401, and ends the session only if that fails too.
+  const response = await authFetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${accessToken}`,
       ...init?.headers,
     },
   });
 
   if (response.ok) return response;
 
-  // A server-rejected token means this session is over, not that the feature is
-  // broken — same handling as chat history.
-  if (response.status === 401) sessionEmitter.emit(SESSION_EXPIRED);
   const body = await response.json().catch(() => null);
   throw new InboundRequestError(
     body?.error || "Couldn't reach email forwarding settings. Please try again.",

@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Mail,
   Plug,
+  Plus,
   Receipt,
   RefreshCw,
   Settings2,
@@ -28,7 +29,8 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Switch } from "@/components/ui/Switch";
 import { Modal, ModalDefinitionRow, PageHeader, SearchInput } from "@/components/v2/ui";
 import { EmailForwardingPanelV2 } from "@/components/v2/accounting/EmailForwardingPanelV2";
-import { providerIdOf, providerInfoOf } from "@/lib/accountingProvider";
+import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
+import { openAddAccountModal } from "@/lib/addAccountModal";
 import { showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -158,6 +160,34 @@ interface IntegrationRowProps {
   openLabel?: string;
   selected?: boolean;
   muted?: boolean;
+}
+
+// First thing a new user sees here, before any company is connected (the
+// dashboard's "not connected" banner sends them to this page): the header's
+// switcher is easy to miss, so this opens the same "Add an accounting
+// account" modal (lib/addAccountModal.ts). A regular IntegrationRow; the
+// page's only primary button is what makes it stand out.
+function ConnectCompanyPrompt() {
+  const providers = Object.keys(PROVIDERS) as AccountingProviderId[];
+  return (
+    <IntegrationRow
+      icon={
+        <span className="flex -space-x-1.5">
+          {providers.map((id) => (
+            <BrandIcon key={id} name={id} size={18} />
+          ))}
+        </span>
+      }
+      name="Connect your accounting software"
+      description={`Link a ${providers.map((id) => PROVIDERS[id].name).join(" or ")} company to start turning scanned invoices into bills.`}
+      actions={
+        <Button type="button" size="sm" onClick={openAddAccountModal} className="shrink-0">
+          <Plus size={14} strokeWidth={2.5} />
+          Connect a company
+        </Button>
+      }
+    />
+  );
 }
 
 function IntegrationRow({
@@ -435,8 +465,8 @@ export function AccountingSoftwaresContentV2() {
   }, [visibleActiveConnections, activeConnectionId]);
 
   // QuickBooks itself is no longer offered in "Available to connect" — adding
-  // a company now happens from the header's company switcher, or from the
-  // "Add account" row at the bottom of Connected below.
+  // a company happens from the header's company switcher, or — while none is
+  // connected — from the ConnectCompanyPrompt in Connected below.
   const showAddAccountRow = matches("QuickBooks", "QuickBooks Online", "Xero", "Add account", "Connect a company");
   // Storage belongs to a company (the backend links it per workspace), so it
   // renders nested under the active company row rather than as a peer of it.
@@ -616,6 +646,7 @@ export function AccountingSoftwaresContentV2() {
                 </div>
               )}
 
+              {!checkingStatus && connectedCount === 0 && showAddAccountRow && <ConnectCompanyPrompt />}
             </div>
 
             {visibleDisconnectedConnections.length > 0 && (

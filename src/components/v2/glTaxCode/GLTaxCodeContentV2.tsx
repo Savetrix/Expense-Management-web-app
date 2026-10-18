@@ -21,7 +21,7 @@ import {
   syncQuickBooksAccounts,
   syncQuickBooksTaxCodes,
 } from "@/store/quickBooks/quickBooksApi";
-import { selectActiveProviderId, type GLAccount, type TaxCode } from "@/store/quickBooks/quickBooksSlice";
+import { selectActiveProviderId, selectConnectedAccounts, type GLAccount, type TaxCode } from "@/store/quickBooks/quickBooksSlice";
 import { DataTable, Modal, PageHeader, RoleInfoBanner, SearchInput, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 
@@ -60,7 +60,7 @@ export function GLTaxCodeContentV2() {
   const taxCodesError = useAppSelector((state) => state.quickBooks.taxCodesError);
 
   // Loaded once by AppShell into the quickBooks slice — no per-page fetch.
-  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const connections = useAppSelector(selectConnectedAccounts);
   const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [activeTab, setActiveTab] = useState<GLTab>("accounts");
   const [searchText, setSearchText] = useState("");
@@ -284,16 +284,19 @@ export function GLTaxCodeContentV2() {
 
   if (!activeConnection) {
     return (
-      <div className="p-[var(--space-md)] sm:p-[var(--space-lg)]">
+      <div className="mx-auto max-w-2xl p-[var(--space-lg)]">
         <div className="rounded-lg border border-border bg-surface p-[var(--space-lg)] shadow-sm">
           <EmptyState
             icon={<Landmark size={28} strokeWidth={1.75} />}
-            title={connections.length > 0 ? "Select a company" : "No company connected"}
+            title="GL Account & TaxCode"
             description={
               connections.length > 0
                 ? "Choose a company from the switcher up top to manage its GL accounts and tax codes."
                 : "Connect an accounting company before managing GL accounts and tax codes."
             }
+            actionLabel={connections.length > 0 ? undefined : "Connect accounting software"}
+            onAction={connections.length > 0 ? undefined : () => router.push("/accounting-software")}
+            actionVariant="primary"
           />
         </div>
       </div>
