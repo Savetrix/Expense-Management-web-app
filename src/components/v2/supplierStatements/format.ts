@@ -1,6 +1,6 @@
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 
-import type { CandidateBill, LineMatchResult, MatchField, StatementStatus, SupplierStatement } from "./mockData";
+import type { CandidateBill, LineMatchResult, MatchField, StatementStatus, SupplierStatement } from "./types";
 
 export const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 
@@ -12,6 +12,7 @@ export const ROW_ACTION_NEUTRAL_CLASS =
 
 /** "2026-09-03" → "Sep 3, 2026" (UTC so the day never shifts by timezone). */
 export function formatDate(ymd: string): string {
+  if (!ymd) return "—";
   const date = new Date(`${ymd}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return ymd;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -50,7 +51,7 @@ export function billValueFor(bill: CandidateBill, field: MatchField): string {
     case "date":
       return formatDate(bill.date);
     case "amount":
-      return money(bill.amount);
+      return money(bill.amount, bill.currency);
     case "reference":
       return bill.number;
   }

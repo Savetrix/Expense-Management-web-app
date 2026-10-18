@@ -11,7 +11,8 @@ import { AccruedExpensesTab } from "./AccruedExpensesTab";
 import { AmortisationTab } from "./AmortisationTab";
 import { DetectionSettingsModal } from "./DetectionSettingsModal";
 import { FixedAssetsTab } from "./FixedAssetsTab";
-import { DEFAULT_SETTINGS, LEDGER_OFFSETS, MOCK_ACCRUALS, MOCK_ASSETS, MOCK_DEFERRED, MOCK_PREPAYMENTS, MOCK_REVERSALS } from "./mockData";
+import { DEFAULT_SETTINGS } from "./config";
+import { useMonthEndLookups } from "./lookups";
 import type { Accrual, AccrualReversal, AdjustmentType, AmortisationItem, DetectionSettings, FixedAsset } from "./types";
 
 const TAB_LABELS: Record<AdjustmentType, string> = {
@@ -21,18 +22,19 @@ const TAB_LABELS: Record<AdjustmentType, string> = {
   accruals: "Accrued expenses",
 };
 
-// Month-end adjustments run entirely on local state seeded from mockData.ts
+// Month-end trackers start empty and hold only what the user adds locally
 // until the month-end API exists — every backend action is marked "(BE)".
 export function MonthEndContentV2() {
   const provider = useActiveProvider();
+  useMonthEndLookups();
   const [tab, setTab] = useState<AdjustmentType>("prepayments");
   const [settings, setSettings] = useState<DetectionSettings>(DEFAULT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [prepayments, setPrepayments] = useState<AmortisationItem[]>(MOCK_PREPAYMENTS);
-  const [deferred, setDeferred] = useState<AmortisationItem[]>(MOCK_DEFERRED);
-  const [assets, setAssets] = useState<FixedAsset[]>(MOCK_ASSETS);
-  const [accruals, setAccruals] = useState<Accrual[]>(MOCK_ACCRUALS);
-  const [reversals, setReversals] = useState<AccrualReversal[]>(MOCK_REVERSALS);
+  const [prepayments, setPrepayments] = useState<AmortisationItem[]>([]);
+  const [deferred, setDeferred] = useState<AmortisationItem[]>([]);
+  const [assets, setAssets] = useState<FixedAsset[]>([]);
+  const [accruals, setAccruals] = useState<Accrual[]>([]);
+  const [reversals, setReversals] = useState<AccrualReversal[]>([]);
 
   const toReview = (list: { status: string }[]) => list.filter((i) => i.status === "review").length;
   const counts: Record<AdjustmentType, number> = {
@@ -73,7 +75,6 @@ export function MonthEndContentV2() {
             onItemsChange={setPrepayments}
             defaultProration={settings.proration}
             detectionEnabled={settings.enabled.prepayments}
-            ledgerOffset={LEDGER_OFFSETS.prepayments}
           />
         )}
         {tab === "deferred" && (
@@ -84,7 +85,6 @@ export function MonthEndContentV2() {
             onItemsChange={setDeferred}
             defaultProration={settings.proration}
             detectionEnabled={settings.enabled.deferred}
-            ledgerOffset={LEDGER_OFFSETS.deferred}
           />
         )}
         {tab === "fixedAssets" && (
@@ -93,7 +93,6 @@ export function MonthEndContentV2() {
             onAssetsChange={setAssets}
             threshold={settings.threshold}
             detectionEnabled={settings.enabled.fixedAssets}
-            ledgerOffset={LEDGER_OFFSETS.fixedAssets}
           />
         )}
         {tab === "accruals" && (
@@ -103,7 +102,6 @@ export function MonthEndContentV2() {
             reversals={reversals}
             onReversalsChange={setReversals}
             detectionEnabled={settings.enabled.accruals}
-            ledgerOffset={LEDGER_OFFSETS.accruals}
           />
         )}
       </div>

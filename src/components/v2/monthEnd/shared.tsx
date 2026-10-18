@@ -10,7 +10,7 @@ import type { DataTableColumn } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import { addMonths, currentPeriod, formatMoney, periodLabel, round2 } from "./schedule";
+import { addMonths, currentPeriod, formatMoney, periodLabel } from "./schedule";
 import type { AdjustmentStatus, ScheduleRow } from "./types";
 
 export const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
@@ -99,6 +99,8 @@ export function SelectField({
   options,
   disabled,
   className,
+  placeholder = "Select…",
+  emptyLabel = "None available",
 }: {
   label: string;
   value: string;
@@ -106,10 +108,14 @@ export function SelectField({
   options: readonly string[] | { value: string; label: string }[];
   disabled?: boolean;
   className?: string;
+  placeholder?: string;
+  emptyLabel?: string;
 }) {
   return (
     <Field label={label} className={className}>
-      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className={FIELD_INPUT_CLASS}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled || options.length === 0} className={FIELD_INPUT_CLASS}>
+        {options.length === 0 && <option value="">{emptyLabel}</option>}
+        {options.length > 0 && value === "" && <option value="">{placeholder}</option>}
         {options.map((opt) => {
           const o = typeof opt === "string" ? { value: opt, label: opt } : opt;
           return (
@@ -119,6 +125,33 @@ export function SelectField({
           );
         })}
       </select>
+    </Field>
+  );
+}
+
+/** Vendor input suggesting the company's real vendors; free text is still allowed. */
+export function VendorField({
+  label,
+  value,
+  onChange,
+  vendors,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  vendors: string[];
+  className?: string;
+}) {
+  const listId = `vendor-list-${label.replace(/\W+/g, "-").toLowerCase()}`;
+  return (
+    <Field label={label} className={className} hint={vendors.length === 0 ? "No vendors loaded yet — type a name." : undefined}>
+      <input list={listId} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Start typing a vendor" className={FIELD_INPUT_CLASS} />
+      <datalist id={listId}>
+        {vendors.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
     </Field>
   );
 }
@@ -404,10 +437,8 @@ export function AddMenuButton({ label, onAdd, menu }: { label: string; onAdd: ()
 
 // ── Reconciliation card ────────────────────────────────────────────────────
 
-export function ReconciliationCard({ label, trackerBalance, ledgerOffset }: { label: string; trackerBalance: number; ledgerOffset: number }) {
+export function ReconciliationCard({ label, trackerBalance }: { label: string; trackerBalance: number }) {
   const provider = useActiveProvider();
-  const ledger = round2(trackerBalance + ledgerOffset);
-  const diff = round2(ledger - trackerBalance);
   return (
     <div className="flex flex-col gap-[var(--space-sm)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-[var(--space-sm)]">
@@ -419,12 +450,12 @@ export function ReconciliationCard({ label, trackerBalance, ledgerOffset }: { la
             {label} tracker balance vs balance in {provider.name}
           </p>
           <p className="text-caption text-content-secondary">
-            Tracker {formatMoney(trackerBalance)} · {provider.name} {formatMoney(ledger)}
+            Tracker {formatMoney(trackerBalance)} · Balance in {provider.name}: — {beLabel("").trim()}
           </p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-[var(--space-sm)]">
-        {diff === 0 ? <Badge variant="success">Matched</Badge> : <Badge variant="error">Difference {formatMoney(diff)}</Badge>}
+        <Badge variant="neutral">Waiting for {provider.name} balance</Badge>
         <button
           type="button"
           onClick={() => notifyBackendPending("Re-check balance")}

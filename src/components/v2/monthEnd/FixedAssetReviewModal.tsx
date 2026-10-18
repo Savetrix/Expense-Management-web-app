@@ -11,7 +11,7 @@ import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { assetPosition } from "./assetMath";
-import { ACCOUNTS } from "./mockData";
+import { useGlAccountGroups } from "./lookups";
 import { currentPeriod, dateLabel, depreciationSchedule, formatMoney, postsJournals } from "./schedule";
 import { NOTE_CLASS, SECTION_TITLE_CLASS, ScheduleTable, SegmentedField, SelectField, StatusBadge, TextField } from "./shared";
 import type { DepreciationMethod, FixedAsset } from "./types";
@@ -30,6 +30,8 @@ export const METHOD_OPTIONS: { value: DepreciationMethod; label: string }[] = [
 
 export function FixedAssetReviewModal({ asset, onClose, onChange, onDispose }: Props) {
   const provider = useActiveProvider();
+  const gl = useGlAccountGroups();
+  const withCurrent = (list: string[], current: string) => (current && !list.includes(current) ? [current, ...list] : list);
   const editable = asset.status === "review";
   const [draft, setDraft] = useState(asset);
   const [life, setLife] = useState(String(asset.usefulLifeMonths));
@@ -47,6 +49,10 @@ export function FixedAssetReviewModal({ asset, onClose, onChange, onDispose }: P
   const publish = () => {
     if (!asset.nonDepreciable && schedule.length === 0) {
       showToast("Check the useful life and residual value — the schedule is empty.", "error");
+      return;
+    }
+    if (!asset.nonDepreciable && (!draft.assetAccount || !draft.accumAccount || !draft.expenseAccount)) {
+      showToast("Choose the asset, accumulated depreciation and expense accounts.", "error");
       return;
     }
     notifyBackendPending("Publish");
@@ -141,9 +147,9 @@ export function FixedAssetReviewModal({ asset, onClose, onChange, onDispose }: P
               {draft.method === "reducingBalance" && <TextField label="Annual rate (%)" type="number" value={rate} onChange={setRate} />}
             </div>
             <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-3">
-              <SelectField label="Asset account" value={draft.assetAccount} onChange={(v) => set("assetAccount", v)} options={ACCOUNTS.asset} />
-              <SelectField label="Accumulated depreciation" value={draft.accumAccount} onChange={(v) => set("accumAccount", v)} options={ACCOUNTS.accumulated} />
-              <SelectField label="Depreciation expense" value={draft.expenseAccount} onChange={(v) => set("expenseAccount", v)} options={ACCOUNTS.depreciationExpense} />
+              <SelectField label="Asset account" value={draft.assetAccount} onChange={(v) => set("assetAccount", v)} options={withCurrent(gl.asset, draft.assetAccount)} />
+              <SelectField label="Accumulated depreciation" value={draft.accumAccount} onChange={(v) => set("accumAccount", v)} options={withCurrent(gl.accumulated, draft.accumAccount)} />
+              <SelectField label="Depreciation expense" value={draft.expenseAccount} onChange={(v) => set("expenseAccount", v)} options={withCurrent(gl.depreciationExpense, draft.expenseAccount)} />
             </div>
           </div>
         ) : (

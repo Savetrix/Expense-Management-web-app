@@ -15,9 +15,11 @@ interface OverviewPanelProps {
   providerName: string;
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
-  stats: { processed: number; autopublished: number; published: number; waiting: number };
+  stats: { processed: number | null; autopublished: number | null; rate: number | null; waiting: number | null };
   onShowWaiting: () => void;
 }
+
+const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("en-US"));
 
 const CHECK_CARDS = [
   {
@@ -39,7 +41,6 @@ const CHECK_CARDS = [
 
 export function OverviewPanel({ companyName, providerName, enabled, onEnabledChange, stats, onShowWaiting }: OverviewPanelProps) {
   const [saving, setSaving] = useState(false);
-  const rate = stats.published > 0 ? Math.round((stats.autopublished / stats.published) * 100) : 0;
 
   const handleToggle = async (next: boolean) => {
     if (!next) {
@@ -61,10 +62,10 @@ export function OverviewPanel({ companyName, providerName, enabled, onEnabledCha
   };
 
   const statItems = [
-    { label: "Documents processed", value: stats.processed.toLocaleString("en-US") },
-    { label: "Autopublished", value: stats.autopublished.toLocaleString("en-US") },
-    { label: "Autopublish rate", value: `${rate}%` },
-    { label: "Waiting for review", value: stats.waiting.toLocaleString("en-US"), onClick: onShowWaiting },
+    { label: "Documents processed", value: fmt(stats.processed) },
+    { label: "Autopublished", value: fmt(stats.autopublished) },
+    { label: "Autopublish rate", value: stats.rate === null ? "—" : `${stats.rate}%` },
+    { label: "Waiting for review", value: fmt(stats.waiting), onClick: onShowWaiting },
   ];
 
   return (

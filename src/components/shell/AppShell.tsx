@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Archive,
+  Banknote,
   Bot,
   Car,
   CalendarCheck,
@@ -24,6 +25,7 @@ import {
   Plus,
   Puzzle,
   Repeat,
+  Star,
   Store,
   Wallet,
   Users,
@@ -41,7 +43,7 @@ import { PendingConnectionPicker } from "@/components/v2/accounting/PendingConne
 import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
 import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
 import { showToast } from "@/lib/dialogManager";
-import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
+import { getNavBookmarks, getSidebarPinned, setNavBookmarks, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
@@ -59,6 +61,7 @@ const NAV_ITEMS = [
   { href: "/archive", label: "Archive & Duplicates", icon: Archive },
   { href: "/supplier-statements", label: "Supplier Statements", icon: FileSearch },
   { href: "/expense-claims", label: "Expense Claims", icon: Car },
+  { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
   { href: "/payments", label: "Payments", icon: Wallet },
   { href: "/month-end", label: "Month-End Adjustments", icon: Repeat },
   { href: "/close", label: "Working Papers", icon: CalendarCheck },
@@ -81,35 +84,105 @@ const NAV_ITEMS = [
 const TOOLTIP_CLASS =
   "pointer-events-none absolute left-full top-1/2 z-20 ml-[var(--space-sm)] -translate-y-1/2 whitespace-nowrap rounded-md bg-nav-bg px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-semibold text-white opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100";
 
+type NavItem = (typeof NAV_ITEMS)[number];
+
 function NavLink({
   item,
   pathname,
   collapsed,
+  bookmarked,
+  onToggleBookmark,
+  onNavigate,
 }: {
-  item: (typeof NAV_ITEMS)[number];
+  item: NavItem;
   pathname: string;
   collapsed: boolean;
+  bookmarked: boolean;
+  onToggleBookmark: (href: string) => void;
+  onNavigate?: () => void;
 }) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
   const Icon = item.icon;
   return (
-    <Link
-      href={item.href}
-      aria-label={item.label}
-      className={`group relative flex items-center gap-[var(--space-sm)] overflow-hidden rounded-lg py-[var(--space-sm)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
-        collapsed ? "justify-center" : "px-[var(--space-md)]"
-      } ${active ? "bg-accent text-accent-ink shadow-sm" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
-    >
-      <Icon size={18} strokeWidth={2} className="shrink-0" />
-      <span
-        className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
-          collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
-        }`}
+    // The star is a sibling of the link, not inside it — a button nested in
+    // an <a> is invalid and would navigate on click. Hidden on the collapsed
+    // rail (no room); shown on hover when expanded, and always once starred.
+    <div className="group/row relative">
+      <Link
+        href={item.href}
+        aria-label={item.label}
+        onClick={onNavigate}
+        className={`group relative flex items-center gap-[var(--space-sm)] overflow-hidden rounded-lg py-[var(--space-sm)] text-body-sm font-semibold transition-colors duration-300 ease-in-out ${
+          collapsed ? "justify-center" : "pl-[var(--space-md)] pr-10"
+        } ${active ? "bg-accent text-accent-ink shadow-sm" : "text-nav-text hover:bg-nav-hover hover:text-nav-text-active"}`}
       >
-        {item.label}
-      </span>
-      {collapsed && <span className={TOOLTIP_CLASS}>{item.label}</span>}
-    </Link>
+        <Icon size={18} strokeWidth={2} className="shrink-0" />
+        <span
+          className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
+            collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
+          }`}
+        >
+          {item.label}
+        </span>
+        {collapsed && <span className={TOOLTIP_CLASS}>{item.label}</span>}
+      </Link>
+      {!collapsed && (
+        <button
+          type="button"
+          onClick={() => onToggleBookmark(item.href)}
+          aria-label={bookmarked ? `Remove ${item.label} from bookmarks` : `Bookmark ${item.label}`}
+          aria-pressed={bookmarked}
+          title={bookmarked ? "Remove bookmark" : "Bookmark"}
+          className={`absolute right-[var(--space-xs)] top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-opacity focus-visible:opacity-100 ${
+            bookmarked ? "opacity-100" : "opacity-0 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
+          } ${active ? "text-accent-ink hover:bg-black/10" : "text-nav-muted hover:bg-nav-hover hover:text-nav-text-active"}`}
+        >
+          <Star size={14} strokeWidth={2.25} className={bookmarked ? "fill-current" : ""} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Bookmarked items first (in the order starred), then every item. */
+function NavList({
+  pathname,
+  collapsed,
+  bookmarks,
+  onToggleBookmark,
+  onNavigate,
+}: {
+  pathname: string;
+  collapsed: boolean;
+  bookmarks: string[];
+  onToggleBookmark: (href: string) => void;
+  onNavigate?: () => void;
+}) {
+  const bookmarkedItems = bookmarks
+    .map((href) => NAV_ITEMS.find((item) => item.href === href))
+    .filter((item): item is NavItem => Boolean(item));
+  const linkProps = { pathname, collapsed, onToggleBookmark, onNavigate };
+  return (
+    <>
+      {bookmarkedItems.length > 0 && (
+        <>
+          {collapsed ? (
+            <span className="sr-only">Bookmarks</span>
+          ) : (
+            <p className="px-[var(--space-md)] pb-[var(--space-xs)] text-tiny font-bold uppercase tracking-wider text-nav-muted">
+              Bookmarks
+            </p>
+          )}
+          {bookmarkedItems.map((item) => (
+            <NavLink key={`bookmark-${item.href}`} item={item} bookmarked {...linkProps} />
+          ))}
+          <div className="my-[var(--space-xs)] border-t border-nav-hover" role="separator" />
+        </>
+      )}
+      {NAV_ITEMS.map((item) => (
+        <NavLink key={item.href} item={item} bookmarked={bookmarks.includes(item.href)} {...linkProps} />
+      ))}
+    </>
   );
 }
 
@@ -212,6 +285,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setPinned(getSidebarPinned());
   }, []);
+
+  // Sidebar bookmarks are saved per user on this browser, read after mount
+  // for the same hydration reason as the pinned state above.
+  const bookmarkUserKey: string = user?.data?.user?.email || "default";
+  const [bookmarks, setBookmarks] = useState<string[]>([]);
+  useEffect(() => {
+    setBookmarks(getNavBookmarks(bookmarkUserKey));
+  }, [bookmarkUserKey]);
+  const toggleBookmark = (href: string) => {
+    setBookmarks((prev) => {
+      const next = prev.includes(href) ? prev.filter((h) => h !== href) : [...prev, href];
+      setNavBookmarks(bookmarkUserKey, next);
+      return next;
+    });
+  };
 
   // AppShell is the persistent layout and never remounts between route
   // navigations, so without this the switcher dropdown stays open
@@ -371,54 +459,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         </div>
 
-        {/* Create — kept OUTSIDE the scrollable nav below on purpose: its
-            hover flyout pops out via position:absolute + left-full, and
-            CSS's overflow spec forces overflow-x to clip too as soon as
-            overflow-y is non-visible — so nesting it inside the nav's
-            overflow-y-auto container hid the flyout completely whenever the
-            sidebar was pinned open (it only ever worked collapsed, where
-            that class isn't applied). Not tied to any one route, so it isn't
-            part of NAV_ITEMS' active-link rendering. Jumps straight into
-            create mode via a ?create=true param VendorsContent/
-            GLTaxCodeContent watch for. */}
-        <div className={`shrink-0 mt-5 pb-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)]"}`}>
-          <div className="group relative">
-            <div
-              className={`flex items-center gap-[var(--space-sm)] overflow-hidden border border-accent bg-transparent py-[var(--space-sm)] text-body-sm font-bold text-accent transition-colors duration-300 ease-in-out group-hover:bg-accent group-hover:text-accent-ink ${
-                collapsed ? "justify-center rounded-full" : "rounded-full px-[var(--space-md)]"
-              }`}
-            >
-              <Plus size={18} strokeWidth={2.5} className="shrink-0" />
-              <span
-                className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
-                  collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
-                }`}
-              >
-                Create
-              </span>
-              {collapsed && <span className={TOOLTIP_CLASS}>Create</span>}
-            </div>
-            <div className="invisible absolute left-full top-0 z-20 ml-[var(--space-sm)] w-48 overflow-hidden rounded-lg border border-border bg-surface opacity-0 shadow-md transition-opacity duration-150 group-hover:visible group-hover:opacity-100">
-              <Link
-                href="/vendors?create=true"
-                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
-              >
-                Vendor
-              </Link>
-              <Link
-                href="/gl-tax-codes?create=true"
-                className="block px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-content-primary hover:bg-surface-alt"
-              >
-                GL Account
-              </Link>
-            </div>
-          </div>
-        </div>
-
         <nav className={`flex flex-1 mt-4 flex-col gap-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)] overflow-y-auto"}`}>
-          {NAV_ITEMS.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
-          ))}
+          <NavList pathname={pathname} collapsed={collapsed} bookmarks={bookmarks} onToggleBookmark={toggleBookmark} />
         </nav>
 
         <div className={`shrink-0  ${collapsed ? "p-[var(--space-xs)]" : "p-[var(--space-md)]"}`}>
@@ -615,33 +657,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               </button>
             </div>
 
-            {/* Create's hover flyout (see the desktop <aside> below) has no
-                touch equivalent — the two destinations are always-visible
-                links here instead. */}
-            <div className="shrink-0 px-[var(--space-sm)] pb-[var(--space-xs)]">
-              <p className="px-[var(--space-md)] pb-[var(--space-xs)] text-caption font-bold uppercase tracking-wide text-nav-muted">
-                Create
-              </p>
-              <Link
-                href="/vendors?create=true"
-                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
-              >
-                <Plus size={16} strokeWidth={2} className="shrink-0" />
-                Vendor
-              </Link>
-              <Link
-                href="/gl-tax-codes?create=true"
-                className="flex items-center gap-[var(--space-sm)] rounded-md px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-semibold text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
-              >
-                <Plus size={16} strokeWidth={2} className="shrink-0" />
-                GL Account
-              </Link>
-            </div>
-
             <nav className="flex flex-1 flex-col gap-[var(--space-xs)] overflow-y-auto px-[var(--space-sm)]">
-              {NAV_ITEMS.map((item) => (
-                <NavLink key={item.href} item={item} pathname={pathname} collapsed={false} />
-              ))}
+              <NavList pathname={pathname} collapsed={false} bookmarks={bookmarks} onToggleBookmark={toggleBookmark} />
             </nav>
 
             <div className="shrink-0 border-t border-nav-hover p-[var(--space-md)]">

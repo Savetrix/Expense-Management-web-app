@@ -1,81 +1,35 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Download, Upload } from "lucide-react";
+import { CheckCircle2, Download, Upload } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { DataTable, Modal } from "@/components/v2/ui";
-import type { DataTableColumn } from "@/components/v2/ui";
+import { Modal } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
-import { showToast } from "@/lib/dialogManager";
 
 import { AMORTISATION_COPY } from "./amortisationCopy";
-import { mockImportRows } from "./mockData";
-import { formatMoney, rangeLabel } from "./schedule";
 import { NOTE_CLASS, StepIndicator } from "./shared";
-import type { AmortisationItem, AmortisationKind } from "./types";
+import type { AmortisationKind } from "./types";
 
-type ImportRow = AmortisationItem & { error?: string };
-
-const STEPS = ["Template", "Upload", "Preview", "Import"];
+const STEPS = ["Template", "Upload", "Validate"];
 
 interface Props {
   kind: AmortisationKind;
   onClose: () => void;
-  onImport: (items: AmortisationItem[]) => void;
 }
 
-export function BulkImportModal({ kind, onClose, onImport }: Props) {
+// The uploaded file can't be parsed in the browser: rows are read and
+// validated by the backend, so this wizard stops once the file is chosen.
+export function BulkImportModal({ kind, onClose }: Props) {
   const copy = AMORTISATION_COPY[kind];
   const [step, setStep] = useState(0);
   const [fileName, setFileName] = useState("");
-  const [rows, setRows] = useState<ImportRow[]>([]);
-  const valid = rows.filter((r) => !r.error);
 
   const handleFile = (file: File | undefined) => {
     if (!file) return;
     setFileName(file.name);
-    // The real parser will run server-side; this mock always yields 5 rows.
-    setRows(mockImportRows(kind));
     setStep(2);
   };
-
-  const runImport = () => {
-    notifyBackendPending(`Import ${valid.length} rows`);
-    onImport(valid.map((r) => ({ ...r, error: undefined })));
-    showToast(`${valid.length} ${copy.title.toLowerCase()} added to To review.`, "success");
-    onClose();
-  };
-
-  const columns: DataTableColumn<ImportRow>[] = [
-    {
-      key: "check",
-      header: "",
-      width: "36px",
-      render: (r) =>
-        r.error ? (
-          <AlertCircle size={16} className="text-status-danger-text" aria-label="Has an error" />
-        ) : (
-          <CheckCircle2 size={16} className="text-success" aria-label="Valid" />
-        ),
-    },
-    {
-      key: "description",
-      header: "Description",
-      width: "190px",
-      render: (r) => (
-        <div className="min-w-0">
-          <span className="block truncate font-bold">{r.description}</span>
-          {r.error && <span className="block truncate text-tiny font-semibold text-status-danger-text">{r.error} — excluded</span>}
-        </div>
-      ),
-    },
-    { key: "party", header: copy.partyLabel, width: "140px", render: (r) => <span className="block truncate text-content-secondary">{r.party}</span> },
-    { key: "amount", header: "Amount", width: "100px", align: "right", render: (r) => formatMoney(r.total) },
-    { key: "opening", header: "Opening", width: "100px", align: "right", render: (r) => formatMoney(r.openingBalance) },
-    { key: "range", header: "Start – end", width: "160px", render: (r) => <span className="block truncate">{rangeLabel(r.startDate, r.endDate)}</span> },
-    { key: "account", header: copy.pnlAccountLabel, width: "170px", render: (r) => <span className="block truncate text-content-secondary">{r.pnlAccount || "—"}</span> },
-  ];
 
   const footer = (
     <div className="flex w-full flex-wrap justify-between gap-[var(--space-sm)]">
@@ -88,13 +42,14 @@ export function BulkImportModal({ kind, onClose, onImport }: Props) {
         </Button>
       )}
       {step === 2 && (
-        <Button size="sm" onClick={() => setStep(3)} disabled={valid.length === 0}>
-          Next
-        </Button>
-      )}
-      {step === 3 && (
-        <Button size="sm" onClick={runImport}>
-          {beLabel(`Import ${valid.length} rows`)}
+        <Button
+          size="sm"
+          onClick={() => {
+            notifyBackendPending(`Import ${fileName}`);
+            onClose();
+          }}
+        >
+          {beLabel("Send for validation")}
         </Button>
       )}
     </div>
@@ -133,22 +88,15 @@ export function BulkImportModal({ kind, onClose, onImport }: Props) {
       )}
 
       {step === 2 && (
-        <div className="flex flex-col gap-[var(--space-sm)]">
-          <p className="text-body-sm text-content-secondary">
-            <span className="font-semibold text-content-primary">{fileName}</span> · {rows.length} rows found, {valid.length} ready,{" "}
-            {rows.length - valid.length} with errors. Rows with errors are left out — fix them in the file and import them again later.
+        <div className="flex flex-col items-center gap-[var(--space-sm)] py-[var(--space-lg)] text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-alt text-success">
+            <CheckCircle2 size={22} strokeWidth={2} />
+          </span>
+          <p className="text-body-sm font-semibold text-content-primary">File received — rows are validated by the backend {beLabel("").trim()}</p>
+          <p className="text-caption text-content-secondary">{fileName}</p>
+          <p className="max-w-md text-caption text-content-secondary">
+            Valid rows land in To review once the backend has read the file. Rows with errors are reported back so you can fix them and import again.
           </p>
-          <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} maxHeightClassName="max-h-[360px]" />
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="flex flex-col gap-[var(--space-md)]">
-          <p className="text-body-sm text-content-primary">
-            Ready to import <span className="font-bold">{valid.length}</span> {copy.title.toLowerCase()} totalling{" "}
-            <span className="font-bold">{formatMoney(valid.reduce((s, r) => s + r.total, 0))}</span>.
-          </p>
-          <p className={NOTE_CLASS}>Imported items land in To review. Nothing posts until you publish each schedule.</p>
         </div>
       )}
     </Modal>

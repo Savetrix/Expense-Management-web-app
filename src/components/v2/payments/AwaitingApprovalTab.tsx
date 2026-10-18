@@ -10,7 +10,7 @@ import { Modal, ModalDefinitionRow } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 
-import type { Bill, PayVendor, PayingAccount, TeamMember } from "./mockData";
+import type { Bill, PayVendor, PayingAccount, TeamMember } from "./types";
 import { CARD_CLASS, delay, isOverdue, maskNumber, money, shortDate } from "./shared";
 
 interface AwaitingApprovalTabProps {

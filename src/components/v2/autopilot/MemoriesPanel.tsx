@@ -10,7 +10,7 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { Modal, RoleInfoBanner } from "@/components/v2/ui";
 
-import { MEMORY_SCOPES, type AiMemory } from "./mockData";
+import { MEMORY_SCOPES, type AiMemory } from "./types";
 
 const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 const FIELD_INPUT_CLASS =
@@ -152,7 +152,7 @@ export function MemoriesPanel({ memories, onChange }: MemoriesPanelProps) {
         <EmptyState
           icon={<Brain size={28} strokeWidth={1.75} />}
           title="No memories yet"
-          description="Memories appear here as you correct documents, or you can add one in plain language."
+          description="Memories are listed here once the backend is connected (BE). You can add one in plain language now."
           actionLabel="Add memory"
           onAction={() => openEditor()}
         />

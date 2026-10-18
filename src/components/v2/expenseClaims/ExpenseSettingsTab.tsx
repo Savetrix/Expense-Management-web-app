@@ -9,19 +9,19 @@ import { SelectDropdown, TextInput } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { showToast } from "@/lib/dialogManager";
 
-import type { Driver, FuelType, MileageRates, Vehicle, VehicleOwnership } from "./mockData";
-import { CARD_CLASS, mockId, money } from "./shared";
+import { CARD_CLASS, localId, money } from "./shared";
+import { FUEL_TYPES, type FuelType, type MileageRates, type Vehicle, type VehicleOwnership } from "./types";
+import type { TeamPerson } from "./useTeamMembers";
 
 interface ExpenseSettingsTabProps {
-  drivers: Driver[];
+  members: TeamPerson[];
+  membersLoading: boolean;
+  membersError: string;
   vehicles: Vehicle[];
   rates: MileageRates;
-  onSaveDrivers: (drivers: Driver[]) => void;
   onSaveVehicles: (vehicles: Vehicle[]) => void;
   onSaveRates: (rates: MileageRates) => void;
 }
-
-const FUEL_TYPES: FuelType[] = ["Petrol", "Diesel", "Electric", "Hybrid"];
 
 const sameIds = (a: { id: string }[], b: { id: string }[]) => a.length === b.length && a.every((x, i) => x.id === b[i]?.id);
 
@@ -40,11 +40,7 @@ function SectionCard({ title, description, children, footer }: { title: string; 
 
 const fakeSave = () => new Promise((resolve) => setTimeout(resolve, 450));
 
-export function ExpenseSettingsTab({ drivers, vehicles, rates, onSaveDrivers, onSaveVehicles, onSaveRates }: ExpenseSettingsTabProps) {
-  const [driverDraft, setDriverDraft] = useState<Driver[]>(drivers);
-  const [newDriver, setNewDriver] = useState("");
-  const [savingDrivers, setSavingDrivers] = useState(false);
-
+export function ExpenseSettingsTab({ members, membersLoading, membersError, vehicles, rates, onSaveVehicles, onSaveRates }: ExpenseSettingsTabProps) {
   const [vehicleDraft, setVehicleDraft] = useState<Vehicle[]>(vehicles);
   const [newVehicle, setNewVehicle] = useState<{ name: string; fuelType: FuelType; ownership: VehicleOwnership }>({
     name: "",
@@ -53,40 +49,19 @@ export function ExpenseSettingsTab({ drivers, vehicles, rates, onSaveDrivers, on
   });
   const [savingVehicles, setSavingVehicles] = useState(false);
 
-  const [perKm, setPerKm] = useState(String(rates.perKm));
-  const [passengerPerKm, setPassengerPerKm] = useState(String(rates.passengerPerKm));
+  const [perKm, setPerKm] = useState(rates.perKm === null ? "" : String(rates.perKm));
+  const [passengerPerKm, setPassengerPerKm] = useState(rates.passengerPerKm === null ? "" : String(rates.passengerPerKm));
   const [rateError, setRateError] = useState("");
   const [savingRates, setSavingRates] = useState(false);
 
-  const driversDirty = !sameIds(driverDraft, drivers);
   const vehiclesDirty = !sameIds(vehicleDraft, vehicles);
-  const ratesDirty = Number(perKm) !== rates.perKm || Number(passengerPerKm) !== rates.passengerPerKm;
-
-  const addDriver = () => {
-    const name = newDriver.trim();
-    if (!name) return;
-    if (driverDraft.some((d) => d.name.toLowerCase() === name.toLowerCase())) {
-      showToast(`${name} is already a driver.`, "warning");
-      return;
-    }
-    setDriverDraft((prev) => [...prev, { id: mockId("d"), name }]);
-    setNewDriver("");
-  };
+  const ratesDirty = (perKm.trim() === "" ? null : Number(perKm)) !== rates.perKm || (passengerPerKm.trim() === "" ? null : Number(passengerPerKm)) !== rates.passengerPerKm;
 
   const addVehicle = () => {
     const name = newVehicle.name.trim();
     if (!name) return;
-    setVehicleDraft((prev) => [...prev, { id: mockId("v"), name, fuelType: newVehicle.fuelType, ownership: newVehicle.ownership }]);
+    setVehicleDraft((prev) => [...prev, { id: localId("v"), name, fuelType: newVehicle.fuelType, ownership: newVehicle.ownership }]);
     setNewVehicle({ name: "", fuelType: "Petrol", ownership: "personal" });
-  };
-
-  const saveDrivers = async () => {
-    setSavingDrivers(true);
-    await fakeSave();
-    onSaveDrivers(driverDraft);
-    setSavingDrivers(false);
-    notifyBackendPending("Save drivers");
-    showToast("Drivers saved.", "success");
   };
 
   const saveVehicles = async () => {
@@ -100,9 +75,10 @@ export function ExpenseSettingsTab({ drivers, vehicles, rates, onSaveDrivers, on
 
   const saveRates = async () => {
     const a = Number(perKm);
-    const b = Number(passengerPerKm);
+    const passengerBlank = passengerPerKm.trim() === "";
+    const b = passengerBlank ? null : Number(passengerPerKm);
     if (!perKm.trim() || Number.isNaN(a) || a <= 0) return setRateError("Enter a per-km rate above zero.");
-    if (!passengerPerKm.trim() || Number.isNaN(b) || b < 0) return setRateError("Enter a passenger rate of zero or more.");
+    if (b !== null && (Number.isNaN(b) || b < 0)) return setRateError("Enter a passenger rate of zero or more, or leave it blank.");
     setRateError("");
     setSavingRates(true);
     await fakeSave();
@@ -114,44 +90,25 @@ export function ExpenseSettingsTab({ drivers, vehicles, rates, onSaveDrivers, on
 
   return (
     <div className="mt-[var(--space-md)] grid grid-cols-1 gap-[var(--space-md)] lg:grid-cols-2">
-      <SectionCard
-        title="Drivers"
-        description="People who can log journeys. Each driver is paid back through a bill in their name."
-        footer={
-          <Button size="sm" onClick={saveDrivers} loading={savingDrivers} disabled={!driversDirty || savingDrivers}>
-            {beLabel("Save")}
-          </Button>
-        }
-      >
+      <SectionCard title="Drivers" description="Your team members can log journeys. Add or remove people on the Team page.">
         <div className="flex flex-col gap-[var(--space-sm)]">
-          {driverDraft.length === 0 && <p className="text-body-sm text-content-secondary">No drivers yet — add the first one below.</p>}
-          {driverDraft.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]">
-              <span className="truncate text-body-sm font-semibold text-content-primary">{d.name}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${d.name}`}
-                onClick={() => setDriverDraft((prev) => prev.filter((x) => x.id !== d.id))}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-error hover:bg-error/10"
-              >
-                <Trash2 size={16} strokeWidth={2.25} />
-              </button>
-            </div>
-          ))}
-          <div className="flex items-end gap-[var(--space-sm)]">
-            <div className="min-w-0 flex-1">
-              <TextInput
-                label="Add driver"
-                placeholder="Full name"
-                value={newDriver}
-                onChange={(e) => setNewDriver(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addDriver()}
-              />
-            </div>
-            <Button variant="outline" size="md" onClick={addDriver} disabled={!newDriver.trim()} aria-label="Add driver">
-              <Plus size={18} strokeWidth={2.5} />
-            </Button>
-          </div>
+          {membersError ? (
+            <p className="text-body-sm text-status-danger-text">{membersError}</p>
+          ) : membersLoading && members.length === 0 ? (
+            <p className="text-body-sm text-content-secondary">Loading team members…</p>
+          ) : members.length === 0 ? (
+            <p className="text-body-sm text-content-secondary">No team members yet. Invite people on the Team page and they appear here.</p>
+          ) : (
+            members.map((m) => (
+              <div key={m.id} className="flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]">
+                <span className="min-w-0">
+                  <span className="block truncate text-body-sm font-semibold text-content-primary">{m.name}</span>
+                  {m.email && m.email !== m.name && <span className="block truncate text-caption text-content-secondary">{m.email}</span>}
+                </span>
+                <Badge variant="neutral">{m.role}</Badge>
+              </div>
+            ))
+          )}
         </div>
       </SectionCard>
 
@@ -231,13 +188,14 @@ export function ExpenseSettingsTab({ drivers, vehicles, rates, onSaveDrivers, on
         }
       >
         <div className="grid grid-cols-1 gap-[var(--space-sm)] sm:grid-cols-2">
-          <TextInput label="Rate per km" inputMode="decimal" value={perKm} onChange={(e) => setPerKm(e.target.value)} />
-          <TextInput label="Passenger rate per km" inputMode="decimal" value={passengerPerKm} onChange={(e) => setPassengerPerKm(e.target.value)} />
+          <TextInput label="Rate per km" inputMode="decimal" placeholder="Enter your rate" value={perKm} onChange={(e) => setPerKm(e.target.value)} />
+          <TextInput label="Passenger rate per km" inputMode="decimal" placeholder="Enter your rate" value={passengerPerKm} onChange={(e) => setPassengerPerKm(e.target.value)} />
         </div>
-        <p className="mt-[var(--space-sm)] text-caption text-content-secondary">
-          Example: a 50 km journey with a passenger pays{" "}
-          {money(50 * ((Number(perKm) || 0) + (Number(passengerPerKm) || 0)))}.
-        </p>
+        {Number(perKm) > 0 && (
+          <p className="mt-[var(--space-sm)] text-caption text-content-secondary">
+            Example: a 50 km journey with a passenger pays {money(50 * ((Number(perKm) || 0) + (Number(passengerPerKm) || 0)))}.
+          </p>
+        )}
         {rateError && <p className="mt-[var(--space-xs)] text-caption font-semibold text-status-danger-text">{rateError}</p>}
       </SectionCard>
 

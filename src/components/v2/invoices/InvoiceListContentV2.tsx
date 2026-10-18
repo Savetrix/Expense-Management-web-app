@@ -48,11 +48,9 @@ const STATUS_META: Record<StatusFilter, { label: string; emptyMessage: string }>
   failed: { label: "Failed", emptyMessage: "No failed invoices. Invoices that couldn't be processed will appear here." },
 };
 
-const SORT_OPTIONS: { by: "date" | "amount"; dir: "asc" | "desc"; label: string }[] = [
-  { by: "date", dir: "desc", label: "Newest first" },
-  { by: "date", dir: "asc", label: "Oldest first" },
-  { by: "amount", dir: "desc", label: "Amount: high to low" },
-  { by: "amount", dir: "asc", label: "Amount: low to high" },
+const SORT_OPTIONS: { dir: "asc" | "desc"; label: string }[] = [
+  { dir: "desc", label: "Newest first" },
+  { dir: "asc", label: "Oldest first" },
 ];
 
 function isListType(value: string | null): value is ListType {
@@ -70,16 +68,6 @@ function invoiceTimestamp(invoice: InvoiceRecord): number {
   if (!dateStr) return 0;
   const parsed = new Date(dateStr).getTime();
   return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function sumTotals(list: InvoiceRecord[]): number {
-  return list.reduce((sum, invoice) => sum + (invoice.extractedData?.totalAmount || 0), 0);
-}
-
-// Always two decimals — rounding to whole units hid the cents, so a tile read
-// 52 for invoices adding up to 51.95.
-function formatAmount(total: number): string {
-  return total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function InvoiceListContentV2() {
@@ -174,14 +162,13 @@ export function InvoiceListContentV2() {
       list = list.filter((invoice) => {
         const vendor = invoice.extractedData?.vendorName?.toLowerCase() || "";
         const number = invoice.extractedData?.invoiceNumber?.toLowerCase() || "";
-        const amount = String(invoice.extractedData?.totalAmount ?? "");
-        return vendor.includes(query) || number.includes(query) || amount.includes(query);
+        return vendor.includes(query) || number.includes(query);
       });
     }
 
     return [...list].sort((a, b) => {
-      const aValue = sort.by === "amount" ? a.extractedData?.totalAmount || 0 : invoiceTimestamp(a);
-      const bValue = sort.by === "amount" ? b.extractedData?.totalAmount || 0 : invoiceTimestamp(b);
+      const aValue = invoiceTimestamp(a);
+      const bValue = invoiceTimestamp(b);
       return sort.dir === "asc" ? aValue - bValue : bValue - aValue;
     });
   }, [statusFilteredInvoices, vendorFilter, currencyFilter, searchText, sort]);
@@ -209,16 +196,6 @@ export function InvoiceListContentV2() {
     manual: manualPostedInvoices.length,
     failed: failedInvoices.length,
   };
-
-  const totals = useMemo(
-    () => ({
-      total: sumTotals(combinedInvoices),
-      auto: sumTotals(autoPostedInvoices),
-      manual: sumTotals(manualPostedInvoices),
-      failed: sumTotals(failedInvoices),
-    }),
-    [combinedInvoices, autoPostedInvoices, manualPostedInvoices, failedInvoices],
-  );
 
   const meta = STATUS_META[statusFilter];
 
@@ -293,17 +270,6 @@ export function InvoiceListContentV2() {
       },
     },
     {
-      key: "amount",
-      header: "Amount",
-      align: "right",
-      width: "12%",
-      render: (invoice) => (
-        <span className="block truncate whitespace-nowrap font-bold text-content-primary">
-          {formatAmount(invoice.extractedData?.totalAmount || 0)}
-        </span>
-      ),
-    },
-    {
       key: "chevron",
       header: "",
       align: "right",
@@ -320,7 +286,7 @@ export function InvoiceListContentV2() {
           a single column below lg. */}
       <div className="grid grid-cols-1 gap-[var(--space-md)] sm:gap-[var(--space-lg)] lg:grid-cols-6 lg:items-start">
         <div className="flex min-w-0 flex-col gap-[var(--space-md)] lg:col-span-4">
-          {/* Stat tiles — real per-status dollar totals, doubling as status
+          {/* Stat tiles — per-status invoice counts, doubling as status
               shortcuts (click to filter), matching the reference design's
               dark "Total" hero tile + 3 status-tinted tiles. */}
           <div className="grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-4">
@@ -331,11 +297,9 @@ export function InvoiceListContentV2() {
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
               <div className="my-[2px]">
-                <p className="text-h3 font-bold tracking-tight text-white">{formatAmount(totals.total)}</p>
+                <p className="text-h3 font-bold tracking-tight text-white">{combinedInvoices.length}</p>
               </div>
-              <p className="text-tiny text-nav-muted">
-                {combinedInvoices.length} invoice{combinedInvoices.length === 1 ? "" : "s"}
-              </p>
+              <p className="text-tiny text-nav-muted">invoice{combinedInvoices.length === 1 ? "" : "s"}</p>
             </button>
             {TAB_ORDER.map((t) => {
               const tileTheme = INVOICE_STATUS_THEME[t];
@@ -357,12 +321,10 @@ export function InvoiceListContentV2() {
                   </p>
                   <div className="my-[2px]">
                     <p className={`text-h3 font-bold tracking-tight ${tileTheme.accentTextClass}`}>
-                      {formatAmount(totals[t])}
+                      {tabCounts[t]}
                     </p>
                   </div>
-                  <p className={`text-tiny ${tileTheme.accentTextClass}`}>
-                    {tabCounts[t]} invoice{tabCounts[t] === 1 ? "" : "s"}
-                  </p>
+                  <p className={`text-tiny ${tileTheme.accentTextClass}`}>invoice{tabCounts[t] === 1 ? "" : "s"}</p>
                 </button>
               );
             })}
@@ -375,7 +337,7 @@ export function InvoiceListContentV2() {
                 <SearchInput
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search vendor, invoice #, amount"
+                  placeholder="Search vendor or invoice #"
                 />
                 <SelectDropdown
                   uiSize="sm"
@@ -469,7 +431,7 @@ export function InvoiceListContentV2() {
 
         <aside className="flex min-w-0 flex-col gap-[var(--space-md)] lg:sticky lg:top-[var(--space-lg)] lg:col-span-2">
           <OutcomeMixCardV2 invoices={combinedInvoices} />
-          <TopVendorsCardV2 invoices={allInvoices} />
+          <TopVendorsCardV2 invoices={allInvoices} byCount />
         </aside>
       </div>
     </div>

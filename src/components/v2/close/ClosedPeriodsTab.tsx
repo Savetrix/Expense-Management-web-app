@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { CompactListRow, DataTable } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 
-import type { WorkingPaper } from "./mockData";
+import type { WorkingPaper } from "./types";
 import { date, dateTime } from "./closeShared";
 import { WorkingPaperModal } from "./WorkingPaperModal";
 

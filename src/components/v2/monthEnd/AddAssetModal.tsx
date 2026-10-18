@@ -8,9 +8,9 @@ import { Modal } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 
 import { METHOD_OPTIONS } from "./FixedAssetReviewModal";
-import { ACCOUNTS } from "./mockData";
+import { useGlAccountGroups, useVendorNames } from "./lookups";
 import { depreciationSchedule, formatMoney, todayIso } from "./schedule";
-import { NOTE_CLASS, SECTION_TITLE_CLASS, ScheduleTable, SegmentedField, SelectField, SwitchRow, TextField } from "./shared";
+import { NOTE_CLASS, SECTION_TITLE_CLASS, ScheduleTable, SegmentedField, SelectField, SwitchRow, TextField, VendorField } from "./shared";
 import type { DepreciationMethod, FixedAsset } from "./types";
 
 interface Props {
@@ -19,19 +19,21 @@ interface Props {
 }
 
 export function AddAssetModal({ onClose, onCreate }: Props) {
+  const gl = useGlAccountGroups();
+  const vendors = useVendorNames();
   const today = todayIso();
   const [form, setForm] = useState({
     vendor: "",
     description: "",
-    assetAccount: ACCOUNTS.asset[0] as string,
+    assetAccount: "",
     cost: "",
     acquisitionDate: today,
     residual: "0",
     life: "36",
     scheduleStart: `${today.slice(0, 7)}-01`,
     accumulated: "",
-    accumAccount: ACCOUNTS.accumulated[0] as string,
-    expenseAccount: ACCOUNTS.depreciationExpense[0] as string,
+    accumAccount: "",
+    expenseAccount: "",
     method: "straightLine" as DepreciationMethod,
     alreadyDepreciated: false,
     nonDepreciable: false,
@@ -70,6 +72,8 @@ export function AddAssetModal({ onClose, onCreate }: Props) {
     if (!(asset.cost > 0)) return setError("Cost must be greater than zero.");
     if (!asset.nonDepreciable && asset.usefulLifeMonths <= 0) return setError("Remaining life must be at least 1 month.");
     if (asset.accumulatedToDate >= asset.cost) return setError("Accumulated depreciation must be less than the cost.");
+    if (!asset.assetAccount) return setError("Choose the asset account.");
+    if (!asset.nonDepreciable && (!asset.accumAccount || !asset.expenseAccount)) return setError("Choose the accumulated depreciation and expense accounts.");
     notifyBackendPending("Create");
     onCreate({ ...asset, id: `fa-${Date.now()}` });
     onClose();
@@ -94,9 +98,9 @@ export function AddAssetModal({ onClose, onCreate }: Props) {
     >
       <div className="flex flex-col gap-[var(--space-md)]">
         <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-2">
-          <TextField label="Vendor *" value={form.vendor} onChange={(v) => set("vendor", v)} />
+          <VendorField label="Vendor *" value={form.vendor} onChange={(v) => set("vendor", v)} vendors={vendors} />
           <TextField label="Description *" value={form.description} onChange={(v) => set("description", v)} placeholder="e.g. MacBook Pro 14”" />
-          <SelectField label="Asset account" value={form.assetAccount} onChange={(v) => set("assetAccount", v)} options={ACCOUNTS.asset} />
+          <SelectField label="Asset account" value={form.assetAccount} onChange={(v) => set("assetAccount", v)} options={gl.asset} />
           <TextField label="Cost *" type="number" value={form.cost} onChange={(v) => set("cost", v)} placeholder="0.00" />
           <TextField label="Acquisition date" type="date" value={form.acquisitionDate} onChange={(v) => set("acquisitionDate", v)} />
           <TextField label="Schedule start date" type="date" value={form.scheduleStart} onChange={(v) => set("scheduleStart", v)} disabled={form.nonDepreciable} />
@@ -113,8 +117,8 @@ export function AddAssetModal({ onClose, onCreate }: Props) {
             <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-2">
               <TextField label="Residual value" type="number" value={form.residual} onChange={(v) => set("residual", v)} />
               <TextField label="Remaining life (months)" type="number" value={form.life} onChange={(v) => set("life", v)} />
-              <SelectField label="Accumulated depreciation account" value={form.accumAccount} onChange={(v) => set("accumAccount", v)} options={ACCOUNTS.accumulated} />
-              <SelectField label="Depreciation expense account" value={form.expenseAccount} onChange={(v) => set("expenseAccount", v)} options={ACCOUNTS.depreciationExpense} />
+              <SelectField label="Accumulated depreciation account" value={form.accumAccount} onChange={(v) => set("accumAccount", v)} options={gl.accumulated} />
+              <SelectField label="Depreciation expense account" value={form.expenseAccount} onChange={(v) => set("expenseAccount", v)} options={gl.depreciationExpense} />
             </div>
             <SegmentedField<DepreciationMethod> label="Depreciation method" value={form.method} onChange={(v) => set("method", v)} options={METHOD_OPTIONS} />
             <SwitchRow

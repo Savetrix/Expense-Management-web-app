@@ -1,6 +1,6 @@
 // Shapes for the month-end adjustment trackers. These mirror what the
-// month-end API is expected to return once it exists; until then the page
-// runs on mockData.ts.
+// month-end API is expected to return once it exists; until then the trackers
+// hold only what the user adds locally.
 
 export type AdjustmentStatus = "review" | "active" | "completed" | "archived";
 export type AdjustmentType = "prepayments" | "deferred" | "fixedAssets" | "accruals";

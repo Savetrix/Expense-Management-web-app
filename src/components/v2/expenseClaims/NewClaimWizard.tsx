@@ -10,22 +10,26 @@ import { CreatableCombobox, Modal, ModalDefinitionRow, ProgressBar } from "@/com
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { showToast } from "@/lib/dialogManager";
 
-import type { ClaimReceipt, Contact, ExpenseClaim } from "./mockData";
-import { FIELD_LABEL_CLASS, claimTotal, mockId, money, monthLabel, shortDate, todayIso } from "./shared";
+import { FIELD_LABEL_CLASS, claimTotal, localId, money, monthLabel, shortDate, todayIso } from "./shared";
+import type { ClaimReceipt, Contact, ExpenseClaim } from "./types";
+import type { TeamPerson } from "./useTeamMembers";
 
 interface NewClaimWizardProps {
   open: boolean;
   onClose: () => void;
   receipts: ClaimReceipt[];
-  contacts: Contact[];
-  onAddContact: (contact: Contact) => void;
+  loadingReceipts?: boolean;
+  /** Real team members; claimants not on the team can still be added by name. */
+  members: TeamPerson[];
   onCreate: (claim: ExpenseClaim) => void;
 }
 
 type Step = 1 | 2 | 3;
 const STEP_TITLES: Record<Step, string> = { 1: "Select receipts", 2: "Choose claimant", 3: "Review claim" };
 
-export function NewClaimWizard({ open, onClose, receipts, contacts, onAddContact, onCreate }: NewClaimWizardProps) {
+export function NewClaimWizard({ open, onClose, receipts, loadingReceipts, members, onCreate }: NewClaimWizardProps) {
+  const [extraContacts, setExtraContacts] = useState<Contact[]>([]);
+  const contacts = useMemo<Contact[]>(() => [...members.map((m) => ({ id: m.id, name: m.name })), ...extraContacts], [members, extraContacts]);
   const [step, setStep] = useState<Step>(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [claimantId, setClaimantId] = useState("");
@@ -66,8 +70,8 @@ export function NewClaimWizard({ open, onClose, receipts, contacts, onAddContact
       showToast("Type the claimant's name first, then add it.", "warning");
       return;
     }
-    const contact = { id: mockId("c"), name: trimmed };
-    onAddContact(contact);
+    const contact = { id: localId("c"), name: trimmed };
+    setExtraContacts((prev) => [...prev, contact]);
     setClaimantId(contact.id);
   };
 
@@ -76,7 +80,7 @@ export function NewClaimWizard({ open, onClose, receipts, contacts, onAddContact
     setCreating(true);
     await new Promise((resolve) => setTimeout(resolve, 500));
     const claim: ExpenseClaim = {
-      id: mockId("cl"),
+      id: localId("cl"),
       claimant: claimant.name,
       month,
       status: "awaiting_review",
@@ -130,8 +134,8 @@ export function NewClaimWizard({ open, onClose, receipts, contacts, onAddContact
           (receipts.length === 0 ? (
             <EmptyState
               icon={<Inbox size={28} strokeWidth={1.75} />}
-              title="No unposted receipts"
-              description="Scan or forward receipts first — anything not yet posted or on a claim shows up here."
+              title={loadingReceipts ? "Loading receipts…" : "No receipts to claim"}
+              description={loadingReceipts ? "Fetching your scanned invoices." : "Scan or forward receipts first — anything still pending review and not on a claim shows up here."}
             />
           ) : (
             <div className="flex flex-col gap-[var(--space-sm)]">
@@ -155,8 +159,8 @@ export function NewClaimWizard({ open, onClose, receipts, contacts, onAddContact
                       <span className="shrink-0 text-body-sm font-bold text-content-primary">{money(r.amount)}</span>
                     </span>
                     <span className="flex flex-wrap items-center gap-[var(--space-xs)] text-caption text-content-secondary">
-                      {shortDate(r.date)} · {r.glAccount}
-                      <Badge variant="neutral">{r.source}</Badge>
+                      {shortDate(r.date)}{r.glAccount ? ` · ${r.glAccount}` : ""}
+                      {r.source && <Badge variant="neutral">{r.source}</Badge>}
                     </span>
                   </span>
                 </label>
@@ -172,16 +176,16 @@ export function NewClaimWizard({ open, onClose, receipts, contacts, onAddContact
             <label className={FIELD_LABEL_CLASS}>Claimant *</label>
             <CreatableCombobox
               options={contacts.map((c) => ({ id: c.id, label: c.name }))}
-              noun="contact"
+              noun="claimant"
               ariaLabel="Claimant"
               value={claimantId}
               onSelect={setClaimantId}
               onAddNew={handleAddContact}
-              placeholder="Search contacts or type a new name"
+              placeholder="Search team members or type a new name"
               uiSize="md"
             />
             <p className="text-caption text-content-secondary">
-              The claim is published as a bill payable to this person. Not in your contacts yet? Type their name and add them.
+              The claim is published as a bill payable to this person. Not on your team? Type their name and add them.
             </p>
           </div>
         )}

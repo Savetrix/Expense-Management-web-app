@@ -1,44 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { PageHeader, Tabs } from "@/components/v2/ui";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { ApprovalRulesTab } from "./ApprovalRulesTab";
 import { AwaitingApprovalTab } from "./AwaitingApprovalTab";
-import {
-  MOCK_ACCOUNTS,
-  MOCK_BILLS,
-  MOCK_RULES,
-  MOCK_RUNS,
-  MOCK_TEAM,
-  MOCK_VENDORS,
-  type ApprovalRules,
-  type Bill,
-  type PayVendor,
-  type PaymentRun,
-  type TeamMember,
-} from "./mockData";
+import { useTeamMembers } from "../expenseClaims/useTeamMembers";
 import { PaymentRunsTab } from "./PaymentRunsTab";
 import { PaymentRunWizard } from "./PaymentRunWizard";
-import { mockId, todayIso } from "./shared";
+import { localId, todayIso } from "./shared";
 import { ToPayTab } from "./ToPayTab";
+import type { ApprovalRules, Bill, PayVendor, PayingAccount, PaymentRun, TeamMember } from "./types";
 
 type TopTab = "toPay" | "approval" | "runs" | "rules";
 
-// Front-end-only flow: all state lives here, seeded from mockData.ts, so a bill
-// sent for approval, approved, then paid moves across the tabs consistently
-// while there's no API behind it.
+// Front-end-only flow: all state lives here and starts empty — there are no
+// unpaid-bill, payment-run or bank-account endpoints yet. Approvers come from
+// the real team members. Once the backend lists bills, a bill sent for
+// approval, approved, then paid moves across the tabs through this state.
+const NO_ACCOUNTS: PayingAccount[] = [];
+const DEFAULT_RULES: ApprovalRules = { enabled: false, mode: "above", threshold: null, approverIds: [] };
 export function PaymentsContentV2() {
   const provider = useActiveProvider();
   const [tab, setTab] = useState<TopTab>("toPay");
-  const [bills, setBills] = useState<Bill[]>(MOCK_BILLS);
-  const [vendors, setVendors] = useState<PayVendor[]>(MOCK_VENDORS);
-  const [runs, setRuns] = useState<PaymentRun[]>(MOCK_RUNS);
-  const [rules, setRules] = useState<ApprovalRules>(MOCK_RULES);
-  const [team, setTeam] = useState<TeamMember[]>(MOCK_TEAM);
-  const accounts = MOCK_ACCOUNTS;
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [vendors, setVendors] = useState<PayVendor[]>([]);
+  const [runs, setRuns] = useState<PaymentRun[]>([]);
+  const [rules, setRules] = useState<ApprovalRules>(DEFAULT_RULES);
+  const { members, loading: membersLoading, error: membersError } = useTeamMembers();
+  const [extraApprovers, setExtraApprovers] = useState<TeamMember[]>([]);
+  const team = useMemo(() => [...members, ...extraApprovers], [members, extraApprovers]);
+  const accounts = NO_ACCOUNTS;
   const [wizardBills, setWizardBills] = useState<Bill[] | null>(null);
   const [wizardKey, setWizardKey] = useState(0);
 
@@ -75,7 +69,7 @@ export function PaymentsContentV2() {
   const handleApproveAndPay = (bill: Bill) => {
     const vendor = vendors.find((v) => v.id === bill.vendorId);
     handleCreateRun({
-      id: mockId("run"),
+      id: localId("run"),
       date: todayIso(),
       bills: [{ billId: bill.id, vendorName: vendor?.name ?? "Vendor", reference: bill.reference, amount: bill.amount }],
       total: bill.amount,
@@ -126,9 +120,11 @@ export function PaymentsContentV2() {
         <ApprovalRulesTab
           rules={rules}
           team={team}
+          membersLoading={membersLoading}
+          membersError={membersError}
           onSave={(nextRules, nextTeam) => {
             setRules(nextRules);
-            setTeam(nextTeam);
+            setExtraApprovers(nextTeam.filter((m) => !members.some((real) => real.id === m.id)));
           }}
         />
       )}

@@ -1,27 +1,21 @@
 "use client";
 
 import { Archive, Copy, FileStack, FileX2, Merge, Scissors } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
+import { useAppSelector } from "@/store/hooks";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { DataTable, PageHeader, RoleInfoBanner, SearchInput, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 
 import { ArchivedDocumentModal, formatReceived } from "./ArchivedDocumentModal";
 import { MergeDocumentsModal } from "./MergeDocumentsModal";
-import {
-  ARCHIVE_REASON_LABELS,
-  ARCHIVED_DOCUMENTS,
-  UNPOSTED_INVOICES,
-  type ArchiveReason,
-  type ArchivedDocument,
-  type UnpostedInvoice,
-} from "./mockData";
+import { useEnsureInvoices } from "../autopilot/useEnsureInvoices";
+import { ARCHIVE_REASON_LABELS, type ArchiveReason, type ArchivedDocument, type UnpostedInvoice } from "./types";
 
 type ArchiveTab = "all" | ArchiveReason;
 
@@ -39,7 +33,7 @@ const EMPTY_COPY: Record<ArchiveTab, { icon: ReactNode; title: string; descripti
   all: {
     icon: <Archive size={28} strokeWidth={1.75} />,
     title: "Archive is empty",
-    description: "Duplicates, non-financial documents and merged or split originals are moved here automatically.",
+    description: "Archived documents appear here once the backend is connected (BE).",
   },
   duplicate: {
     icon: <Copy size={28} strokeWidth={1.75} />,
@@ -71,9 +65,27 @@ const REASON_VARIANT: Record<ArchiveReason, "warning" | "neutral" | "success"> =
 };
 
 export function ArchiveContentV2() {
-  const [loading, setLoading] = useState(true);
-  const [documents, setDocuments] = useState<ArchivedDocument[]>(ARCHIVED_DOCUMENTS);
-  const [unposted, setUnposted] = useState<UnpostedInvoice[]>(UNPOSTED_INVOICES);
+  useEnsureInvoices();
+  const pendingInvoices = useAppSelector((state) => state.invoice.pendingInvoices);
+  const [documents, setDocuments] = useState<ArchivedDocument[]>([]);
+  const [mergedIds, setMergedIds] = useState<string[]>([]);
+  // Unposted (pending) invoices are the merge candidates.
+  const unposted = useMemo<UnpostedInvoice[]>(
+    () =>
+      pendingInvoices
+        .filter((inv) => !mergedIds.includes(inv._id))
+        .map((inv) => ({
+          id: inv._id,
+          reference: inv.extractedData?.invoiceNumber || "No reference",
+          vendor: inv.extractedData?.vendorName || "Unknown vendor",
+          date: inv.extractedData?.invoiceDate ?? "",
+          amount: inv.extractedData?.totalAmount ?? 0,
+          currency: inv.extractedData?.currency ?? "",
+          fileName: inv.file?.originalName || "Document",
+          attachments: 1,
+        })),
+    [pendingInvoices, mergedIds],
+  );
   const [activeTab, setActiveTab] = useState<ArchiveTab>("all");
   const [searchText, setSearchText] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -81,11 +93,6 @@ export function ArchiveContentV2() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<"unarchive" | "delete" | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), MOCK_LATENCY_MS);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const counts = useMemo(() => {
     const base: Record<ArchiveTab, number> = { all: documents.length, duplicate: 0, notTransaction: 0, merged: 0, splitOriginal: 0 };
@@ -206,8 +213,8 @@ export function ArchiveContentV2() {
   };
 
   const handleMerged = (primary: UnpostedInvoice, merged: UnpostedInvoice[]) => {
-    const mergedIds = merged.map((m) => m.id);
-    setUnposted((list) => list.filter((i) => !mergedIds.includes(i.id)));
+    const newMergedIds = merged.map((m) => m.id);
+    setMergedIds((ids) => [...ids, ...newMergedIds]);
     const now = new Date().toISOString();
     setDocuments((list) => [
       ...merged.map<ArchivedDocument>((m) => ({
@@ -322,11 +329,7 @@ export function ArchiveContentV2() {
           </div>
         )}
 
-        {loading ? (
-          <div className="p-[var(--space-md)]">
-            <SkeletonListRows count={4} />
-          </div>
-        ) : tabRows.length === 0 ? (
+        {tabRows.length === 0 ? (
           <EmptyState
             icon={empty.icon}
             title={empty.title}

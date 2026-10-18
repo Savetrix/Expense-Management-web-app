@@ -1,6 +1,6 @@
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 
-import type { PaperworkRequest } from "./mockData";
+import type { PaperworkRequest } from "./types";
 
 export const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 export const FIELD_INPUT_CLASS =

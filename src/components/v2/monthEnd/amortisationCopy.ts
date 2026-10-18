@@ -1,4 +1,4 @@
-import { ACCOUNTS } from "./mockData";
+import { useGlAccountGroups } from "./lookups";
 import type { AmortisationKind } from "./types";
 
 // Labels that differ between prepayments (bills) and deferred income (sales
@@ -12,8 +12,6 @@ export interface AmortisationCopy {
   balanceAccountLabel: string;
   pnlAccountLabel: string;
   amountLabel: string;
-  balanceAccounts: readonly string[];
-  pnlAccounts: readonly string[];
   releaseHeader: string;
 }
 
@@ -27,8 +25,6 @@ export const AMORTISATION_COPY: Record<AmortisationKind, AmortisationCopy> = {
     balanceAccountLabel: "Prepayment account",
     pnlAccountLabel: "Expense account",
     amountLabel: "Prepaid amount",
-    balanceAccounts: ACCOUNTS.prepayment,
-    pnlAccounts: ACCOUNTS.expense,
     releaseHeader: "Expensed",
   },
   deferred: {
@@ -40,8 +36,12 @@ export const AMORTISATION_COPY: Record<AmortisationKind, AmortisationCopy> = {
     balanceAccountLabel: "Deferred income account",
     pnlAccountLabel: "Income account",
     amountLabel: "Amount received in advance",
-    balanceAccounts: ACCOUNTS.deferred,
-    pnlAccounts: ACCOUNTS.income,
     releaseHeader: "Recognised",
   },
 };
+
+/** Real GL accounts offered for an amortisation item's balance and P&L accounts. */
+export function useAmortisationAccounts(kind: AmortisationKind): { balanceAccounts: string[]; pnlAccounts: string[] } {
+  const g = useGlAccountGroups();
+  return kind === "prepayment" ? { balanceAccounts: g.prepayment, pnlAccounts: g.expense } : { balanceAccounts: g.deferred, pnlAccounts: g.income };
+}

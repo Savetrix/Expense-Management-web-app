@@ -22,12 +22,6 @@ export const MARK_AS_OPTIONS: { key: MarkAsKind; label: string }[] = [
   { key: "expense_claim", label: "Expense claim" },
 ];
 
-const MOCK_CLAIMANTS = [
-  { id: "c1", label: "Sam Patel" },
-  { id: "c2", label: "Alex Morgan" },
-  { id: "c3", label: "Jordan Lee" },
-];
-
 interface MarkAsModalProps {
   open: boolean;
   onClose: () => void;
@@ -216,7 +210,7 @@ function SalesDocumentForm({ onDone }: { onDone: () => void }) {
 }
 
 function ExpenseClaimForm({ onDone }: { onDone: () => void }) {
-  const [claimants, setClaimants] = useState(MOCK_CLAIMANTS);
+  const [claimants, setClaimants] = useState<{ id: string; label: string }[]>([]);
   const [claimant, setClaimant] = useState("");
 
   return (

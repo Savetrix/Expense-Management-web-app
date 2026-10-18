@@ -2,13 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { CheckCheck, Zap } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
-import { confirmDialog, showToast } from "@/lib/dialogManager";
+import { confirmDialog } from "@/lib/dialogManager";
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 import { useAppSelector } from "@/store/hooks";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
@@ -16,59 +16,64 @@ import { CompactListRow, DataTable, PageHeader, SearchInput, Tabs } from "@/comp
 import type { DataTableColumn } from "@/components/v2/ui";
 
 import { DecisionTrailModal, formatShortDate } from "./DecisionTrailModal";
+import { toAutopilotDocument } from "./documents";
 import { MemoriesPanel } from "./MemoriesPanel";
-import {
-  AI_MEMORIES,
-  AUTOPUBLISHED_DOCUMENTS,
-  CHECK_LABELS,
-  NEEDS_REVIEW_DOCUMENTS,
-  USAGE,
-  type AiMemory,
-  type AutopilotDocument,
-} from "./mockData";
 import { OverviewPanel } from "./OverviewPanel";
 import { UsagePanel } from "./UsagePanel";
+import type { AiMemory, AutopilotDocument } from "./types";
+import { useEnsureInvoices } from "./useEnsureInvoices";
 
 type AutopilotTab = "overview" | "review" | "published" | "memories" | "usage";
 type PublishedFilter = "all" | "autopilot" | "people";
 
-// Simulated round-trip so the busy/loading states are visible with mock data.
-const MOCK_LATENCY_MS = 450;
-
 export function AutopilotContentV2() {
   const router = useRouter();
   const provider = useActiveProvider();
+  useEnsureInvoices();
   const connections = useAppSelector((state) => state.quickBooks.connections);
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
+  const accounts = useAppSelector((state) => state.quickBooks.accounts);
+  const { invoices, pendingInvoices, autoPostedInvoices, manualPostedInvoices, loading: invoicesLoading } = useAppSelector(
+    (state) => state.invoice,
+  );
   const activeConnection = connections.length === 1 ? connections[0] : connections.find((c) => c._id === qbConnectionId);
   const companyName = activeConnection?.name || "this company";
 
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<AutopilotTab>("overview");
   const [enabled, setEnabled] = useState(true);
-  const [needsReview, setNeedsReview] = useState<AutopilotDocument[]>(NEEDS_REVIEW_DOCUMENTS);
-  const [published, setPublished] = useState<AutopilotDocument[]>(AUTOPUBLISHED_DOCUMENTS);
-  const [memories, setMemories] = useState<AiMemory[]>(AI_MEMORIES);
+  const [memories, setMemories] = useState<AiMemory[]>([]);
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>("all");
   const [searchText, setSearchText] = useState("");
   const [selected, setSelected] = useState<{ doc: AutopilotDocument; mode: "review" | "published" } | null>(null);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), MOCK_LATENCY_MS);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const loading = invoicesLoading && invoices.length === 0;
+
+  const needsReview = useMemo(
+    () => pendingInvoices.map((inv) => toAutopilotDocument(inv, accounts)),
+    [pendingInvoices, accounts],
+  );
+  const published = useMemo(
+    () => [
+      ...autoPostedInvoices.map((inv) => toAutopilotDocument(inv, accounts, "autopilot")),
+      ...manualPostedInvoices.map((inv) => toAutopilotDocument(inv, accounts, "person")),
+    ].sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")),
+    [autoPostedInvoices, manualPostedInvoices, accounts],
+  );
 
   const stats = useMemo(() => {
-    const month = USAGE.thisMonth.companies;
-    const sum = (key: "processed" | "published" | "autopublished") => month.reduce((acc, r) => acc + r[key], 0);
-    return { processed: sum("processed"), published: sum("published"), autopublished: sum("autopublished"), waiting: needsReview.length };
-  }, [needsReview.length]);
+    const publishedCount = autoPostedInvoices.length + manualPostedInvoices.length;
+    return {
+      processed: invoices.length,
+      autopublished: autoPostedInvoices.length,
+      rate: publishedCount > 0 ? Math.round((autoPostedInvoices.length / publishedCount) * 100) : null,
+      waiting: pendingInvoices.length,
+    };
+  }, [invoices.length, autoPostedInvoices.length, manualPostedInvoices.length, pendingInvoices.length]);
 
   const matchesSearch = (doc: AutopilotDocument) => {
     const q = searchText.trim().toLowerCase();
     if (!q) return true;
-    return doc.vendor.toLowerCase().includes(q) || doc.reference.toLowerCase().includes(q) || doc.glAccount.toLowerCase().includes(q);
+    return doc.vendor.toLowerCase().includes(q) || doc.reference.toLowerCase().includes(q) || (doc.glAccount ?? "").toLowerCase().includes(q);
   };
 
   const filteredReview = needsReview.filter(matchesSearch);
@@ -76,31 +81,12 @@ export function AutopilotContentV2() {
     .filter((d) => publishedFilter === "all" || (publishedFilter === "autopilot" ? d.publishedBy === "autopilot" : d.publishedBy === "person"))
     .filter(matchesSearch);
 
-  const runMock = (action: string, label: string, apply: () => void) => {
-    setBusyAction(action);
+  // Approve, archive and undo need Autopilot endpoints; until then they only
+  // tell the user so and leave the real invoice untouched.
+  const handleBackendAction = (label: string) => {
     notifyBackendPending(label);
-    window.setTimeout(() => {
-      apply();
-      setBusyAction(null);
-      setSelected(null);
-    }, MOCK_LATENCY_MS);
+    setSelected(null);
   };
-
-  const handleApprove = (doc: AutopilotDocument) =>
-    runMock("approve", "Approve & publish", () => {
-      setNeedsReview((list) => list.filter((d) => d.id !== doc.id));
-      setPublished((list) => [
-        { ...doc, publishedBy: "person", publishedByName: "You", publishedAt: new Date().toISOString(), reviewReason: undefined },
-        ...list,
-      ]);
-      showToast(`${doc.reference} published to ${provider.name}.`, "success");
-    });
-
-  const handleArchive = (doc: AutopilotDocument) =>
-    runMock("archive", "Archive", () => {
-      setNeedsReview((list) => list.filter((d) => d.id !== doc.id));
-      showToast(`${doc.reference} archived. You can restore it from Archive.`, "neutral");
-    });
 
   const handleUndo = async (doc: AutopilotDocument) => {
     const confirmed = await confirmDialog({
@@ -110,14 +96,7 @@ export function AutopilotContentV2() {
       tone: "destructive",
     });
     if (!confirmed) return;
-    runMock("undo", "Undo publish", () => {
-      setPublished((list) => list.filter((d) => d.id !== doc.id));
-      setNeedsReview((list) => [
-        { ...doc, publishedBy: undefined, publishedByName: undefined, publishedAt: undefined, reviewReason: "Publish was undone — waiting for your review." },
-        ...list,
-      ]);
-      showToast(`${doc.reference} moved back to Needs review.`, "neutral");
-    });
+    handleBackendAction("Undo publish");
   };
 
   const publishedColumns: DataTableColumn<AutopilotDocument>[] = [
@@ -138,7 +117,7 @@ export function AutopilotContentV2() {
         </div>
       ),
     },
-    { key: "gl", header: "GL account", width: "22%", render: (d) => <span className="block truncate text-content-secondary">{d.glAccount}</span> },
+    { key: "gl", header: "GL account", width: "22%", render: (d) => <span className="block truncate text-content-secondary">{d.glAccount ?? "—"}</span> },
     {
       key: "total",
       header: "Total",
@@ -229,7 +208,6 @@ export function AutopilotContentV2() {
                 <p className="text-caption text-content-secondary">Autopilot is off, so every new document waits here for review.</p>
               )}
               {filteredReview.map((doc) => {
-                const failed = doc.checks.filter((c) => !c.passed);
                 return (
                   <CompactListRow
                     key={doc.id}
@@ -238,17 +216,8 @@ export function AutopilotContentV2() {
                         {doc.vendor} <span className="font-normal text-content-secondary">· {doc.reference} · {formatDetailAmount(doc.total, doc.currency)}</span>
                       </>
                     }
-                    meta={doc.reviewReason}
+                    meta="Reason available once Autopilot is connected (BE)"
                     onClick={() => setSelected({ doc, mode: "review" })}
-                    trailing={
-                      <div className="hidden shrink-0 flex-wrap justify-end gap-[var(--space-xs)] sm:flex">
-                        {failed.map((c) => (
-                          <Badge key={c.id} variant="warning">
-                            {CHECK_LABELS[c.id]}
-                          </Badge>
-                        ))}
-                      </div>
-                    }
                   />
                 );
               })}
@@ -302,11 +271,11 @@ export function AutopilotContentV2() {
       <DecisionTrailModal
         document={selected?.doc ?? null}
         mode={selected?.mode ?? "review"}
-        busyAction={busyAction}
+        busyAction={null}
         onClose={() => setSelected(null)}
-        onApprove={handleApprove}
-        onArchive={handleArchive}
-        onOpenInvoice={() => router.push("/invoices")}
+        onApprove={() => handleBackendAction("Approve & publish")}
+        onArchive={() => handleBackendAction("Archive")}
+        onOpenInvoice={(doc) => router.push(`/invoices/${doc.id}`)}
         onUndoPublish={handleUndo}
       />
     </div>

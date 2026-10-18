@@ -1,17 +1,18 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Clock, Send, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Landmark, Send, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal, ModalDefinitionRow, ProgressBar, TextInput } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import type { ApprovalRules, BankDetails, Bill, PayVendor, PayingAccount, PaymentRun, TeamMember } from "./mockData";
-import { approverNames, delay, maskNumber, mockId, money, needsApproval, shortDate, sumAmounts, todayIso } from "./shared";
+import type { ApprovalRules, BankDetails, Bill, PayVendor, PayingAccount, PaymentRun, TeamMember } from "./types";
+import { approverNames, delay, maskNumber, localId, money, needsApproval, shortDate, sumAmounts, todayIso } from "./shared";
 
 type Step = "review" | "bank" | "approval" | "payFrom" | "success";
 
@@ -120,7 +121,7 @@ export function PaymentRunWizard({ bills, vendors, rules, team, accounts, onClos
     setBusy(mode);
     await delay(700);
     const run: PaymentRun = {
-      id: mockId("run"),
+      id: localId("run"),
       date: todayIso(),
       bills: groups.flatMap(({ vendor, bills: rows }) =>
         rows.map((b) => ({ billId: b.id, vendorName: vendor.name, reference: b.reference, amount: b.amount })),
@@ -324,7 +325,7 @@ export function PaymentRunWizard({ bills, vendors, rules, team, accounts, onClos
               <ShieldCheck size={18} strokeWidth={2} className="mt-0.5 shrink-0" />
               <p>
                 Needs approval from <span className="font-semibold">{approverNames(rules, team)}</span>.{" "}
-                {rules.mode === "every" ? "Your rules require approval for every payment." : `Your rules require approval above ${money(rules.threshold)}.`}
+                {rules.mode === "every" ? "Your rules require approval for every payment." : rules.threshold === null ? "Your rules require approval above your set limit." : `Your rules require approval above ${money(rules.threshold)}.`}
               </p>
             </div>
             <div className="flex flex-col divide-y divide-border rounded-md border border-border">
@@ -355,6 +356,13 @@ export function PaymentRunWizard({ bills, vendors, rules, team, accounts, onClos
         {step === "payFrom" && (
           <>
             <p className="text-body-sm text-content-secondary">Choose the bank account to pay from.</p>
+            {accounts.length === 0 && (
+              <EmptyState
+                icon={<Landmark size={28} strokeWidth={1.75} />}
+                title="No bank accounts to pay from"
+                description="Bank accounts connect through the backend (BE)"
+              />
+            )}
             <div className="flex flex-col gap-[var(--space-sm)]">
               {accounts.map((a) => (
                 <label

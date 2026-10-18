@@ -7,9 +7,10 @@ import { Switch } from "@/components/ui/Switch";
 import { Modal } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 
-import { AMORTISATION_COPY } from "./amortisationCopy";
+import { AMORTISATION_COPY, useAmortisationAccounts } from "./amortisationCopy";
+import { useVendorNames } from "./lookups";
 import { amortisationSchedule, todayIso } from "./schedule";
-import { NOTE_CLASS, SECTION_TITLE_CLASS, ScheduleTable, SelectField, SwitchRow, TextField } from "./shared";
+import { NOTE_CLASS, SECTION_TITLE_CLASS, ScheduleTable, SelectField, SwitchRow, TextField, VendorField } from "./shared";
 import type { AmortisationItem, AmortisationKind, Proration } from "./types";
 
 interface Props {
@@ -21,6 +22,8 @@ interface Props {
 
 export function AddAmortisationModal({ kind, defaultProration, onClose, onCreate }: Props) {
   const copy = AMORTISATION_COPY[kind];
+  const { balanceAccounts, pnlAccounts } = useAmortisationAccounts(kind);
+  const vendors = useVendorNames();
   const today = todayIso();
   const [form, setForm] = useState({
     description: "",
@@ -30,8 +33,8 @@ export function AddAmortisationModal({ kind, defaultProration, onClose, onCreate
     startDate: today,
     endDate: "",
     releaseFrom: today,
-    balanceAccount: copy.balanceAccounts[0],
-    pnlAccount: copy.pnlAccounts[0],
+    balanceAccount: "",
+    pnlAccount: "",
     alreadyAmortised: false,
   });
   const [error, setError] = useState("");
@@ -57,6 +60,7 @@ export function AddAmortisationModal({ kind, defaultProration, onClose, onCreate
     if (!form.startDate || !form.endDate || form.endDate < form.startDate) return setError("Choose an end date on or after the start date.");
     if (form.alreadyAmortised && (form.releaseFrom < form.startDate || form.releaseFrom > form.endDate))
       return setError("Release-from date must fall between the start and end dates.");
+    if (!form.balanceAccount || !form.pnlAccount) return setError("Choose both accounts from your chart of accounts.");
     notifyBackendPending("Create");
     onCreate({
       id: `${kind}-${Date.now()}`,
@@ -100,7 +104,11 @@ export function AddAmortisationModal({ kind, defaultProration, onClose, onCreate
       <div className="flex flex-col gap-[var(--space-md)]">
         <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-2">
           <TextField label="Description *" value={form.description} onChange={(v) => set("description", v)} placeholder="e.g. Annual insurance" />
-          <TextField label={`${copy.partyLabel} *`} value={form.party} onChange={(v) => set("party", v)} />
+          {kind === "prepayment" ? (
+            <VendorField label={`${copy.partyLabel} *`} value={form.party} onChange={(v) => set("party", v)} vendors={vendors} />
+          ) : (
+            <TextField label={`${copy.partyLabel} *`} value={form.party} onChange={(v) => set("party", v)} />
+          )}
           <TextField label={`${copy.amountLabel} *`} type="number" value={form.amount} onChange={(v) => set("amount", v)} placeholder="0.00" />
           <TextField
             label="Opening balance"
@@ -120,8 +128,8 @@ export function AddAmortisationModal({ kind, defaultProration, onClose, onCreate
             onChange={(v) => set("releaseFrom", v)}
             disabled={!form.alreadyAmortised}
           />
-          <SelectField label={copy.pnlAccountLabel} value={form.pnlAccount} onChange={(v) => set("pnlAccount", v)} options={copy.pnlAccounts} />
-          <SelectField label={copy.balanceAccountLabel} value={form.balanceAccount} onChange={(v) => set("balanceAccount", v)} options={copy.balanceAccounts} />
+          <SelectField label={copy.pnlAccountLabel} value={form.pnlAccount} onChange={(v) => set("pnlAccount", v)} options={pnlAccounts} />
+          <SelectField label={copy.balanceAccountLabel} value={form.balanceAccount} onChange={(v) => set("balanceAccount", v)} options={balanceAccounts} />
         </div>
 
         <SwitchRow

@@ -10,8 +10,8 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import { AMORTISATION_COPY } from "./amortisationCopy";
-import { TRACKING_OPTIONS } from "./mockData";
+import { AMORTISATION_COPY, useAmortisationAccounts } from "./amortisationCopy";
+import { TRACKING_OPTIONS } from "./config";
 import { amortisationSchedule, dateLabel, formatMoney, postsJournals } from "./schedule";
 import { NOTE_CLASS, SECTION_TITLE_CLASS, ScheduleTable, SegmentedField, SelectField, StatusBadge, TextField } from "./shared";
 import type { AmortisationItem, Proration, Recurrence } from "./types";
@@ -25,6 +25,9 @@ interface Props {
 export function AmortisationReviewModal({ item, onClose, onChange }: Props) {
   const provider = useActiveProvider();
   const copy = AMORTISATION_COPY[item.kind];
+  const { balanceAccounts, pnlAccounts } = useAmortisationAccounts(item.kind);
+  // Keep the item's own account selectable even if it is not in the loaded chart.
+  const withCurrent = (list: string[], current: string) => (current && !list.includes(current) ? [current, ...list] : list);
   const [draft, setDraft] = useState<AmortisationItem>(item);
   const editable = item.status === "review";
   const schedule = useMemo(() => amortisationSchedule(draft), [draft]);
@@ -40,6 +43,10 @@ export function AmortisationReviewModal({ item, onClose, onChange }: Props) {
   const publish = () => {
     if (scheduleError) {
       showToast(scheduleError, "error");
+      return;
+    }
+    if (!draft.balanceAccount || !draft.pnlAccount) {
+      showToast("Choose both accounts before publishing.", "error");
       return;
     }
     notifyBackendPending("Publish schedule");
@@ -142,8 +149,8 @@ export function AmortisationReviewModal({ item, onClose, onChange }: Props) {
             <TextField label="Start date" type="date" value={draft.startDate} onChange={(v) => set("startDate", v)} />
             <TextField label="End date" type="date" value={draft.endDate} onChange={(v) => set("endDate", v)} disabled={draft.recurrence === "oneOff"} />
             <TextField label="Release from" type="date" value={draft.releaseFrom} onChange={(v) => set("releaseFrom", v)} />
-            <SelectField label={copy.balanceAccountLabel} value={draft.balanceAccount} onChange={(v) => set("balanceAccount", v)} options={copy.balanceAccounts} />
-            <SelectField label={copy.pnlAccountLabel} value={draft.pnlAccount} onChange={(v) => set("pnlAccount", v)} options={copy.pnlAccounts} />
+            <SelectField label={copy.balanceAccountLabel} value={draft.balanceAccount} onChange={(v) => set("balanceAccount", v)} options={withCurrent(balanceAccounts, draft.balanceAccount)} />
+            <SelectField label={copy.pnlAccountLabel} value={draft.pnlAccount} onChange={(v) => set("pnlAccount", v)} options={withCurrent(pnlAccounts, draft.pnlAccount)} />
             <SelectField label="Tracking / class" value={draft.tracking} onChange={(v) => set("tracking", v)} options={TRACKING_OPTIONS} />
           </div>
         ) : (

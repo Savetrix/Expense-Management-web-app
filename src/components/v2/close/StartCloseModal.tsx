@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/v2/ui";
 import { beLabel } from "@/lib/bePlaceholder";
 
-import { defaultPeriod, periodName } from "./mockData";
+import { defaultPeriod, periodName } from "./period";
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS, date } from "./closeShared";
 
 interface StartCloseModalProps {

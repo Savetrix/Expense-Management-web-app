@@ -1,18 +1,15 @@
 "use client";
 
-import { CheckCircle2, FileSearch, History, ListChecks, Store, XCircle } from "lucide-react";
-import type { ReactNode } from "react";
-
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { beLabel } from "@/lib/bePlaceholder";
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 import { Modal, ModalDefinitionRow } from "@/components/v2/ui";
 
-import { CHECK_LABELS, type AutopilotDocument } from "./mockData";
+import type { AutopilotDocument } from "./types";
 import { formatPlainDate } from "@/lib/plainDate";
 
-export const formatShortDate = (iso: string) => formatPlainDate(iso, { month: "short", day: "numeric", year: "numeric" });
+export const formatShortDate = (iso?: string | null) => formatPlainDate(iso, { month: "short", day: "numeric", year: "numeric" });
 
 interface DecisionTrailModalProps {
   document: AutopilotDocument | null;
@@ -24,19 +21,6 @@ interface DecisionTrailModalProps {
   onArchive?: (doc: AutopilotDocument) => void;
   onOpenInvoice?: (doc: AutopilotDocument) => void;
   onUndoPublish?: (doc: AutopilotDocument) => void;
-}
-
-function TrailStep({ icon, title, last, children }: { icon: ReactNode; title: string; last?: boolean; children: ReactNode }) {
-  return (
-    <li className="relative flex gap-[var(--space-md)] pb-[var(--space-md)]">
-      {!last && <span aria-hidden className="absolute top-9 bottom-0 left-[17px] w-px bg-border" />}
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-alt text-content-secondary">{icon}</span>
-      <div className="min-w-0 flex-1 pt-[var(--space-xs)]">
-        <p className="text-body-sm font-semibold text-content-primary">{title}</p>
-        <div className="mt-[var(--space-xs)] text-caption text-content-secondary">{children}</div>
-      </div>
-    </li>
-  );
 }
 
 // Shared by Needs review (actionable) and Autopublished (read-only): shows
@@ -52,7 +36,6 @@ export function DecisionTrailModal({
   onUndoPublish,
 }: DecisionTrailModalProps) {
   if (!doc) return null;
-  const allPassed = doc.checks.every((c) => c.passed);
   const busy = busyAction !== null;
 
   const footer =
@@ -93,14 +76,13 @@ export function DecisionTrailModal({
             <span className="truncate">{doc.vendor}</span>
           </ModalDefinitionRow>
           <ModalDefinitionRow label="Reference">
-            {doc.reference} · {doc.documentType}
+            {doc.reference}
           </ModalDefinitionRow>
           <ModalDefinitionRow label="Date">{formatShortDate(doc.date)}</ModalDefinitionRow>
           <ModalDefinitionRow label="Total">{formatDetailAmount(doc.total, doc.currency)}</ModalDefinitionRow>
           <ModalDefinitionRow label="GL account">
-            <span className="truncate">{doc.glAccount}</span>
+            <span className="truncate">{doc.glAccount ?? "—"}</span>
           </ModalDefinitionRow>
-          <ModalDefinitionRow label="Tax code">{doc.taxCode}</ModalDefinitionRow>
           {mode === "published" && (
             <ModalDefinitionRow label="Published by">
               {doc.publishedBy === "autopilot" ? <Badge variant="success">Autopilot</Badge> : doc.publishedByName ?? "You"}
@@ -110,42 +92,10 @@ export function DecisionTrailModal({
 
         <div>
           <p className="mb-[var(--space-sm)] text-tiny font-bold uppercase tracking-wider text-content-muted">Decision trail</p>
-          <ol>
-            <TrailStep icon={<FileSearch size={18} strokeWidth={2} />} title="Read the document">
-              {doc.trail.read}
-            </TrailStep>
-            <TrailStep icon={<History size={18} strokeWidth={2} />} title="Compared previous coding">
-              {doc.trail.compared}
-            </TrailStep>
-            <TrailStep icon={<Store size={18} strokeWidth={2} />} title="Checked the vendor">
-              {doc.trail.vendor}
-            </TrailStep>
-            <TrailStep icon={<ListChecks size={18} strokeWidth={2} />} title="Checks result" last>
-              <p className="mb-[var(--space-sm)]">
-                {allPassed
-                  ? "All three checks passed, so it was safe to publish without review."
-                  : `${doc.checks.filter((c) => !c.passed).length} of 3 checks didn't pass, so it was held for a person.`}
-              </p>
-              <ul className="flex flex-col gap-[var(--space-sm)]">
-                {doc.checks.map((check) => (
-                  <li key={check.id} className="flex items-start gap-[var(--space-sm)] rounded-md border border-border bg-page p-[var(--space-sm)]">
-                    {check.passed ? (
-                      <CheckCircle2 size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-success" />
-                    ) : (
-                      <XCircle size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-error" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-[var(--space-xs)]">
-                        <span className="text-body-sm font-semibold text-content-primary">{CHECK_LABELS[check.id]}</span>
-                        <Badge variant={check.passed ? "success" : "error"}>{check.passed ? "Passed" : "Failed"}</Badge>
-                      </div>
-                      <p className="mt-[var(--space-xs)] text-caption text-content-secondary">{check.detail}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </TrailStep>
-          </ol>
+          <p className="text-caption text-content-secondary">
+            The step-by-step reasoning (the read, the comparison with past postings and the vendor check) arrives from the backend
+            once Autopilot is connected (BE).
+          </p>
         </div>
       </div>
     </Modal>

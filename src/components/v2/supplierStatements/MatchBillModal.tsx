@@ -10,13 +10,15 @@ import { Modal, SearchInput } from "@/components/v2/ui";
 import { beLabel } from "@/lib/bePlaceholder";
 
 import { formatDate, money } from "./format";
-import type { CandidateBill, StatementLine } from "./mockData";
+import { sameVendor } from "./invoiceBills";
+import type { CandidateBill, StatementLine } from "./types";
 
 interface MatchBillModalProps {
   /** The statement line being matched; null keeps the modal closed. */
   line: StatementLine | null;
   vendor: string;
-  currency: string;
+  currency?: string;
+  /** The user's real invoices (invoice slice); only this vendor's are offered. */
   bills: CandidateBill[];
   /** Bills already linked to another line of this statement. */
   usedBillIds: Set<string>;
@@ -31,12 +33,10 @@ export function MatchBillModal({ line, vendor, currency, bills, usedBillIds, onC
   const candidates = useMemo(() => {
     const lower = query.trim().toLowerCase();
     return bills
-      .filter((b) => !usedBillIds.has(b.id))
-      .filter((b) => !lower || b.number.toLowerCase().includes(lower) || b.vendor.toLowerCase().includes(lower) || String(b.amount).includes(lower))
-      // Same vendor first, then closest amount — the likeliest match on top.
+      .filter((b) => !usedBillIds.has(b.id) && sameVendor(b.vendor, vendor))
+      .filter((b) => !lower || b.number.toLowerCase().includes(lower) || String(b.amount).includes(lower))
+      // Closest amount first — the likeliest match on top.
       .sort((a, b) => {
-        const vendorRank = Number(b.vendor === vendor) - Number(a.vendor === vendor);
-        if (vendorRank !== 0) return vendorRank;
         const target = line?.amount ?? 0;
         return Math.abs(a.amount - target) - Math.abs(b.amount - target);
       });
@@ -85,7 +85,7 @@ export function MatchBillModal({ line, vendor, currency, bills, usedBillIds, onC
           <SearchInput
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search bills by number, vendor or amount…"
+            placeholder="Search bills by number or amount…"
             widthClassName="w-full"
           />
 
@@ -93,7 +93,11 @@ export function MatchBillModal({ line, vendor, currency, bills, usedBillIds, onC
             <EmptyState
               icon={<FileSearch size={28} strokeWidth={1.75} />}
               title="No bills to match"
-              description="No unmatched bills fit this search. Mark the line as a missing invoice instead and request it from the vendor."
+              description={
+                query.trim()
+                  ? "No unmatched bills fit this search. Mark the line as a missing invoice instead and request it from the vendor."
+                  : `There are no unmatched bills from ${vendor} in Scantrix. Mark the line as a missing invoice instead and request it from the vendor.`
+              }
             />
           ) : (
             <ul role="radiogroup" aria-label="Candidate bills" className="flex max-h-[320px] flex-col gap-[var(--space-xs)] overflow-y-auto">
@@ -124,7 +128,7 @@ export function MatchBillModal({ line, vendor, currency, bills, usedBillIds, onC
                         </span>
                       </span>
                       <span className="flex shrink-0 flex-col items-end gap-[2px]">
-                        <span className="text-body-sm font-bold text-content-primary">{money(bill.amount, currency)}</span>
+                        <span className="text-body-sm font-bold text-content-primary">{money(bill.amount, bill.currency ?? currency)}</span>
                         {sameAmount && <Badge variant="success">Same amount</Badge>}
                       </span>
                     </button>

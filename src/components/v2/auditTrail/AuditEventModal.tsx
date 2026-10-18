@@ -8,7 +8,7 @@ import { DataTable, Modal, ModalDefinitionRow } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 
 import { ActorCell, formatTimestamp, withProvider } from "./format";
-import { EVENT_TYPE_LABELS, ITEM_LINK_LABELS, type AuditEvent, type FieldChange } from "./mockData";
+import { EVENT_TYPE_LABELS, ITEM_LINK_LABELS, type AuditEvent, type FieldChange } from "./types";
 
 interface AuditEventModalProps {
   event: AuditEvent | null;

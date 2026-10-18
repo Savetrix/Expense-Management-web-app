@@ -6,10 +6,10 @@ import { ReactNode, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Spinner } from "@/components/ui/Spinner";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable, Modal, ProgressBar, RoleInfoBanner } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
-import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
+import { BE_SUFFIX, beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 
 import { MatchBillModal } from "./MatchBillModal";
@@ -25,7 +25,7 @@ import {
   money,
   summarize,
 } from "./format";
-import type { CandidateBill, StatementLine, SupplierStatement } from "./mockData";
+import type { CandidateBill, StatementLine, SupplierStatement } from "./types";
 
 interface StatementDetailModalProps {
   statement: SupplierStatement | null;
@@ -127,7 +127,7 @@ export function StatementDetailModal({ statement, bills, onClose, onChange }: St
         return (
           <span className="block min-w-0">
             <span className="block truncate font-semibold">{bill.number}</span>
-            <span className="block truncate text-content-secondary">{money(bill.amount, statement.currency)}</span>
+            <span className="block truncate text-content-secondary">{money(bill.amount, bill.currency ?? statement.currency)}</span>
           </span>
         );
       },
@@ -254,7 +254,7 @@ export function StatementDetailModal({ statement, bills, onClose, onChange }: St
               <FileText size={14} strokeWidth={2} className="shrink-0" />
               <span className="truncate">{statement.fileName}</span>
             </span>
-            <span>Period {formatPeriod(statement.periodStart, statement.periodEnd)}</span>
+            {statement.status !== "processing" && <span>Period {formatPeriod(statement.periodStart, statement.periodEnd)}</span>}
             <span className="flex items-center gap-[var(--space-xs)]">
               {statement.source === "Email" && <Mail size={14} strokeWidth={2} />}
               {statement.source === "Email" ? "Received by email" : "Uploaded"} · {formatDate(statement.statementDate)}
@@ -262,13 +262,11 @@ export function StatementDetailModal({ statement, bills, onClose, onChange }: St
           </div>
 
           {statement.status === "processing" ? (
-            <div className="flex flex-col items-center gap-[var(--space-sm)] py-[var(--space-xl)] text-center">
-              <Spinner size="md" />
-              <p className="text-body-sm font-semibold text-content-primary">Reading statement lines…</p>
-              <p className="max-w-sm text-caption text-content-secondary">
-                Each line is compared with your bills by vendor, date, amount and reference. This usually takes under a minute.
-              </p>
-            </div>
+            <EmptyState
+              icon={<FileText size={28} strokeWidth={1.75} />}
+              title="Waiting for statement lines"
+              description={`Lines are read by the backend ${BE_SUFFIX}. Once they arrive, each one is compared with your bills by vendor, date, amount and reference.`}
+            />
           ) : (
             <>
               <div className="grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-3">

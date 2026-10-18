@@ -1,86 +1,73 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { AlertTriangle, CalendarCheck, CheckCircle2, Lock, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarCheck, CheckCircle2, Lock, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader, ProgressBar, RoleInfoBanner, Tabs } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { getInvoices } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import { BalanceSheetSection } from "./BalanceSheetSection";
 import { ClosedPeriodsTab } from "./ClosedPeriodsTab";
 import { CloseSectionCard } from "./CloseSectionCard";
-import { FixedAssetsSection } from "./FixedAssetsSection";
-import { PayablesReceivablesSection } from "./PayablesReceivablesSection";
-import { PendingAdjustmentsSection } from "./PendingAdjustmentsSection";
-import { PendingInvoicesSection } from "./PendingInvoicesSection";
+import { PendingInvoicesSection, invoiceDateOf } from "./PendingInvoicesSection";
 import { StartCloseModal } from "./StartCloseModal";
-import {
-  CARD_CLASS,
-  SECTION_ORDER,
-  SECTION_TITLES,
-  accountIsReconciled,
-  date,
-  fixedAssetsMatched,
-  money,
-  sectionStatus,
-  useCanManagePeriods,
-  useCloseActor,
-} from "./closeShared";
-import { INITIAL_CLOSED_PERIODS, createWorkingPaper, newId, type SectionKey, type WorkingPaper } from "./mockData";
-import type { CloseSectionProps } from "./sectionTypes";
+import { WaitingSection, waitingSummary } from "./WaitingSection";
+import { CARD_CLASS, SECTION_ORDER, SECTION_TITLES, date, sectionStatus, useCanManagePeriods, useCloseActor } from "./closeShared";
+import { createWorkingPaper } from "./period";
+import type { SectionKey, WorkingPaper } from "./types";
 
 type CloseTab = "current" | "closed";
 
-const SECTION_COMPONENTS: Record<SectionKey, (props: CloseSectionProps) => ReactNode> = {
-  invoices: PendingInvoicesSection,
-  adjustments: PendingAdjustmentsSection,
-  payablesReceivables: PayablesReceivablesSection,
-  fixedAssets: FixedAssetsSection,
-  balanceSheet: BalanceSheetSection,
-};
-
-/** Mock drift found on the first close attempt — the backend re-reads balances. */
-const DRIFT_AMOUNT = 125;
-
-function sectionSummary(wp: WorkingPaper, key: SectionKey): string {
-  switch (key) {
-    case "invoices":
-      return wp.documents.length ? `${wp.documents.length} unposted document${wp.documents.length === 1 ? "" : "s"}` : "Everything posted";
-    case "adjustments":
-      return wp.adjustments.length ? `${wp.adjustments.length} adjustment${wp.adjustments.length === 1 ? "" : "s"} to post` : "All adjustments posted";
-    case "payablesReceivables": {
-      const flags = [...wp.payables, ...wp.receivables].filter((c) => c.flag && !c.resolution).length;
-      const sides = Number(!!wp.payablesReconciled) + Number(!!wp.receivablesReconciled);
-      return flags ? `${flags} flagged contact${flags === 1 ? "" : "s"} to review` : `${sides} of 2 ledgers reconciled`;
-    }
-    case "fixedAssets":
-      return fixedAssetsMatched(wp) ? "Register agrees with ledger" : wp.fixedAssets.reconciled ? "Reconciled with justified difference" : "Register differs from ledger";
-    case "balanceSheet": {
-      const left = wp.accounts.filter((a) => !accountIsReconciled(a)).length;
-      return left ? `${left} account${left === 1 ? "" : "s"} to reconcile` : "All accounts reconciled";
-    }
-  }
+function invoiceSummary(loading: boolean, failed: boolean, count: number | null): string {
+  if (loading) return "Loading invoices…";
+  if (failed || count === null) return "Couldn't load invoices";
+  return count ? `${count} unposted invoice${count === 1 ? "" : "s"}` : "Everything posted";
 }
 
 export function CloseContentV2() {
   const provider = useActiveProvider();
+  const dispatch = useAppDispatch();
   const actor = useCloseActor();
   const { canManage, companyName } = useCanManagePeriods();
+  const pendingInvoices = useAppSelector((state) => state.invoice.pendingInvoices);
+  const invoicesFetching = useAppSelector((state) => state.invoice.invoicesFetchPending);
 
   const [tab, setTab] = useState<CloseTab>("current");
   const [current, setCurrent] = useState<WorkingPaper | null>(null);
-  const [closed, setClosed] = useState<WorkingPaper[]>(INITIAL_CLOSED_PERIODS);
+  const [closed, setClosed] = useState<WorkingPaper[]>([]);
   const [startOpen, setStartOpen] = useState(false);
   const [openSection, setOpenSection] = useState<SectionKey | null>("invoices");
-  const [closing, setClosing] = useState(false);
-  const [driftAccountId, setDriftAccountId] = useState<string | null>(null);
   const [justClosed, setJustClosed] = useState<WorkingPaper | null>(null);
+  // null = the invoice list hasn't settled yet; true/false = loaded OK / failed.
+  const [invoicesOk, setInvoicesOk] = useState<boolean | null>(null);
+
+  // Pending invoices are real data: load them for this company on mount.
+  useEffect(() => {
+    let cancelled = false;
+    dispatch(getInvoices()).then((result) => {
+      if (cancelled) return;
+      const skipped = getInvoices.rejected.match(result) && result.meta.condition;
+      setInvoicesOk(getInvoices.fulfilled.match(result) || Boolean(skipped));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch]);
 
   const lastClosedEnd = closed.reduce<string | undefined>((max, p) => (!max || p.periodEnd > max ? p.periodEnd : max), undefined);
+
+  const dueInvoices = useMemo(
+    () => (current ? pendingInvoices.filter((inv) => !invoiceDateOf(inv) || invoiceDateOf(inv) <= current.periodEnd) : []),
+    [pendingInvoices, current],
+  );
+  const invoicesLoading = invoicesOk === null || invoicesFetching;
+  const invoicesFailed = invoicesOk === false;
+  const pendingCount = invoicesLoading || invoicesFailed ? null : dueInvoices.length;
 
   const handleStart = (start: string, end: string) => {
     notifyBackendPending("Start close");
@@ -88,14 +75,10 @@ export function CloseContentV2() {
     setCurrent(paper);
     setStartOpen(false);
     setJustClosed(null);
-    setDriftAccountId(null);
     setOpenSection("invoices");
     setTab("current");
     showToast(`${paper.name} started.`, "success");
   };
-
-  const updateSection = (key: SectionKey) => (change: (wp: WorkingPaper) => WorkingPaper) =>
-    setCurrent((wp) => (wp ? { ...change(wp), touched: { ...wp.touched, [key]: true } } : wp));
 
   const handleClosePeriod = async () => {
     if (!current) return;
@@ -106,43 +89,11 @@ export function CloseContentV2() {
     });
     if (!ok) return;
     notifyBackendPending("Close period");
-    setClosing(true);
-    // Simulated balance re-check; the backend will do this server-side.
-    window.setTimeout(() => {
-      setClosing(false);
-      const drifted = !current.driftChecked ? current.accounts.find((a) => a.id === current.driftAccountId && a.reconciled) : undefined;
-      if (drifted) {
-        const now = new Date().toISOString();
-        const newBalance = Math.round((drifted.ledgerBalance + DRIFT_AMOUNT) * 100) / 100;
-        setCurrent({
-          ...current,
-          driftChecked: true,
-          accounts: current.accounts.map((a) =>
-            a.id === drifted.id
-              ? {
-                  ...a,
-                  ledgerBalance: newBalance,
-                  reconciled: undefined,
-                  changeLog: [
-                    ...a.changeLog,
-                    { id: newId("log"), at: now, by: "System", message: `Balance changed in ${provider.name} from ${money(a.ledgerBalance)} to ${money(newBalance)} after reconciliation — marked unreconciled` },
-                  ],
-                }
-              : a,
-          ),
-        });
-        setDriftAccountId(drifted.id);
-        setOpenSection("balanceSheet");
-        showToast("Close blocked: 1 account changed since it was reconciled.", "warning");
-        return;
-      }
-      const closedPaper: WorkingPaper = { ...current, driftChecked: true, closedBy: actor, closedAt: new Date().toISOString() };
-      setClosed((list) => [closedPaper, ...list]);
-      setCurrent(null);
-      setDriftAccountId(null);
-      setJustClosed(closedPaper);
-      showToast(`${closedPaper.name} is closed and locked.`, "success");
-    }, 900);
+    const closedPaper: WorkingPaper = { ...current, closedBy: actor, closedAt: new Date().toISOString() };
+    setClosed((list) => [closedPaper, ...list]);
+    setCurrent(null);
+    setJustClosed(closedPaper);
+    showToast(`${closedPaper.name} is closed and locked.`, "success");
   };
 
   const handleExport = (paper: WorkingPaper) => {
@@ -166,11 +117,25 @@ export function CloseContentV2() {
     setTab("current");
   };
 
-  const statuses = current ? SECTION_ORDER.map((key) => sectionStatus(current, key)) : [];
+  const statuses = current ? SECTION_ORDER.map((key) => sectionStatus(key, { pendingInvoiceCount: pendingCount }, Boolean(current.touched[key]))) : [];
   const doneCount = statuses.filter((s) => s === "done").length;
   const allDone = doneCount === SECTION_ORDER.length;
-  const driftAccount = current && driftAccountId ? current.accounts.find((a) => a.id === driftAccountId) : undefined;
-  const showBlocked = Boolean(driftAccount && !driftAccount.reconciled);
+  const waitingCount = statuses.filter((s) => s === "waiting").length;
+
+  const closeBlockedReason = !canManage
+    ? `Closing needs the Manage periods permission on ${companyName}.`
+    : waitingCount > 0
+      ? `${waitingCount} section${waitingCount === 1 ? " is" : "s are"} waiting for data from ${provider.name} ${beLabel("").trim()}, so the period can't be shown as reconciled yet.`
+      : !allDone
+        ? `Finish all ${SECTION_ORDER.length} sections to close the period.`
+        : "";
+
+  const renderSection = (key: SectionKey, paper: WorkingPaper) =>
+    key === "invoices" ? (
+      <PendingInvoicesSection paper={paper} invoices={dueInvoices} loading={invoicesLoading} loadFailed={invoicesFailed} />
+    ) : (
+      <WaitingSection section={key} />
+    );
 
   const renderCurrent = () => {
     if (!current) {
@@ -198,6 +163,8 @@ export function CloseContentV2() {
       );
     }
 
+    const summaryFor = (key: SectionKey) => (key === "invoices" ? invoiceSummary(invoicesLoading, invoicesFailed, pendingCount) : waitingSummary());
+
     return (
       <div className="flex flex-col">
         <div className="flex flex-col gap-[var(--space-sm)] border-b border-border p-[var(--space-md)]">
@@ -215,33 +182,20 @@ export function CloseContentV2() {
           <ProgressBar percent={(doneCount / SECTION_ORDER.length) * 100} label="Close progress" />
         </div>
 
-        {showBlocked && driftAccount && (
-          <div className="m-[var(--space-md)] mb-0 flex items-start gap-[var(--space-sm)] rounded-md border border-status-danger-border bg-status-danger-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-danger-text">
-            <AlertTriangle size={18} strokeWidth={2} className="mt-0.5 shrink-0" />
-            <p>
-              <span className="font-semibold">1 account changed since it was reconciled — re-reconcile to close.</span> {driftAccount.code} ·{" "}
-              {driftAccount.name} now shows {money(driftAccount.ledgerBalance)} in {provider.name}.
-            </p>
-          </div>
-        )}
-
         <div className="m-[var(--space-md)] overflow-hidden rounded-md border border-border bg-surface">
-          {SECTION_ORDER.map((key, i) => {
-            const Section = SECTION_COMPONENTS[key];
-            return (
-              <CloseSectionCard
-                key={key}
-                index={i + 1}
-                title={SECTION_TITLES[key]}
-                summary={sectionSummary(current, key)}
-                status={statuses[i]}
-                open={openSection === key}
-                onToggle={() => setOpenSection((s) => (s === key ? null : key))}
-              >
-                <Section paper={current} onUpdate={updateSection(key)} actor={actor} />
-              </CloseSectionCard>
-            );
-          })}
+          {SECTION_ORDER.map((key, i) => (
+            <CloseSectionCard
+              key={key}
+              index={i + 1}
+              title={SECTION_TITLES[key]}
+              summary={summaryFor(key)}
+              status={statuses[i]}
+              open={openSection === key}
+              onToggle={() => setOpenSection((s) => (s === key ? null : key))}
+            >
+              {renderSection(key, current)}
+            </CloseSectionCard>
+          ))}
         </div>
 
         <div className="flex flex-col gap-[var(--space-md)] border-t border-border bg-page p-[var(--space-md)]">
@@ -251,12 +205,10 @@ export function CloseContentV2() {
               : `You can prepare this working paper — post, review and reconcile — but closing needs the Manage periods permission on ${companyName}.`}
           </RoleInfoBanner>
           <div className="flex flex-col gap-[var(--space-sm)] sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-caption text-content-secondary">
-              {allDone ? "All sections are done. Balances are re-checked when you close." : `Finish all ${SECTION_ORDER.length} sections to close the period.`}
-            </p>
-            <Button onClick={handleClosePeriod} disabled={!allDone || !canManage} loading={closing} className="w-full sm:w-auto">
+            <p className="text-caption text-content-secondary">{closeBlockedReason || "All sections are done. Balances are re-checked when you close."}</p>
+            <Button onClick={handleClosePeriod} disabled={Boolean(closeBlockedReason)} className="w-full sm:w-auto">
               <Lock size={16} strokeWidth={2.25} />
-              {closing ? "Re-checking balances…" : beLabel("Close period")}
+              {beLabel("Close period")}
             </Button>
           </div>
         </div>

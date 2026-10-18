@@ -20,7 +20,6 @@ interface Props {
   onAssetsChange: (updater: (assets: FixedAsset[]) => FixedAsset[]) => void;
   threshold: number;
   detectionEnabled: boolean;
-  ledgerOffset: number;
 }
 
 function assetRange(asset: FixedAsset): string {
@@ -29,7 +28,7 @@ function assetRange(asset: FixedAsset): string {
   return `${periodLabel(periodOf(asset.scheduleStart))} – ${periodLabel(end)}`;
 }
 
-export function FixedAssetsTab({ assets, onAssetsChange, threshold, detectionEnabled, ledgerOffset }: Props) {
+export function FixedAssetsTab({ assets, onAssetsChange, threshold, detectionEnabled }: Props) {
   const [status, setStatus] = useState<AdjustmentStatus>("review");
   const [account, setAccount] = useState(ALL);
   const [period, setPeriod] = useState(ALL);
@@ -98,7 +97,7 @@ export function FixedAssetsTab({ assets, onAssetsChange, threshold, detectionEna
 
   return (
     <div className="flex flex-col gap-[var(--space-md)]">
-      <ReconciliationCard label="Fixed assets (net book value)" trackerBalance={trackerBalance} ledgerOffset={ledgerOffset} />
+      <ReconciliationCard label="Fixed assets (net book value)" trackerBalance={trackerBalance} />
       {!detectionEnabled && <DisabledDetectionNote typeLabel="fixed assets" />}
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">

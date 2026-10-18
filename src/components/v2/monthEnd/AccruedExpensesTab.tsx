@@ -22,7 +22,6 @@ interface Props {
   reversals: AccrualReversal[];
   onReversalsChange: (updater: (reversals: AccrualReversal[]) => AccrualReversal[]) => void;
   detectionEnabled: boolean;
-  ledgerOffset: number;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -32,7 +31,7 @@ function batchLabel(iso: string): { key: string; label: string } {
   return { key: `${y}-Q${q + 1}`, label: `Reversals ${MONTHS[q * 3]}–${MONTHS[q * 3 + 2]} ${y}` };
 }
 
-export function AccruedExpensesTab({ accruals, onAccrualsChange, reversals, onReversalsChange, detectionEnabled, ledgerOffset }: Props) {
+export function AccruedExpensesTab({ accruals, onAccrualsChange, reversals, onReversalsChange, detectionEnabled }: Props) {
   const provider = useActiveProvider();
   const [status, setStatus] = useState<AdjustmentStatus>("review");
   const [account, setAccount] = useState(ALL);
@@ -147,7 +146,7 @@ export function AccruedExpensesTab({ accruals, onAccrualsChange, reversals, onRe
 
   return (
     <div className="flex flex-col gap-[var(--space-md)]">
-      <ReconciliationCard label="Accrued expenses" trackerBalance={trackerBalance} ledgerOffset={ledgerOffset} />
+      <ReconciliationCard label="Accrued expenses" trackerBalance={trackerBalance} />
       {!detectionEnabled && <DisabledDetectionNote typeLabel="accrued expenses" />}
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">

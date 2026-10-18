@@ -10,7 +10,7 @@ import { DataTable, SearchInput } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import type { Bill, PayVendor } from "./mockData";
+import type { Bill, PayVendor } from "./types";
 import { CARD_CLASS, TOOLBAR_CLASS, isOverdue, money, shortDate, sumAmounts } from "./shared";
 
 interface ToPayTabProps {
@@ -88,7 +88,7 @@ export function ToPayTab({ bills, vendors, onPaySelected }: ToPayTabProps) {
       <div className={`${TOOLBAR_CLASS} lg:justify-between`}>
         <div className="flex flex-wrap items-center gap-[var(--space-sm)] text-body-sm text-content-secondary">
           <span>
-            {bills.length} unpaid bill{bills.length === 1 ? "" : "s"} · {money(sumAmounts(bills))}
+            {bills.length === 0 ? "Unpaid bills" : `${bills.length} unpaid bill${bills.length === 1 ? "" : "s"} · ${money(sumAmounts(bills))}`}
           </span>
           {overdueCount > 0 && <Badge variant="error">{overdueCount} overdue</Badge>}
         </div>
@@ -125,8 +125,8 @@ export function ToPayTab({ bills, vendors, onPaySelected }: ToPayTabProps) {
       {bills.length === 0 ? (
         <EmptyState
           icon={<FileCheck2 size={28} strokeWidth={1.75} />}
-          title="All caught up"
-          description={`Bills posted to ${provider.name} that are still unpaid show up here, ready to pay in one run.`}
+          title="No unpaid bills to show"
+          description={`Unpaid bills load from ${provider.name} once the backend is connected (BE)`}
         />
       ) : visible.length === 0 ? (
         <div className="p-[var(--space-lg)] text-center text-body-sm text-content-secondary">No bills match &quot;{search}&quot;.</div>

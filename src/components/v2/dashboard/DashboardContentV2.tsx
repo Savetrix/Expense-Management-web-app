@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
+import { BookkeepingOverviewV2 } from "@/components/v2/dashboard/BookkeepingOverviewV2";
 import { TopVendorsCardV2 } from "@/components/v2/invoices/TopVendorsCardV2";
 import { Avatar, StatusPill } from "@/components/v2/ui";
 import { vendorInitials } from "@/components/invoices/SelectedInvoiceCard";
@@ -828,7 +829,14 @@ export function DashboardContentV2() {
           </Card>
         )}
       </div>
-      
+
+      <BookkeepingOverviewV2
+        processedCount={autoPostedInvoices.length + manualPostedInvoices.length + failedInvoices.length + pendingInvoices.length}
+        autoPostedCount={autoPostedInvoices.length}
+        pendingCount={pendingInvoices.length}
+        failedCount={failedInvoices.length}
+      />
+
       <div className="flex min-w-0 flex-col gap-[var(--space-md)] sm:col-span-2 lg:col-span-4">
 
 

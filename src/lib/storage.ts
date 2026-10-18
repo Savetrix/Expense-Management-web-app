@@ -251,3 +251,26 @@ export const getSidebarPinned = (): boolean => {
 export const setSidebarPinned = (pinned: boolean): void => {
   setItem(SIDEBAR_PINNED_KEY, pinned ? "true" : "false");
 };
+
+// ==============================
+// SIDEBAR BOOKMARKS (UI preference, per user on this browser — nav hrefs
+// the user starred, in the order they starred them. Syncing them across
+// devices needs a backend preference endpoint.)
+// ==============================
+
+const navBookmarksKey = (userKey: string) => `navBookmarks:${userKey}`;
+
+export const getNavBookmarks = (userKey: string): string[] => {
+  const raw = getItem(navBookmarksKey(userKey));
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+export const setNavBookmarks = (userKey: string, hrefs: string[]): void => {
+  setItem(navBookmarksKey(userKey), JSON.stringify(hrefs));
+};

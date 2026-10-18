@@ -1,6 +1,6 @@
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 
-import { MOCK_CURRENCY, type ClaimReceipt, type ClaimStatus, type Journey } from "./mockData";
+import type { ClaimReceipt, ClaimStatus, Journey } from "./types";
 
 export const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 export const FIELD_INPUT_CLASS =
@@ -8,7 +8,8 @@ export const FIELD_INPUT_CLASS =
 export const CARD_CLASS = "overflow-hidden rounded-lg border border-border bg-surface shadow-sm";
 export const TOOLBAR_CLASS = "flex flex-col gap-[var(--space-md)] border-b border-border bg-page p-[var(--space-md)] lg:flex-row lg:items-center";
 
-export const money = (amount: number) => formatDetailAmount(amount, MOCK_CURRENCY);
+/** No currency code: the connection does not carry one, so amounts show as plain numbers. */
+export const money = (amount: number) => formatDetailAmount(amount);
 
 /** Day-only business dates — parsed as local midnight so they never shift a day. */
 export function shortDate(date?: string): string {
@@ -43,4 +44,5 @@ export const CLAIM_STATUS_META: Record<ClaimStatus, { label: string; variant: "s
 };
 
 let idCounter = 0;
-export const mockId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
+/** Local-only id for records that only exist in this session until the backend stores them. */
+export const localId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;

@@ -9,9 +9,9 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import { ACCOUNTS } from "./mockData";
+import { useGlAccountGroups, useVendorNames } from "./lookups";
 import { dateLabel, formatMoney, monthEndOf, todayIso } from "./schedule";
-import { FIELD_LABEL_CLASS, NOTE_CLASS, SelectField, StatusBadge, SwitchRow, TextField } from "./shared";
+import { FIELD_LABEL_CLASS, NOTE_CLASS, SelectField, StatusBadge, SwitchRow, TextField, VendorField } from "./shared";
 import type { Accrual, AccrualReversal } from "./types";
 
 // ── Add accrued expense / adjustment ───────────────────────────────────────
@@ -31,22 +31,24 @@ const emptyForm = (): AccrualFormState => ({
   vendor: "",
   amount: "",
   date: monthEndOf(todayIso()),
-  expenseAccount: ACCOUNTS.expense[0],
-  liabilityAccount: ACCOUNTS.accrualLiability[0],
+  expenseAccount: "",
+  liabilityAccount: "",
   trackOnly: false,
 });
 
 function AccrualFields({ form, setForm, showTrackOnly }: { form: AccrualFormState; setForm: (f: AccrualFormState) => void; showTrackOnly: boolean }) {
   const set = <K extends keyof AccrualFormState>(key: K, value: AccrualFormState[K]) => setForm({ ...form, [key]: value });
+  const gl = useGlAccountGroups();
+  const vendors = useVendorNames();
   return (
     <div className="flex flex-col gap-[var(--space-md)]">
       <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-2">
         <TextField label="Description *" value={form.description} onChange={(v) => set("description", v)} placeholder="e.g. Contractor hours – October" />
-        <TextField label="Vendor" value={form.vendor} onChange={(v) => set("vendor", v)} />
+        <VendorField label="Vendor" value={form.vendor} onChange={(v) => set("vendor", v)} vendors={vendors} />
         <TextField label="Amount *" type="number" value={form.amount} onChange={(v) => set("amount", v)} placeholder="0.00" />
         <TextField label="Date" type="date" value={form.date} onChange={(v) => set("date", v)} hint="Usually the last day of the month the cost belongs to." />
-        <SelectField label="Expense account" value={form.expenseAccount} onChange={(v) => set("expenseAccount", v)} options={ACCOUNTS.expense} />
-        <SelectField label="Liability account" value={form.liabilityAccount} onChange={(v) => set("liabilityAccount", v)} options={ACCOUNTS.accrualLiability} />
+        <SelectField label="Expense account" value={form.expenseAccount} onChange={(v) => set("expenseAccount", v)} options={gl.expense} />
+        <SelectField label="Liability account" value={form.liabilityAccount} onChange={(v) => set("liabilityAccount", v)} options={gl.accrualLiability} />
       </div>
       {showTrackOnly && (
         <SwitchRow
@@ -63,6 +65,7 @@ function validate(form: AccrualFormState): string {
   if (!form.description.trim()) return "Description is required.";
   if (!(Number(form.amount) > 0)) return "Amount must be greater than zero.";
   if (!form.date) return "Choose a date.";
+  if (!form.expenseAccount || !form.liabilityAccount) return "Choose the expense and liability accounts.";
   return "";
 }
 

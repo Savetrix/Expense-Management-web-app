@@ -13,7 +13,7 @@ import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { AuditEventModal } from "./AuditEventModal";
 import { ActorCell, formatTimestamp, relativeTime, withProvider } from "./format";
-import { EVENT_TYPE_LABELS, MOCK_AUDIT_EVENTS, type ActorType, type AuditEvent, type AuditEventType } from "./mockData";
+import { EVENT_TYPE_LABELS, type ActorType, type AuditEvent, type AuditEventType } from "./types";
 
 type ActorTab = "all" | ActorType;
 type RangeValue = "1" | "7" | "30" | "90" | "all";
@@ -30,7 +30,7 @@ const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
 
 export function AuditTrailContentV2() {
   const provider = useActiveProvider();
-  const [events] = useState<AuditEvent[]>(MOCK_AUDIT_EVENTS);
+  const [events] = useState<AuditEvent[]>([]);
   const [search, setSearch] = useState("");
   const [actorTab, setActorTab] = useState<ActorTab>("all");
   const [eventType, setEventType] = useState<"all" | AuditEventType>("all");
@@ -198,7 +198,7 @@ export function AuditTrailContentV2() {
             title={events.length === 0 ? "No activity yet" : "No activity matches these filters"}
             description={
               events.length === 0
-                ? "Uploads, edits, approvals and settings changes will be recorded here as they happen."
+                ? "Uploads, edits, approvals and settings changes will be listed here once the backend is connected (BE)."
                 : "Try a wider date range or a different event type or actor."
             }
             actionLabel={filtersActive ? "Clear filters" : undefined}

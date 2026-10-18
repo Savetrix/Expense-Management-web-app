@@ -1,12 +1,13 @@
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 
-import { MOCK_CURRENCY, type ApprovalRules, type Bill, type RunStatus, type TeamMember } from "./mockData";
+import type { ApprovalRules, Bill, RunStatus, TeamMember } from "./types";
 
 export const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 export const CARD_CLASS = "overflow-hidden rounded-lg border border-border bg-surface shadow-sm";
 export const TOOLBAR_CLASS = "flex flex-col gap-[var(--space-md)] border-b border-border bg-page p-[var(--space-md)] lg:flex-row lg:items-center";
 
-export const money = (amount: number) => formatDetailAmount(amount, MOCK_CURRENCY);
+/** No currency code: the connection does not carry one, so amounts show as plain numbers. */
+export const money = (amount: number) => formatDetailAmount(amount);
 
 /** Day-only business dates — parsed as local midnight so they never shift a day. */
 export function shortDate(date?: string): string {
@@ -31,7 +32,7 @@ export const sumAmounts = (rows: { amount: number }[]) => Math.round(rows.reduce
 /** Whether a bill needs sign-off before it can be paid under the current rules. */
 export function needsApproval(bill: Bill, rules: ApprovalRules): boolean {
   if (!rules.enabled || bill.approved || rules.approverIds.length === 0) return false;
-  return rules.mode === "every" ? true : bill.amount > rules.threshold;
+  return rules.mode === "every" ? true : rules.threshold !== null && bill.amount > rules.threshold;
 }
 
 export const approverNames = (rules: ApprovalRules, team: TeamMember[]) =>
@@ -46,5 +47,6 @@ export const RUN_STATUS_META: Record<RunStatus, { label: string; variant: "succe
 
 export const delay = (ms = 500) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Local-only id for records that only exist in this session until the backend stores them. */
 let idCounter = 0;
-export const mockId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
+export const localId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;

@@ -10,7 +10,7 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 
 import { ROW_ACTION_CLASS, dueText, formatDate, formatDateTime, isOverdue, money, receivedCount } from "./format";
-import { requestTypeLabel, type ActivityEvent, type ActivityKind, type PaperworkRequest } from "./mockData";
+import { requestTypeLabel, type ActivityEvent, type ActivityKind, type PaperworkRequest } from "./types";
 
 const ACTIVITY_ICON: Record<ActivityKind, ReactNode> = {
   sent: <Mail size={14} strokeWidth={2} />,

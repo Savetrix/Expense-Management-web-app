@@ -11,7 +11,7 @@ import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 import { formatPlainDate } from "@/lib/plainDate";
 import { Modal, ProgressBar } from "@/components/v2/ui";
 
-import type { UnpostedInvoice } from "./mockData";
+import type { UnpostedInvoice } from "./types";
 
 type Step = 1 | 2 | 3 | "done";
 

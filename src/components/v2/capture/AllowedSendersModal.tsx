@@ -5,6 +5,7 @@ import { Archive, AtSign, FileStack, Plus, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal, TextInput } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 
@@ -19,8 +20,6 @@ export function isValidSenderEntry(value: string): boolean {
   const v = value.trim().toLowerCase();
   return EMAIL_RE.test(v) || DOMAIN_RE.test(v);
 }
-
-const MOCK_SENDERS = ["billing@acme-supplies.com", "@officeworks.example"];
 
 const SUPPORTED_FILES: string[] = [
   "PDF, images (JPG, PNG, HEIC), Word and Excel files",
@@ -58,7 +57,7 @@ export function SupportedFilesInfo() {
 }
 
 export function AllowedSendersModal({ open, onClose }: AllowedSendersModalProps) {
-  const [senders, setSenders] = useState<string[]>(MOCK_SENDERS);
+  const [senders, setSenders] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -128,9 +127,13 @@ export function AllowedSendersModal({ open, onClose }: AllowedSendersModalProps)
             Senders ({senders.length})
           </p>
           {senders.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border px-[var(--space-md)] py-[var(--space-sm)] text-caption text-content-muted">
-              No restrictions — all senders are processed.
-            </p>
+            <div className="rounded-md border border-dashed border-border">
+              <EmptyState
+                icon={<AtSign size={28} strokeWidth={1.75} />}
+                title="No restrictions"
+                description="All senders are processed. Add an email or domain to limit who can send."
+              />
+            </div>
           ) : (
             <ul className="flex flex-col overflow-hidden rounded-md border border-border">
               {senders.map((entry) => (

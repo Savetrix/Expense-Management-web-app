@@ -5,7 +5,7 @@ import { formatDetailAmount, formatDetailDate, formatDetailDateTime } from "@/li
 import { formatPlainDate } from "@/lib/plainDate";
 import { useAppSelector } from "@/store/hooks";
 
-import type { BalanceSheetAccount, SectionKey, SectionStatus, SignOff, WorkingPaper } from "./mockData";
+import type { SectionKey, SectionStatus, SignOff } from "./types";
 
 export const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 export const FIELD_INPUT_CLASS =
@@ -32,41 +32,21 @@ export const SECTION_TITLES: Record<SectionKey, string> = {
   balanceSheet: "Balance sheet reconciliation",
 };
 
-/** Sum of carried-forward line items plus added support for an account. */
-export const supportTotal = (a: BalanceSheetAccount) =>
-  a.lineItems.reduce((sum, li) => sum + li.amount, 0) + a.supports.reduce((sum, s) => sum + s.amount, 0);
-
-/** Rounded to cents so float noise never shows as a difference. */
-export const round2 = (n: number) => Math.round(n * 100) / 100;
-
-/** Managed and dormant accounts reconcile themselves; others need a sign-off. */
-export const accountIsReconciled = (a: BalanceSheetAccount) => Boolean(a.managedBy || a.dormant || a.reconciled);
-
-export const fixedAssetsMatched = (wp: WorkingPaper) =>
-  round2(wp.fixedAssets.registerCost - wp.fixedAssets.ledgerCost) === 0 &&
-  round2(wp.fixedAssets.registerDepreciation - wp.fixedAssets.ledgerDepreciation) === 0;
-
-function sectionDone(wp: WorkingPaper, key: SectionKey): boolean {
-  switch (key) {
-    case "invoices":
-      return wp.documents.length === 0;
-    case "adjustments":
-      return wp.adjustments.length === 0;
-    case "payablesReceivables":
-      return Boolean(wp.payablesReconciled && wp.receivablesReconciled);
-    case "fixedAssets":
-      return fixedAssetsMatched(wp) || Boolean(wp.fixedAssets.reconciled);
-    case "balanceSheet":
-      return wp.accounts.every(accountIsReconciled);
-  }
+/** What the checklist knows about real data; null = not loaded (yet). */
+export interface CloseDataContext {
+  /** Real pending invoices dated on or before period end, or null while unknown. */
+  pendingInvoiceCount: number | null;
 }
 
-export function sectionStatus(wp: WorkingPaper, key: SectionKey): SectionStatus {
-  if (sectionDone(wp, key)) return "done";
-  return wp.touched[key] ? "in_progress" : "todo";
+/** Only section 1 has a real source today; every other section waits for the backend (BE). */
+export function sectionStatus(key: SectionKey, ctx: CloseDataContext, touched: boolean): SectionStatus {
+  if (key !== "invoices" || ctx.pendingInvoiceCount === null) return "waiting";
+  if (ctx.pendingInvoiceCount === 0) return "done";
+  return touched ? "in_progress" : "todo";
 }
 
 const STATUS_BADGE: Record<SectionStatus, { label: string; variant: "success" | "warning" | "neutral" }> = {
+  waiting: { label: "Waiting for data", variant: "neutral" },
   todo: { label: "To do", variant: "neutral" },
   in_progress: { label: "In progress", variant: "warning" },
   done: { label: "Done", variant: "success" },

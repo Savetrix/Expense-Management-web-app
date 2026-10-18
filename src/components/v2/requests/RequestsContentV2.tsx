@@ -12,7 +12,7 @@ import type { DataTableColumn } from "@/components/v2/ui";
 import { showToast } from "@/lib/dialogManager";
 
 import { dueText, formatDate, isOverdue, receivedCount } from "./format";
-import { MOCK_REQUESTS, requestTypeLabel, type PaperworkRequest } from "./mockData";
+import { requestTypeLabel, type PaperworkRequest } from "./types";
 import { NewRequestWizard, type RequestPrefill } from "./NewRequestWizard";
 import { RequestDetailModal } from "./RequestDetailModal";
 
@@ -27,7 +27,7 @@ const EMPTY_COPY: Record<RequestTab, { title: string; description: string }> = {
 export function RequestsContentV2() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [requests, setRequests] = useState<PaperworkRequest[]>(MOCK_REQUESTS);
+  const [requests, setRequests] = useState<PaperworkRequest[]>([]);
   const [tab, setTab] = useState<RequestTab>("open");
   const [search, setSearch] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);

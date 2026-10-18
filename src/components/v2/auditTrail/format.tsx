@@ -3,7 +3,7 @@ import { Bot, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/v2/ui";
 
-import type { AuditEvent } from "./mockData";
+import type { AuditEvent } from "./types";
 
 export function formatTimestamp(iso: string): string {
   const d = new Date(iso);

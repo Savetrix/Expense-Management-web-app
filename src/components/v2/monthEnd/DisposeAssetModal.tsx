@@ -12,7 +12,7 @@ import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { disposalFigures, disposalJournal } from "./assetMath";
 import type { JournalLine } from "./assetMath";
-import { ACCOUNTS } from "./mockData";
+import { useGlAccountGroups } from "./lookups";
 import { dateLabel, formatMoney, round2, todayIso } from "./schedule";
 import { NOTE_CLASS, SelectField, StepIndicator, TextField } from "./shared";
 import type { FixedAsset } from "./types";
@@ -27,11 +27,12 @@ interface Props {
 
 export function DisposeAssetModal({ asset, onClose, onDisposed }: Props) {
   const provider = useActiveProvider();
+  const gl = useGlAccountGroups();
   const [step, setStep] = useState(0);
   const [date, setDate] = useState(todayIso());
   const [proceeds, setProceeds] = useState("0");
-  const [proceedsAccount, setProceedsAccount] = useState<string>(ACCOUNTS.proceeds[0]);
-  const [gainLossAccount, setGainLossAccount] = useState<string>(ACCOUNTS.gainLoss[0]);
+  const [proceedsAccount, setProceedsAccount] = useState<string>("");
+  const [gainLossAccount, setGainLossAccount] = useState<string>("");
   const [error, setError] = useState("");
 
   const proceedsNum = Math.max(0, Number(proceeds) || 0);
@@ -44,7 +45,9 @@ export function DisposeAssetModal({ asset, onClose, onDisposed }: Props) {
     if (step === 0) {
       if (!date) return setError("Choose a disposal date.");
       if (date < asset.acquisitionDate) return setError("Disposal date can't be before the acquisition date.");
+      if (proceedsNum > 0 && !proceedsAccount) return setError("Choose the account the proceeds go to.");
     }
+    if (step === 1 && !gainLossAccount) return setError("Choose the gain / loss account.");
     setError("");
     setStep((s) => s + 1);
   };
@@ -101,13 +104,13 @@ export function DisposeAssetModal({ asset, onClose, onDisposed }: Props) {
         <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-2">
           <TextField label="Disposal date *" type="date" value={date} onChange={setDate} />
           <TextField label="Proceeds amount" type="number" value={proceeds} onChange={setProceeds} hint="Enter 0 if the asset was scrapped or written off." />
-          <SelectField label="Proceeds account" value={proceedsAccount} onChange={setProceedsAccount} options={ACCOUNTS.proceeds} className="sm:col-span-2" />
+          <SelectField label="Proceeds account" value={proceedsAccount} onChange={setProceedsAccount} options={gl.proceeds} className="sm:col-span-2" />
         </div>
       )}
 
       {step === 1 && (
         <div className="flex flex-col gap-[var(--space-md)]">
-          <SelectField label="Gain / loss account" value={gainLossAccount} onChange={setGainLossAccount} options={ACCOUNTS.gainLoss} />
+          <SelectField label="Gain / loss account" value={gainLossAccount} onChange={setGainLossAccount} options={gl.gainLoss} />
           <div className="rounded-md border border-border px-[var(--space-md)]">
             <ModalDefinitionRow label="Cost">{formatMoney(asset.cost)}</ModalDefinitionRow>
             <ModalDefinitionRow label={`Accumulated depreciation at ${dateLabel(date)}`}>{formatMoney(figures.accumulated)}</ModalDefinitionRow>

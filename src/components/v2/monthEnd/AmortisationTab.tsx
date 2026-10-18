@@ -20,7 +20,6 @@ interface Props {
   onItemsChange: (updater: (items: AmortisationItem[]) => AmortisationItem[]) => void;
   defaultProration: Proration;
   detectionEnabled: boolean;
-  ledgerOffset: number;
 }
 
 /** Released-to-date and closing balance as at `period`. */
@@ -31,7 +30,7 @@ export function amortisationPosition(item: AmortisationItem, period: string) {
   return { released, closing: round2(item.total - released) };
 }
 
-export function AmortisationTab({ kind, items, onItemsChange, defaultProration, detectionEnabled, ledgerOffset }: Props) {
+export function AmortisationTab({ kind, items, onItemsChange, defaultProration, detectionEnabled }: Props) {
   const copy = AMORTISATION_COPY[kind];
   const [status, setStatus] = useState<AdjustmentStatus>("review");
   const [account, setAccount] = useState(ALL);
@@ -102,7 +101,7 @@ export function AmortisationTab({ kind, items, onItemsChange, defaultProration, 
 
   return (
     <div className="flex flex-col gap-[var(--space-md)]">
-      <ReconciliationCard label={copy.title} trackerBalance={trackerBalance} ledgerOffset={ledgerOffset} />
+      <ReconciliationCard label={copy.title} trackerBalance={trackerBalance} />
       {!detectionEnabled && <DisabledDetectionNote typeLabel={copy.title.toLowerCase()} />}
 
       <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
@@ -154,16 +153,7 @@ export function AmortisationTab({ kind, items, onItemsChange, defaultProration, 
           }}
         />
       )}
-      {importing && (
-        <BulkImportModal
-          kind={kind}
-          onClose={() => setImporting(false)}
-          onImport={(imported) => {
-            onItemsChange((list) => [...imported, ...list]);
-            setStatus("review");
-          }}
-        />
-      )}
+      {importing && <BulkImportModal kind={kind} onClose={() => setImporting(false)} />}
     </div>
   );
 }

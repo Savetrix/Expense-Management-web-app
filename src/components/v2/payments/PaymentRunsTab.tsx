@@ -12,7 +12,7 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import type { PayingAccount, PaymentRun, RunStatus } from "./mockData";
+import type { PayingAccount, PaymentRun, RunStatus } from "./types";
 import { CARD_CLASS, RUN_STATUS_META, TOOLBAR_CLASS, delay, maskNumber, money, shortDate } from "./shared";
 
 interface PaymentRunsTabProps {

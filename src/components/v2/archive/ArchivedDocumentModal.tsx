@@ -8,7 +8,7 @@ import { beLabel } from "@/lib/bePlaceholder";
 import { formatDetailAmount } from "@/lib/invoiceDetailTheme";
 import { Modal, ModalDefinitionRow } from "@/components/v2/ui";
 
-import { ARCHIVE_REASON_LABELS, type ArchivedDocument } from "./mockData";
+import { ARCHIVE_REASON_LABELS, type ArchivedDocument } from "./types";
 
 export const formatReceived = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

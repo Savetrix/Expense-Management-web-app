@@ -13,19 +13,20 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import type { Driver, FuelType, Journey, MileageRates, Vehicle, VehicleOwnership } from "./mockData";
-import { CARD_CLASS, FIELD_LABEL_CLASS, TOOLBAR_CLASS, journeyAmount, mockId, money, shortDate, todayIso } from "./shared";
+import { CARD_CLASS, FIELD_LABEL_CLASS, TOOLBAR_CLASS, journeyAmount, localId, money, shortDate, todayIso } from "./shared";
+import { FUEL_TYPES, type FuelType, type Journey, type MileageRates, type Vehicle, type VehicleOwnership } from "./types";
+import type { TeamPerson } from "./useTeamMembers";
 
 interface MileageTabProps {
   journeys: Journey[];
   onChangeJourneys: (updater: (prev: Journey[]) => Journey[]) => void;
-  drivers: Driver[];
+  drivers: TeamPerson[];
+  driversLoading: boolean;
   vehicles: Vehicle[];
   onAddVehicle: (vehicle: Vehicle) => void;
   rates: MileageRates;
 }
 
-const FUEL_TYPES: FuelType[] = ["Petrol", "Diesel", "Electric", "Hybrid"];
 const ADD_VEHICLE = "__add__";
 
 interface JourneyForm {
@@ -40,9 +41,9 @@ interface JourneyForm {
   passenger: boolean;
 }
 
-const emptyForm = (drivers: Driver[], vehicles: Vehicle[]): JourneyForm => ({
+const emptyForm = (drivers: TeamPerson[], vehicles: Vehicle[]): JourneyForm => ({
   driverId: drivers[0]?.id ?? "",
-  vehicleId: vehicles[0]?.id ?? "",
+  vehicleId: vehicles[0]?.id ?? ADD_VEHICLE,
   date: todayIso(),
   start: "",
   end: "",
@@ -52,22 +53,12 @@ const emptyForm = (drivers: Driver[], vehicles: Vehicle[]): JourneyForm => ({
   passenger: false,
 });
 
-// Stand-in for the routing lookup: a stable pseudo-distance from the two
-// postal codes so the same route always "calculates" to the same km.
-function mockDistanceKm(start: string, end: string): number {
-  const key = `${start.trim().toUpperCase()}|${end.trim().toUpperCase()}`;
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) % 100000;
-  return 8 + (hash % 180);
-}
-
-export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAddVehicle, rates }: MileageTabProps) {
+export function MileageTab({ journeys, onChangeJourneys, drivers, driversLoading, vehicles, onAddVehicle, rates }: MileageTabProps) {
   const provider = useActiveProvider();
   const [search, setSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<JourneyForm>(() => emptyForm(drivers, vehicles));
   const [formError, setFormError] = useState("");
-  const [calculating, setCalculating] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newVehicle, setNewVehicle] = useState<{ name: string; fuelType: FuelType; ownership: VehicleOwnership }>({
     name: "",
@@ -78,7 +69,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
   const [detailId, setDetailId] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
-  const driverName = (id: string) => drivers.find((d) => d.id === id)?.name ?? "Unknown driver";
+  const driverName = (id: string) => drivers.find((d) => d.id === id)?.name ?? journeys.find((j) => j.driverId === id)?.driverName ?? "Unknown driver";
   const vehicleOf = (id: string) => vehicles.find((v) => v.id === id);
 
   const visible = useMemo(() => {
@@ -86,15 +77,16 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
     const sorted = [...journeys].sort((a, b) => (a.date < b.date ? 1 : -1));
     if (!lower) return sorted;
     return sorted.filter((j) =>
-      [driverName(j.driverId), j.start, j.end, j.purpose].some((v) => v.toLowerCase().includes(lower)),
+      [j.driverName, j.start, j.end, j.purpose].some((v) => v.toLowerCase().includes(lower)),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journeys, search, drivers]);
+  }, [journeys, search]);
 
   const detail = journeys.find((j) => j.id === detailId) ?? null;
 
   const km = form.oneWayKm === null ? null : form.oneWayKm * (form.returnTrip ? 2 : 1);
-  const formAmount = km === null ? 0 : journeyAmount({ km, rate: rates.perKm, passenger: form.passenger, passengerRate: rates.passengerPerKm });
+  const passengerRate = rates.passengerPerKm ?? 0;
+  const formAmount =
+    km === null || rates.perKm === null ? null : journeyAmount({ km, rate: rates.perKm, passenger: form.passenger, passengerRate });
 
   const openForm = () => {
     setForm(emptyForm(drivers, vehicles));
@@ -103,7 +95,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
   };
 
   const closeForm = () => {
-    if (creating || calculating) return;
+    if (creating) return;
     setFormOpen(false);
   };
 
@@ -115,10 +107,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
       return;
     }
     setFormError("");
-    setCalculating(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    patch({ oneWayKm: mockDistanceKm(form.start, form.end) });
-    setCalculating(false);
+    // No routing service yet: nothing is filled in. The distance is typed below.
     notifyBackendPending("Calculate distance");
   };
 
@@ -130,7 +119,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
     setFormError("");
     setAddingVehicle(true);
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const vehicle: Vehicle = { id: mockId("v"), name: newVehicle.name.trim(), fuelType: newVehicle.fuelType, ownership: newVehicle.ownership };
+    const vehicle: Vehicle = { id: localId("v"), name: newVehicle.name.trim(), fuelType: newVehicle.fuelType, ownership: newVehicle.ownership };
     onAddVehicle(vehicle);
     patch({ vehicleId: vehicle.id });
     setNewVehicle({ name: "", fuelType: "Petrol", ownership: "personal" });
@@ -142,13 +131,15 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
     if (!form.driverId) return setFormError("Choose a driver.");
     if (!form.vehicleId || form.vehicleId === ADD_VEHICLE) return setFormError("Choose or add a vehicle.");
     if (!form.date) return setFormError("Pick the journey date.");
-    if (km === null) return setFormError("Calculate the distance before creating the journey.");
+    if (km === null) return setFormError("Enter the distance before creating the journey.");
+    if (rates.perKm === null) return setFormError("Set a mileage rate in Settings before creating a journey.");
     if (!form.purpose.trim()) return setFormError("Add a business purpose — it's required for the claim to be valid.");
     setFormError("");
     setCreating(true);
     await new Promise((resolve) => setTimeout(resolve, 500));
     const journey: Journey = {
-      id: mockId("j"),
+      id: localId("j"),
+      driverName: driverName(form.driverId),
       date: form.date,
       driverId: form.driverId,
       vehicleId: form.vehicleId,
@@ -158,7 +149,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
       km,
       rate: rates.perKm,
       passenger: form.passenger,
-      passengerRate: rates.passengerPerKm,
+      passengerRate,
       purpose: form.purpose.trim(),
       status: "Draft",
     };
@@ -166,7 +157,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
     setCreating(false);
     setFormOpen(false);
     notifyBackendPending("Create journey");
-    showToast(`Journey saved as a draft for ${driverName(journey.driverId)}.`, "success");
+    showToast(`Journey saved as a draft for ${journey.driverName}.`, "success");
   };
 
   const handlePublish = async (journey: Journey) => {
@@ -175,7 +166,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
     onChangeJourneys((prev) => prev.map((j) => (j.id === journey.id ? { ...j, status: "Published" } : j)));
     setPublishing(false);
     notifyBackendPending("Publish as bill to driver");
-    showToast(`Published to ${provider.name} as a bill payable to ${driverName(journey.driverId)}.`, "success");
+    showToast(`Published to ${provider.name} as a bill payable to ${journey.driverName}.`, "success");
   };
 
   const handleDelete = async (journey: Journey) => {
@@ -196,7 +187,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
 
   const columns: DataTableColumn<Journey>[] = [
     { key: "date", header: "Date", width: "12%", render: (j) => <span className="block truncate">{shortDate(j.date)}</span> },
-    { key: "driver", header: "Driver", width: "15%", render: (j) => <span className="block truncate font-bold">{driverName(j.driverId)}</span> },
+    { key: "driver", header: "Driver", width: "15%", render: (j) => <span className="block truncate font-bold">{j.driverName}</span> },
     {
       key: "route",
       header: "Route",
@@ -237,7 +228,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
           ) : (
             <p className="text-body-sm text-content-secondary">Business journeys logged by your drivers.</p>
           )}
-          <Button size="sm" onClick={openForm} className="shrink-0" disabled={drivers.length === 0}>
+          <Button size="sm" onClick={openForm} className="shrink-0" disabled={drivers.length === 0 || driversLoading}>
             <Plus size={16} strokeWidth={2.5} />
             Journey
           </Button>
@@ -246,10 +237,10 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
         {journeys.length === 0 ? (
           <EmptyState
             icon={<Car size={28} strokeWidth={1.75} />}
-            title={drivers.length === 0 ? "Add a driver first" : "No journeys yet"}
+            title={drivers.length === 0 ? (driversLoading ? "Loading team members…" : "No team members yet") : "No journeys yet"}
             description={
               drivers.length === 0
-                ? "Set up drivers and vehicles under Settings, then log business journeys here."
+                ? "Drivers are your team members. Invite people on the Team page, then log business journeys here."
                 : "Log a business journey and the distance and amount are worked out for you from your mileage rates."
             }
             actionLabel={drivers.length > 0 ? "Add a journey" : undefined}
@@ -277,7 +268,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
             <Button variant="outline" size="sm" onClick={closeForm} disabled={creating}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || calculating}>
+            <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating}>
               {beLabel("Create journey")}
             </Button>
           </div>
@@ -350,13 +341,13 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
               label="Start postal code *"
               placeholder="e.g. M5V 2T6"
               value={form.start}
-              onChange={(e) => patch({ start: e.target.value, oneWayKm: null })}
+              onChange={(e) => patch({ start: e.target.value })}
             />
             <TextInput
               label="End postal code *"
               placeholder="e.g. L5B 3C2"
               value={form.end}
-              onChange={(e) => patch({ end: e.target.value, oneWayKm: null })}
+              onChange={(e) => patch({ end: e.target.value })}
             />
           </div>
 
@@ -368,14 +359,28 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
             <Switch checked={form.returnTrip} onChange={(v) => patch({ returnTrip: v })} label="Return trip" />
           </div>
 
-          <Button variant="outline" size="sm" onClick={handleCalculate} loading={calculating} disabled={calculating}>
+          <Button variant="outline" size="sm" onClick={handleCalculate}>
             <MapPin size={16} strokeWidth={2.25} />
             {beLabel("Calculate distance")}
           </Button>
 
           <TextInput
+            label="One-way distance (km) *"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            placeholder="Enter the distance until it can be calculated"
+            value={form.oneWayKm === null ? "" : String(form.oneWayKm)}
+            onChange={(e) => {
+              const value = e.target.value;
+              const parsed = Number(value);
+              patch({ oneWayKm: value === "" || Number.isNaN(parsed) || parsed < 0 ? null : parsed });
+            }}
+          />
+
+          <TextInput
             label="Business purpose *"
-            placeholder="e.g. Client meeting with Acme Ltd"
+            placeholder="e.g. Client meeting"
             value={form.purpose}
             onChange={(e) => patch({ purpose: e.target.value })}
           />
@@ -383,19 +388,21 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
           <div className="flex items-center justify-between gap-[var(--space-md)]">
             <div>
               <p className={FIELD_LABEL_CLASS}>Carrying a passenger</p>
-              <p className="text-caption text-content-secondary">Adds {money(rates.passengerPerKm)} per km.</p>
+              <p className="text-caption text-content-secondary">Adds {rates.passengerPerKm === null ? "the passenger rate you set in Settings" : `${money(rates.passengerPerKm)} per km`}.</p>
             </div>
             <Switch checked={form.passenger} onChange={(v) => patch({ passenger: v })} label="Carrying a passenger" />
           </div>
 
           <div className="rounded-md bg-surface-alt px-[var(--space-md)] py-[var(--space-sm)]">
             {km === null ? (
-              <p className="text-body-sm text-content-secondary">Calculate the distance to see the claim amount.</p>
+              <p className="text-body-sm text-content-secondary">Enter the distance to see the claim amount.</p>
+            ) : rates.perKm === null || formAmount === null ? (
+              <p className="text-body-sm text-content-secondary">Set a mileage rate in Settings</p>
             ) : (
               <>
                 <div className="flex items-center justify-between text-body-sm text-content-secondary">
                   <span>
-                    {km.toLocaleString("en-US")} km × {money(rates.perKm + (form.passenger ? rates.passengerPerKm : 0))}
+                    {km.toLocaleString("en-US")} km × {money(rates.perKm + (form.passenger ? passengerRate : 0))}
                     {form.returnTrip ? " (return)" : ""}
                   </span>
                   {selectedVehicle && <span>{selectedVehicle.fuelType}</span>}
@@ -445,7 +452,7 @@ export function MileageTab({ journeys, onChangeJourneys, drivers, vehicles, onAd
         {detail && (
           <div>
             <ModalDefinitionRow label="Date">{shortDate(detail.date)}</ModalDefinitionRow>
-            <ModalDefinitionRow label="Driver">{driverName(detail.driverId)}</ModalDefinitionRow>
+            <ModalDefinitionRow label="Driver">{detail.driverName}</ModalDefinitionRow>
             <ModalDefinitionRow label="Vehicle">
               {vehicleOf(detail.vehicleId) ? `${vehicleOf(detail.vehicleId)?.name} · ${vehicleOf(detail.vehicleId)?.fuelType}` : "—"}
             </ModalDefinitionRow>

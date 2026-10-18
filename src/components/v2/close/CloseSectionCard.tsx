@@ -3,7 +3,7 @@
 import { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
-import type { SectionStatus } from "./mockData";
+import type { SectionStatus } from "./types";
 import { SectionStatusBadge } from "./closeShared";
 
 interface CloseSectionCardProps {

@@ -11,7 +11,7 @@ import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import type { ClaimReceipt, ClaimStatus, ExpenseClaim } from "./mockData";
+import type { ClaimReceipt, ClaimStatus, ExpenseClaim } from "./types";
 import { CARD_CLASS, CLAIM_STATUS_META, TOOLBAR_CLASS, claimTax, claimTotal, money, monthLabel, shortDate, todayIso } from "./shared";
 
 interface ClaimsTabProps {
@@ -271,13 +271,13 @@ export function ClaimsTab({ claims, onChangeClaims, onReturnReceipt, onNewClaim 
                       <div className="min-w-0">
                         <p className="truncate text-body-sm font-semibold text-content-primary">{receipt.vendor}</p>
                         <p className="text-caption text-content-secondary">
-                          {shortDate(receipt.date)} · {receipt.glAccount} · Tax {money(receipt.tax)}
+                          {shortDate(receipt.date)}{receipt.glAccount ? ` · ${receipt.glAccount}` : ""} · Tax {money(receipt.tax)}
                         </p>
                         {receipt.note && <p className="text-caption italic text-content-muted">&ldquo;{receipt.note}&rdquo;</p>}
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-[var(--space-xs)]">
                         <span className="text-body-sm font-bold text-content-primary">{money(receipt.amount)}</span>
-                        <Badge variant="neutral">{receipt.source}</Badge>
+                        {receipt.source && <Badge variant="neutral">{receipt.source}</Badge>}
                       </div>
                     </div>
                     {openClaim.status === "awaiting_review" && (

@@ -1,12 +1,13 @@
 "use client";
 
-import { BellRing, CheckCircle2, Mail, Plus, Trash2 } from "lucide-react";
+import { BellRing, CheckCircle2, Mail, Plus, Receipt, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Switch } from "@/components/ui/Switch";
 import { Modal, ModalDefinitionRow, RoleInfoBanner } from "@/components/v2/ui";
-import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
+import { BE_SUFFIX, beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 
 import {
   FIELD_INPUT_CLASS,
@@ -18,14 +19,13 @@ import {
   reminderSchedule,
 } from "./format";
 import {
-  MOCK_MISSING_TRANSACTIONS,
   REQUEST_TYPES,
   requestTypeLabel,
   ymdOffset,
   type PaperworkRequest,
   type RequestItem,
   type RequestType,
-} from "./mockData";
+} from "./types";
 
 export interface RequestPrefill {
   vendor?: string;
@@ -76,7 +76,6 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
       ? [newDraftItem({ description: prefill.item, amount: prefill.amount ? String(prefill.amount) : "", date: prefill.date ?? "" })]
       : [],
   );
-  const [selectedTxnIds, setSelectedTxnIds] = useState<Set<string>>(new Set());
   const [assigneeEmail, setAssigneeEmail] = useState("");
   const [assigneeName, setAssigneeName] = useState(prefill?.vendor ?? "");
   const [dueDate, setDueDate] = useState(ymdOffset(14));
@@ -86,8 +85,7 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
   const [sentId, setSentId] = useState("");
 
   const filledItems = items.filter((i) => i.description.trim());
-  const selectedTxns = MOCK_MISSING_TRANSACTIONS.filter((t) => selectedTxnIds.has(t.id));
-  const itemCount = filledItems.length + selectedTxns.length;
+  const itemCount = filledItems.length;
   const schedule = useMemo(() => reminderSchedule(dueDate), [dueDate]);
   const activeReminders = schedule.filter((s) => !s.skipped);
   const showTransactions = type !== "bank_statement";
@@ -99,18 +97,10 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
 
   const updateItem = (id: string, patch: Partial<DraftItem>) => setItems((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)));
 
-  const toggleTxn = (id: string) =>
-    setSelectedTxnIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
   const next = () => {
     if (step === 1) {
       if (!title.trim()) return setError("Give the request a title.");
-      if (itemCount === 0) return setError("Add at least one item, or pick a transaction below.");
+      if (itemCount === 0) return setError("Add at least one item.");
       setError("");
       setStep(2);
     } else if (step === 2) {
@@ -138,13 +128,6 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
         description: i.description.trim(),
         amount: i.amount ? Number(i.amount) : undefined,
         date: i.date || undefined,
-        status: "waiting" as const,
-      })),
-      ...selectedTxns.map((t, idx) => ({
-        id: `i-t${idx + 1}`,
-        description: t.payee,
-        amount: t.amount,
-        date: t.date,
         status: "waiting" as const,
       })),
     ];
@@ -266,7 +249,7 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
               <p className="mt-[var(--space-xs)] text-caption text-content-secondary">
                 {type === "bank_statement"
                   ? "Add a row per statement, e.g. “Operating account, September”."
-                  : "Add a row per document, or tick transactions below."}
+                  : "Add a row per document you need."}
               </p>
             ) : (
               <div className="mt-[var(--space-xs)] flex flex-col gap-[var(--space-sm)]">
@@ -314,27 +297,15 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
           {showTransactions && (
             <div>
               <p className={FIELD_LABEL_CLASS}>Transactions missing paperwork</p>
-              <ul className="mt-[var(--space-xs)] divide-y divide-border overflow-hidden rounded-md border border-border">
-                {MOCK_MISSING_TRANSACTIONS.map((t) => (
-                  <li key={t.id}>
-                    <label className="flex cursor-pointer items-center gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)] hover:bg-surface-alt">
-                      <input
-                        type="checkbox"
-                        checked={selectedTxnIds.has(t.id)}
-                        onChange={() => toggleTxn(t.id)}
-                        className="rounded border-border-strong text-accent focus:ring-accent"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body-sm font-semibold text-content-primary">{t.payee}</span>
-                        <span className="block truncate text-caption text-content-secondary">
-                          {formatDate(t.date)} · {t.account}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-body-sm font-bold text-content-primary">{money(t.amount)}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
+              {/* No real source yet: the backend (BE) lists bank and card
+                  transactions without a matching document. */}
+              <div className="mt-[var(--space-xs)] rounded-md border border-border">
+                <EmptyState
+                  icon={<Receipt size={28} strokeWidth={1.75} />}
+                  title="No transactions to pick from"
+                  description={`Transactions missing paperwork load from the backend ${BE_SUFFIX}. Add items manually above in the meantime.`}
+                />
+              </div>
             </div>
           )}
 
@@ -427,11 +398,6 @@ export function NewRequestWizard({ prefill, onClose, onSend, onView }: NewReques
                       {i.description.trim()}
                       {i.amount ? ` · ${money(Number(i.amount))}` : ""}
                       {i.date ? ` · ${formatDate(i.date)}` : ""}
-                    </li>
-                  ))}
-                  {selectedTxns.map((t) => (
-                    <li key={t.id}>
-                      {t.payee} · {money(t.amount)} · {formatDate(t.date)}
                     </li>
                   ))}
                 </ul>

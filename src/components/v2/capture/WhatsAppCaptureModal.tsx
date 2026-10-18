@@ -7,7 +7,7 @@ import { BetaBadge } from "@/components/ui/BetaBadge";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalDefinitionRow, SelectDropdown, TextInput } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
-import { confirmDialog, showToast } from "@/lib/dialogManager";
+import { confirmDialog } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 // Front-end-only flow: no WhatsApp capture backend exists yet. Every step that
@@ -27,7 +27,7 @@ const COUNTRY_CODES = [
 ];
 
 /** Shown until the backend provides the real Scantrix WhatsApp number. */
-const SCANTRIX_WHATSAPP_PLACEHOLDER = "+1 000 000 0000 — provided by backend";
+const SCANTRIX_WHATSAPP_PLACEHOLDER = "(provided by backend)";
 
 interface WhatsAppCaptureModalProps {
   open: boolean;
@@ -108,16 +108,6 @@ export function WhatsAppCaptureModal({ open, onClose, onConnectedChange }: Whats
     setCode("");
     setStep("intro");
     onConnectedChange?.(false);
-  };
-
-  const handleCopyNumber = async () => {
-    if (typeof navigator === "undefined" || !navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(SCANTRIX_WHATSAPP_PLACEHOLDER);
-      showToast("Number copied.", "success");
-    } catch {
-      showToast("Couldn't copy the number.", "error");
-    }
   };
 
   const footer =
@@ -281,14 +271,7 @@ export function WhatsAppCaptureModal({ open, onClose, onConnectedChange }: Whats
               <span className="truncate">{connectedNumber}</span>
             </ModalDefinitionRow>
             <ModalDefinitionRow label="Send files to" icon={<MessageCircle size={14} strokeWidth={2} />}>
-              <span className="truncate font-mono text-caption">{SCANTRIX_WHATSAPP_PLACEHOLDER}</span>
-              <button
-                type="button"
-                onClick={() => void handleCopyNumber()}
-                className="flex h-6 shrink-0 cursor-pointer items-center rounded-sm bg-accent-bg px-[var(--space-xs)] text-tiny font-bold text-accent-text-on-bg hover:opacity-90"
-              >
-                Copy
-              </button>
+              <span className="truncate text-caption text-content-secondary">{SCANTRIX_WHATSAPP_PLACEHOLDER}</span>
             </ModalDefinitionRow>
           </div>
 

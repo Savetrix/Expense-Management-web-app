@@ -1,56 +1,64 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
-import { confirmDialog, showToast } from "@/lib/dialogManager";
+import { confirmDialog } from "@/lib/dialogManager";
+import { useAppDispatch } from "@/store/hooks";
+import { setSelectedInvoice, type InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import type { PendingDocument } from "./mockData";
 import { date, money } from "./closeShared";
 import type { CloseSectionProps } from "./sectionTypes";
 
-const TYPE_LABEL: Record<PendingDocument["type"], string> = {
-  invoice: "Invoice",
-  claim: "Expense claim",
-  credit_note: "Credit note",
+interface Props extends CloseSectionProps {
+  /** Real pending invoices dated on or before the period end. */
+  invoices: InvoiceRecord[];
+  loading: boolean;
+  loadFailed: boolean;
+}
+
+const numberOf = (inv: InvoiceRecord) => inv.extractedData?.invoiceNumber || inv.file?.originalName || "Invoice";
+const contactOf = (inv: InvoiceRecord) => inv.extractedData?.vendorName || "Unknown vendor";
+export const invoiceDateOf = (inv: InvoiceRecord) => {
+  const d = inv.extractedData?.invoiceDate;
+  return d && /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : (inv.createdAt ?? "").slice(0, 10);
 };
 
-// Section 1 — every scanned document dated on or before period end that has
-// not been posted yet must be posted or archived before the period can close.
-export function PendingInvoicesSection({ paper, onUpdate }: CloseSectionProps) {
+// Section 1 — every pending invoice dated on or before period end must be
+// posted (reviewed) or archived before the period can close. The list comes
+// from the invoices already loaded for this company.
+export function PendingInvoicesSection({ paper, invoices, loading, loadFailed }: Props) {
   const provider = useActiveProvider();
+  const router = useRouter();
+  const dispatch = useAppDispatch();
 
-  const remove = (id: string) => onUpdate((wp) => ({ ...wp, documents: wp.documents.filter((d) => d.id !== id) }));
-
-  const handlePost = (doc: PendingDocument) => {
-    notifyBackendPending("Post");
-    remove(doc.id);
-    showToast(`${doc.number} posted to ${provider.name}.`, "success");
+  // Posting happens on the invoice's own review screen.
+  const handlePost = (inv: InvoiceRecord) => {
+    dispatch(setSelectedInvoice(inv));
+    router.push(`/invoices/${inv._id}/review`);
   };
 
-  const handleArchive = async (doc: PendingDocument) => {
+  const handleArchive = async (inv: InvoiceRecord) => {
     const ok = await confirmDialog({
-      title: "Archive document?",
-      message: `${doc.number} from ${doc.contact} will be archived and won't be posted to your accounting software.`,
+      title: "Archive invoice?",
+      message: `${numberOf(inv)} from ${contactOf(inv)} will be archived and won't be posted to ${provider.name}.`,
       confirmLabel: beLabel("Archive"),
     });
     if (!ok) return;
     notifyBackendPending("Archive");
-    remove(doc.id);
   };
 
-  const columns: DataTableColumn<PendingDocument>[] = [
-    { key: "number", header: "Document", width: "18%", render: (d) => <span className="font-semibold">{d.number}</span> },
-    { key: "type", header: "Type", width: "16%", render: (d) => <Badge variant="neutral">{TYPE_LABEL[d.type]}</Badge> },
-    { key: "contact", header: "Contact", render: (d) => <span className="block truncate">{d.contact}</span> },
-    { key: "date", header: "Date", width: "16%", render: (d) => date(d.date) },
-    { key: "amount", header: "Amount", width: "14%", align: "right", render: (d) => money(d.amount) },
+  const columns: DataTableColumn<InvoiceRecord>[] = [
+    { key: "number", header: "Invoice", width: "20%", render: (d) => <span className="block truncate font-semibold">{numberOf(d)}</span> },
+    { key: "contact", header: "Vendor", render: (d) => <span className="block truncate">{contactOf(d)}</span> },
+    { key: "date", header: "Date", width: "16%", render: (d) => date(invoiceDateOf(d)) },
+    { key: "amount", header: "Amount", width: "14%", align: "right", render: (d) => money(d.extractedData?.totalAmount ?? 0) },
     {
       key: "actions",
       header: "",
@@ -62,20 +70,32 @@ export function PendingInvoicesSection({ paper, onUpdate }: CloseSectionProps) {
             {beLabel("Archive")}
           </Button>
           <Button size="sm" onClick={() => handlePost(d)}>
-            {beLabel("Post")}
+            Review &amp; post
           </Button>
         </div>
       ),
     },
   ];
 
-  if (paper.documents.length === 0) {
+  if (loading) return <p className="text-body-sm text-content-secondary">Loading invoices…</p>;
+
+  if (loadFailed) {
+    return (
+      <EmptyState
+        icon={<CheckCircle2 size={28} strokeWidth={1.75} />}
+        title="Couldn't load invoices"
+        description="Pending invoices couldn't be loaded, so this step can't be checked yet. Reload the page to try again."
+      />
+    );
+  }
+
+  if (invoices.length === 0) {
     return (
       <EmptyState
         tone="primary"
         icon={<CheckCircle2 size={28} strokeWidth={1.75} />}
         title="Nothing left to post"
-        description={`Every invoice, expense claim and credit note dated on or before ${date(paper.periodEnd)} is in ${provider.name}.`}
+        description={`No pending invoices dated on or before ${date(paper.periodEnd)}.`}
       />
     );
   }
@@ -83,35 +103,31 @@ export function PendingInvoicesSection({ paper, onUpdate }: CloseSectionProps) {
   return (
     <div className="flex flex-col gap-[var(--space-sm)]">
       <p className="text-body-sm text-content-secondary">
-        {paper.documents.length} document{paper.documents.length === 1 ? "" : "s"} dated on or before {date(paper.periodEnd)} not yet
-        posted to {provider.name}. Post or archive each one.
+        {invoices.length} pending invoice{invoices.length === 1 ? "" : "s"} dated on or before {date(paper.periodEnd)} not yet posted to{" "}
+        {provider.name}. Review and post, or archive, each one.
       </p>
       <div className="hidden md:block">
-        <DataTable columns={columns} rows={paper.documents} getRowKey={(d) => d.id} />
+        <DataTable columns={columns} rows={invoices} getRowKey={(d) => d._id} />
       </div>
-      {/* Phone layout: stacked cards instead of a cramped six-column table. */}
       <div className="flex flex-col gap-[var(--space-sm)] md:hidden">
-        {paper.documents.map((d) => (
-          <div key={d.id} className="rounded-md border border-border bg-surface p-[var(--space-md)]">
+        {invoices.map((d) => (
+          <div key={d._id} className="rounded-md border border-border bg-surface p-[var(--space-md)]">
             <div className="flex items-start justify-between gap-[var(--space-sm)]">
               <div className="min-w-0">
-                <p className="font-semibold text-content-primary">{d.number}</p>
+                <p className="truncate font-semibold text-content-primary">{numberOf(d)}</p>
                 <p className="truncate text-caption text-content-secondary">
-                  {d.contact} · {date(d.date)}
+                  {contactOf(d)} · {date(invoiceDateOf(d))}
                 </p>
               </div>
-              <span className="text-body-sm font-semibold text-content-primary">{money(d.amount)}</span>
+              <span className="text-body-sm font-semibold text-content-primary">{money(d.extractedData?.totalAmount ?? 0)}</span>
             </div>
-            <div className="mt-[var(--space-sm)] flex items-center justify-between gap-[var(--space-sm)]">
-              <Badge variant="neutral">{TYPE_LABEL[d.type]}</Badge>
-              <div className="flex gap-[var(--space-xs)]">
-                <Button size="sm" variant="outline" onClick={() => handleArchive(d)}>
-                  {beLabel("Archive")}
-                </Button>
-                <Button size="sm" onClick={() => handlePost(d)}>
-                  {beLabel("Post")}
-                </Button>
-              </div>
+            <div className="mt-[var(--space-sm)] flex items-center justify-end gap-[var(--space-xs)]">
+              <Button size="sm" variant="outline" onClick={() => handleArchive(d)}>
+                {beLabel("Archive")}
+              </Button>
+              <Button size="sm" onClick={() => handlePost(d)}>
+                Review &amp; post
+              </Button>
             </div>
           </div>
         ))}

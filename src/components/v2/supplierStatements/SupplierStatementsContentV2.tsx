@@ -1,7 +1,7 @@
 "use client";
 
 import { FileSpreadsheet, Upload } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -9,18 +9,16 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable, PageHeader, SearchInput, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { notifyBackendPending } from "@/lib/bePlaceholder";
-import { showToast } from "@/lib/dialogManager";
+import { useAppSelector } from "@/store/hooks";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { STATUS_META, formatDate, formatPeriod, money, summarize } from "./format";
-import { MOCK_BILLS, MOCK_STATEMENTS, MOCK_VENDORS, mockExtractedLines, type StatementStatus, type SupplierStatement } from "./mockData";
+import { invoicesToBills, vendorNamesFrom } from "./invoiceBills";
+import type { StatementStatus, SupplierStatement } from "./types";
 import { StatementDetailModal } from "./StatementDetailModal";
 import { UploadStatementModal } from "./UploadStatementModal";
 
 type StatusTab = "all" | StatementStatus;
-
-// How long the mock "processing" step takes before lines appear.
-const MOCK_PROCESSING_MS = 2500;
 
 function todayYmd(): string {
   return new Date().toISOString().slice(0, 10);
@@ -28,17 +26,16 @@ function todayYmd(): string {
 
 export function SupplierStatementsContentV2() {
   const provider = useActiveProvider();
-  const [statements, setStatements] = useState<SupplierStatement[]>(MOCK_STATEMENTS);
+  // Statements are listed by the backend (BE); until then only statements
+  // uploaded in this session appear, and they stay in "Processing".
+  const [statements, setStatements] = useState<SupplierStatement[]>([]);
   const [tab, setTab] = useState<StatusTab>("all");
   const [search, setSearch] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  useEffect(() => {
-    const pending = timers.current;
-    return () => pending.forEach(clearTimeout);
-  }, []);
+  const invoices = useAppSelector((state) => state.invoice.invoices);
+  const bills = useMemo(() => invoicesToBills(invoices), [invoices]);
+  const vendors = useMemo(() => vendorNamesFrom(bills), [bills]);
 
   const counts = useMemo(() => {
     const c = { all: statements.length, processing: 0, needs_matching: 0, reconciled: 0 };
@@ -63,11 +60,10 @@ export function SupplierStatementsContentV2() {
     const today = todayYmd();
     const draft: SupplierStatement = {
       id,
-      vendor: vendor || "Detecting vendor…",
+      vendor: vendor || "Vendor not detected yet",
       statementDate: today,
       periodStart: today,
       periodEnd: today,
-      currency: "CAD",
       balance: 0,
       status: "processing",
       source: "Upload",
@@ -77,24 +73,6 @@ export function SupplierStatementsContentV2() {
     setStatements((list) => [draft, ...list]);
     setUploadOpen(false);
     setTab("all");
-
-    // Mock the backend's extraction + auto-matching pass.
-    timers.current.push(
-      setTimeout(() => {
-        const detectedVendor = vendor || "Office Depot";
-        const lines = mockExtractedLines(detectedVendor);
-        updateStatement(id, (s) => ({
-          ...s,
-          vendor: detectedVendor,
-          periodStart: "2026-09-01",
-          periodEnd: "2026-09-30",
-          balance: Math.round(lines.reduce((sum, l) => sum + l.amount, 0) * 100) / 100,
-          status: "needs_matching",
-          lines,
-        }));
-        showToast(`Statement from ${detectedVendor} is ready to match.`, "success");
-      }, MOCK_PROCESSING_MS),
-    );
   };
 
   const openStatement = statements.find((s) => s.id === openId) ?? null;
@@ -126,7 +104,7 @@ export function SupplierStatementsContentV2() {
       width: "15%",
       render: (s) => {
         if (s.status === "processing") return <span className="text-content-muted">—</span>;
-        const sum = summarize(s, MOCK_BILLS);
+        const sum = summarize(s, bills);
         return (
           <span className="block truncate">
             <span className="font-semibold">{sum.total}</span>
@@ -216,9 +194,9 @@ export function SupplierStatementsContentV2() {
         )}
       </div>
 
-      <UploadStatementModal open={uploadOpen} vendors={MOCK_VENDORS} onClose={() => setUploadOpen(false)} onUpload={handleUpload} />
+      <UploadStatementModal open={uploadOpen} vendors={vendors} onClose={() => setUploadOpen(false)} onUpload={handleUpload} />
 
-      <StatementDetailModal statement={openStatement} bills={MOCK_BILLS} onClose={() => setOpenId(null)} onChange={updateStatement} />
+      <StatementDetailModal statement={openStatement} bills={bills} onClose={() => setOpenId(null)} onChange={updateStatement} />
     </div>
   );
 }

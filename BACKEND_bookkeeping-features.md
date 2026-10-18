@@ -22,6 +22,7 @@ None of them exist yet.
 | /archive | `src/components/v2/archive/` | Archive reasons, duplicate comparison, unarchive and delete, bulk actions, merge wizard |
 | /supplier-statements | `src/components/v2/supplierStatements/` | Upload statement, line matching (full, partial, manual), mark reconciled |
 | /expense-claims | `src/components/v2/expenseClaims/` | Claims by claimant and month, new-claim wizard, mileage journeys, drivers, vehicles, rates |
+| /bank-transactions | `src/components/v2/bankTransactions/` | Connect a bank with Plaid, import a CSV file, match transactions to bills |
 | /payments | `src/components/v2/payments/` | Payment run wizard (bank-detail checks, approval, pay or request authorisation), approvals, runs, approval rules |
 | /month-end | `src/components/v2/monthEnd/` | Prepayments, deferred income, fixed assets (incl. disposal), accruals, bulk import, detection settings |
 | /close | `src/components/v2/close/` | Working papers: 5-section close checklist, reconciliations, drift check, close and reopen, Excel export |
@@ -84,6 +85,14 @@ None of them exist yet.
 - Create journey / Publish as bill / Delete → `POST /mileage/journeys`, `POST /mileage/journeys/:id/publish`, `DELETE /mileage/journeys/:id`
 - Save drivers / vehicles / rates → `PUT /mileage/drivers`, `POST|PUT /mileage/vehicles`, `PUT /mileage/rates`
 
+### Bank transactions (Plaid)
+- Connect a bank → `POST /plaid/link-token` (backend creates the Plaid link token, the front end opens Plaid Link with it; see `src/components/v2/bankTransactions/plaid.ts` for the launcher contract), then `POST /plaid/exchange-public-token {publicToken, institution, accounts}`
+- Reads: `GET /bank-accounts`, `GET /bank-transactions?status=&accountId=&from=&to=`
+- Sync now / Disconnect / Save mapping → `POST /bank-accounts/:id/sync`, `DELETE /bank-accounts/:id`, `PUT /bank-accounts/:id/mapping {ledgerAccountId}`
+- Import file rows (the CSV is parsed in the browser; saving needs the backend) → `POST /bank-transactions/import`
+- Match / create expense / import selected → `POST /bank-transactions/:id/match {invoiceId}`, `POST /bank-transactions/:id/create-expense`, `POST /bank-transactions/import-to-ledger {ids}`
+- Plaid webhooks: transaction updates (new, modified, removed), and "login required" so the account can show "Needs re-login"
+
 ### Payments & approvals
 - Send for approval → `POST /payments/approval-requests {billIds}`
 - Pay {total} / Request authorisation → `POST /payment-runs {bills, references, payFromAccountId, confirmedBankDetails, mode}`
@@ -132,4 +141,4 @@ None of them exist yet.
 
 - The sidebar now has 16 items. Grouping them (for example under "Bookkeeping" and "Month-end") would mean a UI change, so it was left as is.
 - There is no separate Sales inbox. Sales documents are covered by "Mark as → Sales document" on invoice detail.
-- Bank feeds, tax return filing and raising sales invoices were left out on purpose. Those belong to Briefcase's own ledger product, not to an add-on for accounting software.
+- Tax return filing and raising sales invoices were left out on purpose. Those belong to Briefcase's own ledger product, not to an add-on for accounting software.

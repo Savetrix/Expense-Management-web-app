@@ -1,7 +1,7 @@
 "use client";
 
 import { Mail, Plus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -10,23 +10,26 @@ import { Avatar, TextInput } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { showToast } from "@/lib/dialogManager";
 
-import type { ApprovalMode, ApprovalRules, TeamMember } from "./mockData";
-import { CARD_CLASS, FIELD_LABEL_CLASS, delay, mockId, money } from "./shared";
+import type { ApprovalMode, ApprovalRules, TeamMember } from "./types";
+import { CARD_CLASS, FIELD_LABEL_CLASS, delay, localId, money } from "./shared";
 
 interface ApprovalRulesTabProps {
   rules: ApprovalRules;
   team: TeamMember[];
+  membersLoading?: boolean;
+  membersError?: string;
   onSave: (rules: ApprovalRules, team: TeamMember[]) => void;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function ApprovalRulesTab({ rules, team, onSave }: ApprovalRulesTabProps) {
+export function ApprovalRulesTab({ rules, team, membersLoading, membersError, onSave }: ApprovalRulesTabProps) {
   const [enabled, setEnabled] = useState(rules.enabled);
   const [mode, setMode] = useState<ApprovalMode>(rules.mode);
-  const [threshold, setThreshold] = useState(String(rules.threshold));
+  const [threshold, setThreshold] = useState(rules.threshold === null ? "" : String(rules.threshold));
   const [approverIds, setApproverIds] = useState<string[]>(rules.approverIds);
-  const [members, setMembers] = useState<TeamMember[]>(team);
+  const [externalApprovers, setExternalApprovers] = useState<TeamMember[]>([]);
+  const members = useMemo(() => [...team, ...externalApprovers.filter((a) => !team.some((t) => t.id === a.id))], [team, externalApprovers]);
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   const [error, setError] = useState("");
@@ -45,8 +48,8 @@ export function ApprovalRulesTab({ rules, team, onSave }: ApprovalRulesTabProps)
     if (existing) {
       setApproverIds((prev) => (prev.includes(existing.id) ? prev : [...prev, existing.id]));
     } else {
-      const member: TeamMember = { id: mockId("tm"), name: value, email: value, role: "External approver" };
-      setMembers((prev) => [...prev, member]);
+      const member: TeamMember = { id: localId("tm"), name: value, email: value, role: "External approver" };
+      setExternalApprovers((prev) => [...prev, member]);
       setApproverIds((prev) => [...prev, member.id]);
     }
     setEmail("");
@@ -66,7 +69,7 @@ export function ApprovalRulesTab({ rules, team, onSave }: ApprovalRulesTabProps)
     setError("");
     setSaving(true);
     await delay();
-    onSave({ enabled, mode, threshold: Number.isNaN(amount) ? rules.threshold : amount, approverIds }, members);
+    onSave({ enabled, mode, threshold: !threshold.trim() || Number.isNaN(amount) ? rules.threshold : amount, approverIds }, members);
     setSaving(false);
     notifyBackendPending("Save rules");
     showToast(enabled ? "Approval rules saved — new payment runs follow them." : "Approvals turned off.", "success");
@@ -101,6 +104,7 @@ export function ApprovalRulesTab({ rules, team, onSave }: ApprovalRulesTabProps)
                 <div className="ml-[var(--space-lg)] max-w-xs">
                   <TextInput
                     aria-label="Approval threshold"
+                    placeholder="Enter an amount"
                     inputMode="decimal"
                     value={threshold}
                     onChange={(e) => setThreshold(e.target.value)}
@@ -118,6 +122,11 @@ export function ApprovalRulesTab({ rules, team, onSave }: ApprovalRulesTabProps)
             <legend className={FIELD_LABEL_CLASS}>Approvers</legend>
             <p className="text-caption text-content-secondary">Any one of them can approve.</p>
             <div className="mt-[var(--space-sm)] flex flex-col gap-[var(--space-sm)]">
+              {members.length === 0 && (
+                <p className="text-body-sm text-content-secondary">
+                  {membersLoading ? "Loading team members…" : membersError || "No team members yet. Invite people on the Team page, or add an approver by email below."}
+                </p>
+              )}
               {members.map((m) => (
                 <label
                   key={m.id}
