@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable, PageHeader, SearchInput, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { notifyBackendPending } from "@/lib/bePlaceholder";
+import { useEnsureInvoices } from "@/components/v2/autopilot/useEnsureInvoices";
 import { useAppSelector } from "@/store/hooks";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
@@ -17,8 +18,10 @@ import { invoicesToBills, vendorNamesFrom } from "./invoiceBills";
 import type { StatementStatus, SupplierStatement } from "./types";
 import { StatementDetailModal } from "./StatementDetailModal";
 import { UploadStatementModal } from "./UploadStatementModal";
+import { VendorAccountsPanel } from "./VendorAccountsPanel";
 
 type StatusTab = "all" | StatementStatus;
+type View = "accounts" | "uploaded";
 
 function todayYmd(): string {
   return new Date().toISOString().slice(0, 10);
@@ -26,6 +29,8 @@ function todayYmd(): string {
 
 export function SupplierStatementsContentV2() {
   const provider = useActiveProvider();
+  useEnsureInvoices();
+  const [view, setView] = useState<View>("accounts");
   // Statements are listed by the backend (BE); until then only statements
   // uploaded in this session appear, and they stay in "Processing".
   const [statements, setStatements] = useState<SupplierStatement[]>([]);
@@ -133,7 +138,7 @@ export function SupplierStatementsContentV2() {
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <PageHeader
         title="Supplier Statements"
-        subtitle={`Check vendor statements line by line against the bills in Scantrix before they reach ${provider.name}.`}
+        subtitle={`See what you owe each vendor from your ${provider.name} books, and check vendor statements line by line against your bills.`}
         action={
           <Button size="sm" className="shrink-0" onClick={() => setUploadOpen(true)}>
             <Upload size={16} strokeWidth={2.5} />
@@ -142,6 +147,20 @@ export function SupplierStatementsContentV2() {
         }
       />
 
+      <div className="mt-[var(--space-lg)]">
+        <Tabs
+          items={[
+            { value: "accounts", label: `From ${provider.name}` },
+            { value: "uploaded", label: "Uploaded statements", count: statements.length },
+          ]}
+          value={view}
+          onChange={(v) => setView(v as View)}
+        />
+      </div>
+
+      {view === "accounts" && <VendorAccountsPanel />}
+
+      {view === "uploaded" && (
       <div className="mt-[var(--space-lg)] overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
         <div className="flex flex-col gap-[var(--space-md)] border-b border-border bg-page p-[var(--space-md)] lg:flex-row lg:items-center">
           <div className="max-w-full overflow-x-auto">
@@ -193,6 +212,7 @@ export function SupplierStatementsContentV2() {
           </div>
         )}
       </div>
+      )}
 
       <UploadStatementModal open={uploadOpen} vendors={vendors} onClose={() => setUploadOpen(false)} onUpload={handleUpload} />
 

@@ -68,6 +68,12 @@ None of them exist yet.
 - Move to sales → `POST /invoices/:id/reclassify {type: "sales"}`
 - Add to claim → `POST /expense-claims/:id/items`
 
+### Supplier statements: syncing from the accounting software
+- QuickBooks has no "statement" document. The "From QuickBooks" view is built from the bills Scantrix has posted (already in the app). The "Sync from QuickBooks (BE)" button needs `GET /quickbooks/vendor-accounts`, built from QuickBooks' Vendor Balance Detail / A/P Aging reports plus Bill and BillPayment queries, returning per vendor: bills (number, date, due date, amount, balance), payments and the open balance. Xero equivalent: Aged Payables by Contact.
+
+### Audit trail
+- The Audit Trail already lists real activity from invoices (upload, status changes, who posted, email vs web). Edits, archive, approvals, payments, settings changes and member invites need `GET /audit-events` (one record per action with actor, source, before/after).
+
 ### Supplier statements
 - Upload → `POST /supplier-statements` (multipart)
 - Accept match / Reject → `POST /supplier-statements/:id/lines/:lineId/accept|reject`

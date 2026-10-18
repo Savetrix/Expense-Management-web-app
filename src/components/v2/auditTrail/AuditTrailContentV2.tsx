@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarRange, Download, Filter, History } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -9,10 +9,14 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable, PageHeader, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
+import { useEnsureInvoices } from "@/components/v2/autopilot/useEnsureInvoices";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchEmailInvoiceIds } from "@/store/inboundEmail/inboundEmailApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { AuditEventModal } from "./AuditEventModal";
 import { ActorCell, formatTimestamp, relativeTime, withProvider } from "./format";
+import { buildInvoiceAuditEvents } from "./invoiceEvents";
 import { EVENT_TYPE_LABELS, type ActorType, type AuditEvent, type AuditEventType } from "./types";
 
 type ActorTab = "all" | ActorType;
@@ -30,7 +34,16 @@ const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
 
 export function AuditTrailContentV2() {
   const provider = useActiveProvider();
-  const [events] = useState<AuditEvent[]>([]);
+  // Real activity from the invoices already in the store (uploads, status
+  // changes, who posted). Other event types need the audit-log API (BE).
+  useEnsureInvoices();
+  const dispatch = useAppDispatch();
+  const invoices = useAppSelector((state) => state.invoice.invoices);
+  const emailInvoiceIds = useAppSelector((state) => state.inboundEmail.emailInvoiceIds);
+  useEffect(() => {
+    dispatch(fetchEmailInvoiceIds());
+  }, [dispatch]);
+  const events: AuditEvent[] = useMemo(() => buildInvoiceAuditEvents(invoices, emailInvoiceIds), [invoices, emailInvoiceIds]);
   const [search, setSearch] = useState("");
   const [actorTab, setActorTab] = useState<ActorTab>("all");
   const [eventType, setEventType] = useState<"all" | AuditEventType>("all");
@@ -198,7 +211,7 @@ export function AuditTrailContentV2() {
             title={events.length === 0 ? "No activity yet" : "No activity matches these filters"}
             description={
               events.length === 0
-                ? "Uploads, edits, approvals and settings changes will be listed here once the backend is connected (BE)."
+                ? "Upload an invoice and its activity will be listed here. Edits, approvals and settings changes appear once the audit log is connected (BE)."
                 : "Try a wider date range or a different event type or actor."
             }
             actionLabel={filtersActive ? "Clear filters" : undefined}
