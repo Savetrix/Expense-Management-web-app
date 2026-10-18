@@ -3,6 +3,7 @@ import { PURGE } from "redux-persist";
 
 import api from "../../lib/api";
 import { RootState } from "..";
+import type { DeletionPreview } from "../../lib/accountDeletion";
 
 import {
   saveAccessToken,
@@ -755,6 +756,54 @@ export const updateUserProfile = createAsyncThunk(
         "Could not update profile";
 
       return thunkAPI.rejectWithValue(errorMessage);
+    }
+  }
+);
+
+
+
+// ================================
+// ACCOUNT DELETION
+// ================================
+// Contract + rules live in lib/accountDeletion.ts. Neither thunk touches
+// auth state: once the delete succeeds the caller dispatches logoutUser,
+// which already clears storage and resets every session-scoped slice — the
+// backend's /auth/logout needs no valid token, so it still succeeds after
+// the account (and its tokens) are gone.
+
+export const fetchDeletionPreview = createAsyncThunk(
+  "auth/fetchDeletionPreview",
+  async (_: void, thunkAPI) => {
+    try {
+      const response = await api.get("/users/me/deletion-preview");
+      return response.data?.data as DeletionPreview;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(
+        error?.response?.data?.message || error?.message || "Could not load account details"
+      );
+    }
+  }
+);
+
+export const deleteAccount = createAsyncThunk(
+  "auth/deleteAccount",
+  async (data: { confirmText: string }, thunkAPI) => {
+    const send = () => api.delete("/users/me", { data });
+    try {
+      try {
+        return (await send()).data;
+      } catch (error: any) {
+        // The api interceptor refreshes an expired access token but never
+        // re-sends a write (it may already have been processed). A 401 here
+        // comes from the backend's verifyToken, which rejects before
+        // anything runs — so with the refreshed token, one retry is safe.
+        if (error?.response?.status !== 401) throw error;
+        return (await send()).data;
+      }
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(
+        error?.response?.data?.message || error?.message || "Could not delete your account"
+      );
     }
   }
 );
