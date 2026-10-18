@@ -88,6 +88,8 @@ export function BankTransactionsContentV2() {
             onImportFile={() => setImportOpen(true)}
             onConnect={() => setConnectOpen(true)}
             onOpen={setOpenId}
+            onUpdate={(id, patch) => patchMany([id], patch)}
+            invoices={candidates}
             onBulkUpdate={patchMany}
           />
         ) : (
@@ -120,6 +122,7 @@ export function BankTransactionsContentV2() {
           txn={openTxn}
           invoices={candidates}
           glAccounts={glAccounts}
+          bankAccounts={bankAccounts}
           onClose={() => setOpenId(null)}
           onUpdate={(id, patch) => patchMany([id], patch)}
         />

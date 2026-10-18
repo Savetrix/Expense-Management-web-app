@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Archive,
+  BarChart3,
   Banknote,
   Bot,
   Car,
@@ -66,6 +67,7 @@ const NAV_ITEMS = [
   { href: "/month-end", label: "Month-End Adjustments", icon: Repeat },
   { href: "/close", label: "Working Papers", icon: CalendarCheck },
   { href: "/requests", label: "Paperwork Requests", icon: Inbox },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/audit-trail", label: "Audit Trail", icon: History },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },

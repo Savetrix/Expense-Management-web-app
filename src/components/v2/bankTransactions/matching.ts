@@ -41,3 +41,44 @@ export function rankInvoices(txn: Pick<BankTransaction, "amount" | "date">, cand
 export function isExactAmount(txn: Pick<BankTransaction, "amount">, c: InvoiceCandidate): boolean {
   return c.total !== null && Math.round(Math.abs(c.total) * 100) === Math.round(Math.abs(txn.amount) * 100);
 }
+
+/** Strong = same amount to the cent AND dated within 7 days of the bank line. */
+export function isStrongMatch(txn: Pick<BankTransaction, "amount" | "date">, c: InvoiceCandidate): boolean {
+  return isExactAmount(txn, c) && daysApart(c.date, txn.date) <= 7;
+}
+
+export interface StrongSuggestion {
+  txn: BankTransaction;
+  invoice: InvoiceCandidate;
+}
+
+/**
+ * For each line still to review, its best-ranked bill when that bill is a
+ * strong match. A bill is offered to one line only, and never when another
+ * line is already matched to it.
+ */
+export function findStrongSuggestions(txns: BankTransaction[], candidates: InvoiceCandidate[]): StrongSuggestion[] {
+  const taken = new Set(txns.filter((t) => t.status === "matched" && t.matchedInvoiceId).map((t) => t.matchedInvoiceId as string));
+  const free = candidates.filter((c) => !taken.has(c.id));
+  const out: StrongSuggestion[] = [];
+  for (const txn of txns) {
+    if (txn.status !== "review") continue;
+    const best = rankInvoices(txn, free.filter((c) => !taken.has(c.id)))[0];
+    if (best && isStrongMatch(txn, best)) {
+      taken.add(best.id);
+      out.push({ txn, invoice: best });
+    }
+  }
+  return out;
+}
+
+/** Link into the paperwork-request wizard, pre-filled from a money-out bank line. */
+export function paperworkHref(txn: Pick<BankTransaction, "description" | "amount" | "date">): string {
+  const params = new URLSearchParams({
+    new: "1",
+    item: txn.description,
+    amount: String(Math.round(Math.abs(txn.amount) * 100) / 100),
+    date: txn.date,
+  });
+  return `/requests?${params.toString()}`;
+}

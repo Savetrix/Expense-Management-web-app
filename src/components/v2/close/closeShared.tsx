@@ -22,9 +22,10 @@ export const date = (iso?: string) => formatPlainDate(iso, { month: "long", day:
 export const dateTime = (iso?: string) => formatDetailDateTime(iso);
 export const signOffText = (prefix: string, s: SignOff) => `${prefix} by ${s.by}, ${formatDetailDate(s.at)}`;
 
-export const SECTION_ORDER: SectionKey[] = ["invoices", "adjustments", "payablesReceivables", "fixedAssets", "balanceSheet"];
+export const SECTION_ORDER: SectionKey[] = ["bank", "invoices", "adjustments", "payablesReceivables", "fixedAssets", "balanceSheet"];
 
 export const SECTION_TITLES: Record<SectionKey, string> = {
+  bank: "Clear the bank",
   invoices: "Post pending invoices",
   adjustments: "Post pending adjustments",
   payablesReceivables: "Payables & receivables review",
@@ -38,7 +39,7 @@ export interface CloseDataContext {
   pendingInvoiceCount: number | null;
 }
 
-/** Only section 1 has a real source today; every other section waits for the backend (BE). */
+/** Only the invoices section has a real source today; every other section waits for the backend (BE). */
 export function sectionStatus(key: SectionKey, ctx: CloseDataContext, touched: boolean): SectionStatus {
   if (key !== "invoices" || ctx.pendingInvoiceCount === null) return "waiting";
   if (ctx.pendingInvoiceCount === 0) return "done";

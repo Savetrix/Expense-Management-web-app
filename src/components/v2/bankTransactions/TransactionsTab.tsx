@@ -1,6 +1,7 @@
 "use client";
 
 import { Landmark } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -9,10 +10,13 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
+import { confirmDialog } from "@/lib/dialogManager";
 
 import { formatAmount } from "./format";
+import { findStrongSuggestions, paperworkHref } from "./matching";
+import { SuggestedMatches } from "./SuggestedMatches";
 import { STATUS_LABEL } from "./TransactionModal";
-import type { BankTransaction, BankTxnStatus } from "./types";
+import type { BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
 
 type StatusFilter = BankTxnStatus | "all";
 
@@ -22,13 +26,17 @@ interface TransactionsTabProps {
   onImportFile: () => void;
   onConnect: () => void;
   onOpen: (id: string) => void;
+  onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
+  invoices: InvoiceCandidate[];
   onBulkUpdate: (ids: string[], patch: Partial<BankTransaction>) => void;
 }
 
 const DATE_CLASS =
   "h-8 rounded-md border border-border bg-surface px-[var(--space-sm)] text-caption font-semibold text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40";
 
-export function TransactionsTab({ txns, providerName, onImportFile, onConnect, onOpen, onBulkUpdate }: TransactionsTabProps) {
+export function TransactionsTab({ txns, providerName, onImportFile, onConnect, onOpen, onUpdate, invoices, onBulkUpdate }: TransactionsTabProps) {
+  const router = useRouter();
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>("review");
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("");
@@ -42,8 +50,13 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
       review: txns.filter((t) => t.status === "review").length,
       matched: txns.filter((t) => t.status === "matched").length,
       excluded: txns.filter((t) => t.status === "excluded").length,
+      transfer: txns.filter((t) => t.status === "transfer").length,
     }),
     [txns],
+  );
+  const suggestions = useMemo(
+    () => findStrongSuggestions(txns, invoices).filter((s) => !dismissed.has(s.txn.id)),
+    [txns, invoices, dismissed],
   );
   const accountNames = useMemo(() => Array.from(new Set(txns.map((t) => t.accountName).filter(Boolean))).sort(), [txns]);
 
@@ -77,7 +90,36 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
     );
   }
 
+  const acceptOne = (s: { txn: BankTransaction; invoice: InvoiceCandidate }) => {
+    notifyBackendPending("Accept match");
+    onUpdate(s.txn.id, { status: "matched", matchedInvoiceId: s.invoice.id });
+  };
+  const acceptAll = async () => {
+    const ok = await confirmDialog({
+      title: `Accept ${suggestions.length} strong match${suggestions.length === 1 ? "" : "es"}?`,
+      message: "Each bank line is matched to the bill with the same amount dated within 7 days. You can still change a match afterwards.",
+      confirmLabel: beLabel("Accept all"),
+    });
+    if (!ok) return;
+    notifyBackendPending("Accept all strong matches");
+    suggestions.forEach((s) => onUpdate(s.txn.id, { status: "matched", matchedInvoiceId: s.invoice.id }));
+  };
+
   const selectedIds = Array.from(selected).filter((id) => rows.some((r) => r.id === id));
+  const paperworkTargets = rows.filter((r) => selectedIds.includes(r.id) && r.amount < 0 && r.status === "review" && !r.matchedInvoiceId);
+  const askForPaperwork = async () => {
+    const first = paperworkTargets[0];
+    if (!first) return;
+    const ok = await confirmDialog({
+      title: `Ask for paperwork for ${paperworkTargets.length} selected?`,
+      message:
+        paperworkTargets.length === 1
+          ? "This opens the request form filled in from this bank line."
+          : `The request form takes one item at a time, so it opens for the first one ("${first.description}"). Come back for the others afterwards.`,
+      confirmLabel: "Open request form",
+    });
+    if (ok) router.push(paperworkHref(first));
+  };
   const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -107,7 +149,7 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
       header: "Status",
       width: "110px",
       render: (t) => (
-        <Badge variant={t.status === "matched" ? "success" : t.status === "excluded" ? "neutral" : "warning"}>{STATUS_LABEL[t.status]}</Badge>
+        <Badge variant={t.status === "matched" ? "success" : t.status === "excluded" || t.status === "transfer" ? "neutral" : "warning"}>{STATUS_LABEL[t.status]}</Badge>
       ),
     },
   ];
@@ -116,7 +158,7 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
     <div>
       <div className="flex flex-col gap-[var(--space-sm)] border-b border-border bg-page p-[var(--space-md)]">
         <p className="text-caption text-content-secondary">
-          {counts.total} total · {counts.review} to review · {counts.matched} matched · {counts.excluded} excluded
+          {counts.total} total · {counts.review} to review · {counts.matched} matched · {counts.excluded} excluded · {counts.transfer} transfer
         </p>
         <div className="flex flex-col gap-[var(--space-sm)] lg:flex-row lg:flex-wrap lg:items-center">
           <Tabs
@@ -124,6 +166,7 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
               { value: "review", label: "To review", count: counts.review },
               { value: "matched", label: "Matched", count: counts.matched },
               { value: "excluded", label: "Excluded", count: counts.excluded },
+              { value: "transfer", label: "Transfers", count: counts.transfer },
               { value: "all", label: "All", count: counts.total },
             ]}
             value={status}
@@ -172,10 +215,24 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
           >
             {beLabel(`Import selected to ${providerName}`)}
           </Button>
+          {paperworkTargets.length > 0 && (
+            <Button size="sm" variant="outline" onClick={askForPaperwork}>
+              Ask for paperwork for {paperworkTargets.length} selected
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>
             Clear
           </Button>
         </div>
+      )}
+
+      {status === "review" && (
+        <SuggestedMatches
+          suggestions={suggestions}
+          onAccept={acceptOne}
+          onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
+          onAcceptAll={acceptAll}
+        />
       )}
 
       {rows.length === 0 ? (

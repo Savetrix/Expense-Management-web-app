@@ -1,4 +1,4 @@
-export type BankTxnStatus = "review" | "matched" | "excluded";
+export type BankTxnStatus = "review" | "matched" | "excluded" | "transfer";
 
 export interface BankTransaction {
   id: string;
@@ -11,6 +11,8 @@ export interface BankTransaction {
   status: BankTxnStatus;
   source: "csv" | "plaid";
   matchedInvoiceId?: string;
+  /** Label of the other account when the line is a transfer between my own accounts. */
+  transferAccount?: string;
   /** Local GL account id chosen in "Categorise". */
   categoryId?: string;
   payee?: string;

@@ -99,6 +99,11 @@ None of them exist yet.
 - Match / create expense / import selected → `POST /bank-transactions/:id/match {invoiceId}`, `POST /bank-transactions/:id/create-expense`, `POST /bank-transactions/import-to-ledger {ids}`
 - Plaid webhooks: transaction updates (new, modified, removed), and "login required" so the account can show "Needs re-login"
 
+### Reports and bank suggestions
+- Reports (/reports) are built in the browser from the invoices Scantrix has read: spend by vendor, month and GL account, and tax paid, with CSV download. A real profit and loss needs ledger data: `GET /reports/profit-and-loss?from=&to=` (and balance sheet / cash position from the accounting software).
+- Bank suggestions (accept, accept all) → `POST /bank-transactions/:id/match {invoiceId}` and a batch version; "Mark as transfer" → `POST /bank-transactions/:id/transfer {counterpart}`.
+- Period Close "Clear the bank" needs the count of unsorted bank lines per period: `GET /bank-transactions?status=to_review&to=<periodEnd>`.
+
 ### Payments & approvals
 - Send for approval → `POST /payments/approval-requests {billIds}`
 - Pay {total} / Request authorisation → `POST /payment-runs {bills, references, payFromAccountId, confirmedBankDetails, mode}`
