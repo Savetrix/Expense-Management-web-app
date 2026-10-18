@@ -788,18 +788,10 @@ export const fetchDeletionPreview = createAsyncThunk(
 export const deleteAccount = createAsyncThunk(
   "auth/deleteAccount",
   async (data: { confirmText: string }, thunkAPI) => {
-    const send = () => api.delete("/users/me", { data });
+    // An expired token is refreshed (and the request re-sent) by the api
+    // client itself — see lib/api.ts.
     try {
-      try {
-        return (await send()).data;
-      } catch (error: any) {
-        // The api interceptor refreshes an expired access token but never
-        // re-sends a write (it may already have been processed). A 401 here
-        // comes from the backend's verifyToken, which rejects before
-        // anything runs — so with the refreshed token, one retry is safe.
-        if (error?.response?.status !== 401) throw error;
-        return (await send()).data;
-      }
+      return (await api.delete("/users/me", { data })).data;
     } catch (error: any) {
       return thunkAPI.rejectWithValue(
         error?.response?.data?.message || error?.message || "Could not delete your account"

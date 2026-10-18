@@ -105,7 +105,7 @@ These are shipped and live on `scantrix.ai`:
 | Asks the API for the invoice's current state before posting, and refuses if it already has a `billId` | `src/store/invoice/invoiceApi.ts`, `src/lib/chatbot/tools.ts` | Two posts landing together both read "not posted" before either commits |
 | Refuses a second post of the same invoice while one is in flight | same | Per browser tab / per server instance only |
 | Warns when another invoice has the same vendor + invoice number and is already billed | `src/components/invoices/InvoiceReviewContent.tsx` | A warning, and only over invoices this account can see |
-| No longer re-sends `POST`/`PATCH`/`DELETE` after a 401 refresh | `src/lib/api.ts` | Removes one source of silent retries, not the others |
+| No longer re-sends `POST`/`PATCH`/`DELETE` after a 401 refresh — except a 401 the backend marks `TOKEN_EXPIRED`, which its auth middleware raises before any handler runs (nothing was written) | `src/lib/api.ts` | Removes one source of silent retries, not the others |
 | De-duplicates the invoice list by `_id` | `src/store/invoice/invoiceApi.ts` | Cosmetic; two real records are still two records |
 | Refuses to post with an empty `vendorId` | `src/store/invoice/invoiceApi.ts` | Prevents one bad-post shape, not duplication |
 | Tells the user a failed scan may still have been created | `src/components/dashboard/DashboardContent.tsx` | Relies on the customer reading and acting on it |
