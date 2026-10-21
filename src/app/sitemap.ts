@@ -5,8 +5,8 @@ import { absoluteUrl } from "@/lib/seo";
 
 // Only genuinely indexable URLs belong here. Listing a noindex page in a
 // sitemap asks a crawler to fetch something it is then told to drop, which is
-// how a sitemap loses the crawler's trust. The homepage, the blog index and
-// every published post; drafts never appear (getAllPosts excludes them).
+// how a sitemap loses the crawler's trust. The homepage, the FAQ, the blog index
+// and every published post; drafts never appear (getAllPosts excludes them).
 //
 // Post dates are the post's own publish/update date, never the build time: a
 // lastModified that changes on every deploy teaches crawlers to ignore it.
@@ -22,6 +22,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date(),
       changeFrequency: "weekly",
       priority: 1,
+    },
+    {
+      url: absoluteUrl("/faq"),
+      changeFrequency: "monthly",
+      priority: 0.6,
     },
     ...(lastBlogChange
       ? [
