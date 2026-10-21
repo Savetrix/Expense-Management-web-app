@@ -43,6 +43,7 @@ import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { PendingConnectionPicker } from "@/components/v2/accounting/PendingConnectionPicker";
 import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
 import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
+import { onOpenAddAccountModal } from "@/lib/addAccountModal";
 import { showToast } from "@/lib/dialogManager";
 import { getNavBookmarks, getSidebarPinned, setNavBookmarks, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
@@ -389,6 +390,16 @@ export function AppShell({ children }: { children: ReactNode }) {
     setSwitcherOpen(false);
     setAddAccountModalOpen(true);
   };
+
+  // Pages can open the same modal (e.g. the Integrations page's empty state).
+  useEffect(
+    () =>
+      onOpenAddAccountModal(() => {
+        setSwitcherOpen(false);
+        setAddAccountModalOpen(true);
+      }),
+    [],
+  );
 
   const handleAddAccount = async (provider: AccountingProviderId) => {
     if (!accessToken || addingAccount || slotsFull) return;

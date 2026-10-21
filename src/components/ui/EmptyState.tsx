@@ -12,6 +12,7 @@ export function EmptyState({
   description,
   actionLabel,
   onAction,
+  actionVariant = "outline",
   tone = "neutral",
 }: {
   icon: ReactNode;
@@ -19,6 +20,8 @@ export function EmptyState({
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** "primary" when the action is the page's one next step (e.g. connecting a company). */
+  actionVariant?: "primary" | "outline";
   tone?: "neutral" | "primary";
 }) {
   return (
@@ -33,7 +36,7 @@ export function EmptyState({
       <p className="text-h3 font-bold text-text-primary">{title}</p>
       {description && <p className="mt-[var(--space-xs)] max-w-sm text-body-sm text-text-secondary">{description}</p>}
       {actionLabel && onAction && (
-        <Button variant="outline" size="sm" onClick={onAction} className="mt-[var(--space-lg)]">
+        <Button variant={actionVariant} size="sm" onClick={onAction} className="mt-[var(--space-lg)]">
           {actionLabel}
         </Button>
       )}

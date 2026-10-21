@@ -1,6 +1,6 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 
-import { SESSION_EXPIRED, sessionEmitter } from "../../lib/sessionManager";
+import { authFetch } from "../../lib/authFetch";
 import type { Conversation, ConversationSummary } from "../../lib/chatHistory/types";
 // Type-only: chatSlice imports this file and store/index imports chatSlice, so
 // a value import here would close a runtime cycle.
@@ -40,12 +40,13 @@ function requireCredentials(state: RootState): { accessToken: string; qbConnecti
 }
 
 async function historyFetch(state: RootState, path: string, init?: RequestInit): Promise<Response> {
-  const { accessToken, qbConnectionId } = requireCredentials(state);
-  const response = await fetch(`${HISTORY_URL}${path}`, {
+  const { qbConnectionId } = requireCredentials(state);
+  // authFetch attaches the (refreshed-if-needed) token, retries once after a
+  // refresh on 401, and ends the session only if that fails too.
+  const response = await authFetch(`${HISTORY_URL}${path}`, {
     ...init,
     headers: {
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${accessToken}`,
       "X-QB-Id": qbConnectionId,
       ...init?.headers,
     },
@@ -53,9 +54,6 @@ async function historyFetch(state: RootState, path: string, init?: RequestInit):
 
   if (response.ok) return response;
 
-  // Mirrors ChatPanel's handling of /api/chat: a server-rejected token means
-  // this session is over, not that history is broken.
-  if (response.status === 401) sessionEmitter.emit(SESSION_EXPIRED);
   const body = await response.json().catch(() => null);
   throw new HistoryRequestError(body?.error || "Couldn't reach chat history. Please try again.", response.status);
 }

@@ -20,6 +20,7 @@ const DISALLOWED = [
   "/invite/",
   "/invoices",
   "/login",
+  "/onedrive",
   "/paywall",
   "/plans",
   "/preferences",

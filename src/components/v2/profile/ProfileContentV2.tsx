@@ -15,12 +15,13 @@ import {
 } from "lucide-react";
 import { ReactNode, useState } from "react";
 
-import { confirmDialog, showToast } from "@/lib/dialogManager";
+import { confirmDialog } from "@/lib/dialogManager";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
 import { useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
 import { Avatar, PageHeader } from "@/components/v2/ui";
 import { EditProfileDialogV2 } from "./EditProfileDialogV2";
+import { DeleteAccountDialogV2 } from "./DeleteAccountDialogV2";
 import { PreferencesDialogV2 } from "@/components/v2/preferences/PreferencesDialogV2";
 
 // Ported from Scantrix_v2 src/screens/profile/ProfileOptionsScreen.tsx (and
@@ -86,7 +87,7 @@ function SectionLabel({ children }: SectionLabelProps) {
 export function ProfileContentV2() {
   const logout = useLogout();
   const user = useAppSelector((state) => state.auth.user);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -110,25 +111,6 @@ export function ProfileContentV2() {
     } finally {
       setIsLoggingOut(false);
     }
-  };
-
-  // Matches ProfileOptionsScreen.tsx's handleDeleteAccountPress exactly: a
-  // real confirmation dialog, but the delete action itself is a "Coming
-  // Soon" stub — no backend endpoint exists (flagged separately as a real
-  // compliance requirement needing scoped backend work, per TASKS.md's
-  // Pre-Marked BLOCKED list).
-  const handleDeleteAccount = async () => {
-    if (isDeleting) return;
-    const confirmed = await confirmDialog({
-      title: "Delete account permanently?",
-      message: "This action cannot be undone. Your account will be deleted permanently.",
-      confirmLabel: "Delete account",
-      tone: "destructive",
-    });
-    if (!confirmed) return;
-    setIsDeleting(true);
-    showToast("Coming Soon: Delete account API will be integrated next.", "info");
-    setIsDeleting(false);
   };
 
   return (
@@ -219,14 +201,13 @@ export function ProfileContentV2() {
         </button>
         <button
           type="button"
-          onClick={handleDeleteAccount}
-          disabled={isDeleting}
+          onClick={() => setDeleteAccountOpen(true)}
           className="flex w-full items-center gap-[var(--space-sm)] rounded-lg border border-status-danger-border bg-surface p-[var(--space-md)] text-left shadow-sm transition-colors hover:bg-status-danger-bg disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-status-danger-bg text-status-danger-text">
             <Trash2 size={18} strokeWidth={2} />
           </span>
-          <span className="font-semibold text-status-danger-text">{isDeleting ? "Deleting…" : "Delete Account"}</span>
+          <span className="font-semibold text-status-danger-text">Delete Account</span>
         </button>
       </div>
 
@@ -235,6 +216,7 @@ export function ProfileContentV2() {
           Profile visit and reopened Edit Profile with abandoned edits. */}
       {editProfileOpen && <EditProfileDialogV2 open onClose={() => setEditProfileOpen(false)} />}
       {preferencesOpen && <PreferencesDialogV2 open onClose={() => setPreferencesOpen(false)} />}
+      {deleteAccountOpen && <DeleteAccountDialogV2 onClose={() => setDeleteAccountOpen(false)} />}
     </div>
   );
 }

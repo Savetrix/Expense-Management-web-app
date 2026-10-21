@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { CONFIRM_MARKER, extractConsentTicket, stripConsentFrame } from "@/lib/chatbot/confirmMarker";
 import { confirmDialog } from "@/lib/dialogManager";
-import { SESSION_EXPIRED, sessionEmitter } from "@/lib/sessionManager";
+import { authFetch } from "@/lib/authFetch";
 import { deleteConversation, fetchConversations, openConversation, saveCurrentConversation } from "@/store/chat/chatApi";
 import {
   appendAssistantChunk,
@@ -101,11 +101,12 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
 
     let assistantText = "";
     try {
-      const res = await fetch("/api/chat", {
+      // authFetch refreshes an expired token and re-sends once (safe: the
+      // route refuses a token before starting any work).
+      const res = await authFetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
           "X-QB-Id": qbConnectionId,
         },
         body: JSON.stringify({
@@ -119,9 +120,6 @@ export function ChatPanel({ companyName, onClose }: { companyName?: string; onCl
       });
 
       if (!res.ok) {
-        if (res.status === 401) {
-          sessionEmitter.emit(SESSION_EXPIRED);
-        }
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || "Something went wrong. Please try again.");
       }

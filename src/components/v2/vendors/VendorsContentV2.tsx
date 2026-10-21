@@ -27,7 +27,7 @@ import {
   syncQuickBooksVendors,
   updateQuickBooksVendor,
 } from "@/store/quickBooks/quickBooksApi";
-import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
+import { selectConnectedAccounts, type Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { VendorCleanupSuggestions } from "@/components/vendors/VendorCleanupSuggestions";
 import { VendorDetailV2 } from "@/components/v2/vendors/VendorDetailV2";
 import { CompactListRow, Modal, PageHeader, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
@@ -90,7 +90,7 @@ export function VendorsContentV2() {
   const invoices = useAppSelector((state) => state.invoice.invoices);
 
   // Loaded once by AppShell into the quickBooks slice — no per-page fetch.
-  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const connections = useAppSelector(selectConnectedAccounts);
   const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [searchText, setSearchText] = useState("");
   const [activeTab, setActiveTab] = useState<VendorTab>("active");
@@ -420,12 +420,15 @@ export function VendorsContentV2() {
         <div className="rounded-lg border border-border bg-surface p-[var(--space-lg)] shadow-sm">
           <EmptyState
             icon={<Store size={28} strokeWidth={1.75} />}
-            title={connections.length > 0 ? "Select a company" : "No company connected"}
+            title="Vendors"
             description={
               connections.length > 0
                 ? "Choose a company from the switcher up top to manage its vendors."
                 : "Connect an accounting company before managing vendors."
             }
+            actionLabel={connections.length > 0 ? undefined : "Connect accounting software"}
+            onAction={connections.length > 0 ? undefined : () => router.push("/accounting-software")}
+            actionVariant="primary"
           />
         </div>
       </div>

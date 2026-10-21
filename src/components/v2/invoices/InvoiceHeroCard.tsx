@@ -51,6 +51,8 @@ export interface InvoiceHeroReason {
   raw: string;
   showTechnicalReason: boolean;
   onToggleTechnicalReason: () => void;
+  /** Everything still blocking the invoice. The first entry may repeat `message`, which is not shown twice. */
+  issues?: string[];
 }
 
 interface InvoiceHeroCardProps {
@@ -156,6 +158,15 @@ export function InvoiceHeroCard({
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-content-primary">{reason.title}</p>
                 <p className="mt-1 text-body-sm font-medium text-status-danger-text">{reason.message}</p>
+                {reason.issues && reason.issues.some((i) => i !== reason.message) && (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-body-sm text-content-secondary">
+                    {reason.issues
+                      .filter((i) => i !== reason.message)
+                      .map((i) => (
+                        <li key={i}>{i}</li>
+                      ))}
+                  </ul>
+                )}
                 {reason.isTranslated && (
                   <>
                     <button

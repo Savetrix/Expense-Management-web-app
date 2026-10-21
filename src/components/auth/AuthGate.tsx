@@ -26,7 +26,7 @@ const AUTH_ONLY_REDIRECT_ROUTES = ["/login", "/register"];
 // block screen matching mobile's modal-like presentation, and
 // /invoices/preview, which is the same: a full-bleed document viewer with
 // its own close button, not a page meant to sit next to the sidebar.
-const NO_SHELL_ROUTES = [...PUBLIC_ROUTES, "/paywall", "/google-drive", "/invoices/preview"];
+const NO_SHELL_ROUTES = [...PUBLIC_ROUTES, "/paywall", "/google-drive", "/onedrive", "/invoices/preview"];
 
 function matchesRoute(pathname: string, routes: string[]): boolean {
   return routes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
