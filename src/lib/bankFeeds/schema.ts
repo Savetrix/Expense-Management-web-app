@@ -133,6 +133,8 @@ export interface EventDoc {
   itemId: string | null;
   /** A user id, or "plaid" / "autopilot" / "system". */
   actor: string;
+  /** Where the change came from: the web app, Plaid, Scantrix's Autopilot, or the server itself. */
+  source: "web" | "plaid" | "autopilot" | "system";
   action: string;
   detail: unknown;
   at: Date;

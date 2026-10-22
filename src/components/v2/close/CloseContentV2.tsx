@@ -16,6 +16,7 @@ import { ClosedPeriodsTab } from "./ClosedPeriodsTab";
 import { CloseSectionCard } from "./CloseSectionCard";
 import { PendingInvoicesSection, invoiceDateOf } from "./PendingInvoicesSection";
 import { StartCloseModal } from "./StartCloseModal";
+import { BankCloseSection, bankSummary, useBankUnsorted } from "./BankCloseSection";
 import { WaitingSection, waitingSummary } from "./WaitingSection";
 import { CARD_CLASS, SECTION_ORDER, SECTION_TITLES, date, sectionStatus, useCanManagePeriods, useCloseActor } from "./closeShared";
 import { createWorkingPaper } from "./period";
@@ -117,7 +118,11 @@ export function CloseContentV2() {
     setTab("current");
   };
 
-  const statuses = current ? SECTION_ORDER.map((key) => sectionStatus(key, { pendingInvoiceCount: pendingCount }, Boolean(current.touched[key]))) : [];
+  const bankCounts = useBankUnsorted(current?.periodEnd ?? null);
+  const bankOpenCount = bankCounts ? bankCounts.toReview + bankCounts.readyToPost : null;
+  const statuses = current
+    ? SECTION_ORDER.map((key) => sectionStatus(key, { pendingInvoiceCount: pendingCount, bankOpenCount }, Boolean(current.touched[key])))
+    : [];
   const doneCount = statuses.filter((s) => s === "done").length;
   const allDone = doneCount === SECTION_ORDER.length;
   const waitingCount = statuses.filter((s) => s === "waiting").length;
@@ -133,6 +138,8 @@ export function CloseContentV2() {
   const renderSection = (key: SectionKey, paper: WorkingPaper) =>
     key === "invoices" ? (
       <PendingInvoicesSection paper={paper} invoices={dueInvoices} loading={invoicesLoading} loadFailed={invoicesFailed} />
+    ) : key === "bank" ? (
+      <BankCloseSection counts={bankCounts} periodName={paper.name} />
     ) : (
       <WaitingSection section={key} />
     );
@@ -163,7 +170,8 @@ export function CloseContentV2() {
       );
     }
 
-    const summaryFor = (key: SectionKey) => (key === "invoices" ? invoiceSummary(invoicesLoading, invoicesFailed, pendingCount) : waitingSummary());
+    const summaryFor = (key: SectionKey) =>
+      key === "invoices" ? invoiceSummary(invoicesLoading, invoicesFailed, pendingCount) : key === "bank" ? bankSummary(bankCounts) : waitingSummary();
 
     return (
       <div className="flex flex-col">

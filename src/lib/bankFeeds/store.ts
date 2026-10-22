@@ -214,6 +214,11 @@ export async function markItemRemoved(db: Db, itemId: string): Promise<void> {
   await db.accounts.updateMany({ itemId, removedAt: null }, { $set: { removedAt: now, updatedAt: now } });
 }
 
+export function sourceOf(actor: string): "web" | "plaid" | "autopilot" | "system" {
+  return actor === "plaid" || actor === "autopilot" || actor === "system" ? actor : "web";
+}
+
+/** The audit trail: every change to bank data, with who, where from, and before/after where it applies. */
 export async function logEvent(
   db: Db,
   e: { qbConnectionId: string; actor: string; action: string; transactionId?: string | null; itemId?: string | null; detail?: unknown },
@@ -223,6 +228,7 @@ export async function logEvent(
     transactionId: e.transactionId ?? null,
     itemId: e.itemId ?? null,
     actor: e.actor,
+    source: sourceOf(e.actor),
     action: e.action,
     detail: e.detail ?? null,
     at: new Date(),

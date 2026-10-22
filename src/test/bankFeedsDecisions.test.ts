@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
-import { decide, importCsv, listTransactions, readPatch } from "../lib/bankFeeds/transactions";
+import { decide, importCsv, listTransactions, readPatch, unsortedCounts } from "../lib/bankFeeds/transactions";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
@@ -146,6 +146,29 @@ describe("bank line decisions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not
     const repost = await decide(db, { qbConnectionId: "qb-1", id: atlassian.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-software" } });
     assert.ok(repost.ok && repost.txn.matchedInvoiceId === undefined);
     assert.equal((await listTransactions(db, "qb-1", { status: "ready" })).length, 2);
+  });
+
+  it("treats the same line in a different account as new, and counts open lines for period close", async () => {
+    await seed();
+    const other = await importCsv(db, {
+      qbConnectionId: "qb-1",
+      userId: "u1",
+      accountLabel: "Amex ••1001",
+      rows: [{ date: "2026-09-28", description: "UBER *TRIP HELP.UBER.COM", amount: -34.15 }],
+    });
+    assert.deepEqual(other, { added: 1, duplicates: 0 });
+    const [first] = await listTransactions(db, "qb-1", { status: "review" });
+    await decide(db, { qbConnectionId: "qb-1", id: first.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-1" } });
+    assert.deepEqual(await unsortedCounts(db, "qb-1", "2026-09-30"), { toReview: 3, readyToPost: 1 });
+    assert.deepEqual(await unsortedCounts(db, "qb-1", "2026-09-10"), { toReview: 1, readyToPost: 0 });
+  });
+
+  it("records where each change came from", async () => {
+    const [line] = await seed();
+    await decide(db, { qbConnectionId: "qb-1", id: line.id, userId: "u1", patch: { status: "excluded" } });
+    const ev = await db.events.findOne({ transactionId: line.id });
+    assert.equal(ev?.source, "web");
+    assert.equal(ev?.actor, "u1");
   });
 
   it("reads only known fields from a request body", () => {

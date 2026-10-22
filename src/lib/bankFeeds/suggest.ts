@@ -18,6 +18,7 @@
 // changes a line's status (exclude, transfer, match) by itself, and never posts.
 import type { Db } from "./db";
 import type { TxnDoc } from "./schema";
+import { logEvent } from "./store";
 
 // ---------------------------------------------------------------- payee key
 
@@ -272,19 +273,42 @@ export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKey
     const guard = { _id: c._id, qbConnectionId, status: "review" as const };
     if (s.autoCoded) {
       autoCoded += 1;
-      await db.txns.updateOne(
+      const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null);
+      const r = await db.txns.updateOne(
         { ...guard, decidedBy: { $in: [null, "autopilot"] } },
         {
           $set: { suggestion: s, glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null, decidedBy: "autopilot", decidedAt: new Date(), updatedAt: new Date() },
           $inc: { version: 1 },
         },
       );
+      if (r.modifiedCount === 1 && changed) {
+        await logEvent(db, {
+          qbConnectionId,
+          transactionId: c._id,
+          actor: "autopilot",
+          action: "bank.autopilot_coded",
+          detail: {
+            before: { glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee },
+            after: { glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null },
+            reason: s.reason,
+          },
+        });
+      }
     } else if (c.decidedBy === "autopilot") {
       // History no longer supports the coding Scantrix chose: undo it, keep the explanation.
-      await db.txns.updateOne(
+      const r = await db.txns.updateOne(
         { ...guard, decidedBy: "autopilot" },
         { $set: { suggestion: s, glAccountId: null, taxCodeId: null, vendorId: null, payee: null, decidedBy: null, decidedAt: null, updatedAt: new Date() }, $inc: { version: 1 } },
       );
+      if (r.modifiedCount === 1) {
+        await logEvent(db, {
+          qbConnectionId,
+          transactionId: c._id,
+          actor: "autopilot",
+          action: "bank.autopilot_uncoded",
+          detail: { before: { glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee }, after: null, reason: s.reason },
+        });
+      }
     } else {
       await db.txns.updateOne({ ...guard, decidedBy: null }, { $set: { suggestion: s, updatedAt: new Date() } });
     }

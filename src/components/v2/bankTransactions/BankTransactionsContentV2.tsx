@@ -1,6 +1,6 @@
 "use client";
 
-import { FileUp, Landmark } from "lucide-react";
+import { AlertTriangle, FileUp, Landmark } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -71,6 +71,24 @@ export function BankTransactionsContentV2() {
     dispatch(fetchBankTransactions());
   }, [dispatch, qbConnectionId]);
 
+  // New lines arrive through Plaid's webhook while the page is open; check
+  // every 30 seconds (only while the tab is visible) and on coming back to the
+  // tab, so they appear without a reload.
+  useEffect(() => {
+    if (!qbConnectionId) return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      dispatch(fetchBankAccounts());
+      dispatch(fetchBankTransactions());
+    };
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [dispatch, qbConnectionId]);
+
   const candidates = useMemo(
     () => toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices),
     [pendingInvoices, autoPostedInvoices, manualPostedInvoices],
@@ -115,6 +133,31 @@ export function BankTransactionsContentV2() {
           </>
         }
       />
+
+      {bankAccounts
+        // One warning per bank login, which may hold several accounts.
+        .filter((a, i, all) => a.status === "needs_relogin" && all.findIndex((x) => x.itemId === a.itemId) === i)
+        .map((a) => (
+          <div
+            key={a.id}
+            role="alert"
+            className="mt-[var(--space-md)] flex flex-wrap items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-warning-border bg-status-warning-bg px-[var(--space-md)] py-[var(--space-sm)]"
+          >
+            <p className="flex min-w-0 items-start gap-[var(--space-xs)] text-body-sm text-status-warning-text">
+              <AlertTriangle size={16} strokeWidth={2.25} className="mt-0.5 shrink-0" />
+              <span>
+                <span className="font-semibold">
+                  {a.institutionName} {a.name}
+                  {a.mask ? ` ••${a.mask}` : ""}:
+                </span>{" "}
+                {a.statusDetail ?? "The bank login changed or expired."} New transactions stop until then.
+              </span>
+            </p>
+            <Button size="sm" onClick={() => setRelogin(a)}>
+              Sign in again
+            </Button>
+          </div>
+        ))}
 
       <div className="mt-[var(--space-lg)] overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
         <div className="border-b border-border bg-page p-[var(--space-md)]">

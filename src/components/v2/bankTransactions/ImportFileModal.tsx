@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal, SelectDropdown, TextInput } from "@/components/v2/ui";
 
 import { buildRows, detectColumns, parseCsv, splitDuplicates } from "./csv";
+import { accountLabel } from "./TransferModal";
 import { FIELD_LABEL_CLASS, formatAmount } from "./format";
 import type { BankAccount, BankTransaction, ColumnMapping, DateFormat, OutflowMode } from "./types";
 
@@ -46,8 +47,10 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
   const result = useMemo(() => {
     if (step !== "preview") return null;
     const built = buildRows(dataRows, mapping, { dateFormat, outflowMode });
-    return { ...built, ...splitDuplicates(built.valid, existing) };
-  }, [step, dataRows, mapping, dateFormat, outflowMode, existing]);
+    // A duplicate is the same line in the SAME account (date, amount, description).
+    const name = accountName.trim() || "Imported file";
+    return { ...built, ...splitDuplicates(built.valid, existing.filter((t) => t.accountName === name)) };
+  }, [step, dataRows, mapping, dateFormat, outflowMode, existing, accountName]);
 
   const reset = () => {
     setStep("file");
@@ -203,13 +206,13 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
             {bankAccounts.length > 0 && (
               <SelectDropdown
                 id="import-account"
-                value={bankAccounts.some((a) => `${a.institutionName} ${a.name}` === accountName) ? accountName : ""}
+                value={bankAccounts.some((a) => accountLabel(a) === accountName) ? accountName : ""}
                 onChange={(e) => setAccountName(e.target.value)}
                 className="mt-[var(--space-xs)] w-full"
               >
                 <option value="">Type a name below</option>
                 {bankAccounts.map((a) => (
-                  <option key={a.id} value={`${a.institutionName} ${a.name}`}>
+                  <option key={a.id} value={accountLabel(a)}>
                     {a.institutionName} {a.name}
                     {a.mask ? ` ····${a.mask}` : ""}
                   </option>

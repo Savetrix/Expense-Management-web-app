@@ -114,6 +114,8 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
     const fourth = (await listTransactions(db, "qb-1")).find((l) => l.id === lines[3].id);
     assert.equal(fourth?.categoryId, "gl-travel");
     assert.equal((fourth?.suggestion as Suggestion).autoCoded, true);
+    const ev = await db.events.findOne({ transactionId: lines[3].id, action: "bank.autopilot_coded" });
+    assert.equal(ev?.source, "autopilot", "Scantrix's own coding is on the audit trail");
   });
 
   it("does not let its own coding vote, and undoes it when history changes", async () => {

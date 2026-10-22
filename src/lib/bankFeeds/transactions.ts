@@ -273,9 +273,10 @@ export function blankDecision(now: Date): Pick<
 }
 
 /**
- * Saves CSV rows. Re-importing the same file adds nothing; two identical lines
- * in one file (two coffees, same day, same price) are both kept, because each
- * gets an occurrence number in its key.
+ * Saves CSV rows. A duplicate is the same account, date, amount and
+ * description (the PRD's rule), so re-importing a file adds nothing, while the
+ * same line in another account is kept. Two identical lines in one file (two
+ * coffees, same day, same price) are both kept: each gets an occurrence number.
  */
 export async function importCsv(db: Db, args: { qbConnectionId: string; userId: string; accountLabel: string; rows: CsvRowIn[] }): Promise<{ added: number; duplicates: number }> {
   if (args.rows.length === 0) return { added: 0, duplicates: 0 };
@@ -283,7 +284,7 @@ export async function importCsv(db: Db, args: { qbConnectionId: string; userId: 
   const now = new Date();
   const label = args.accountLabel.trim().slice(0, 200) || "Imported file";
   const docs: TxnDoc[] = args.rows.map((r) => {
-    const base = csvKey(r);
+    const base = `${label.toLowerCase()}|${csvKey(r)}`;
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
     return {
@@ -320,4 +321,14 @@ export async function importCsv(db: Db, args: { qbConnectionId: string; userId: 
   const added = r.upsertedCount;
   await logEvent(db, { qbConnectionId: args.qbConnectionId, actor: args.userId, action: "bank.csv_imported", detail: { accountLabel: label, rows: docs.length, added } });
   return { added, duplicates: docs.length - added };
+}
+
+/** For period close ("Clear the bank"): lines dated on or before `to` that are not yet in the books. */
+export async function unsortedCounts(db: Db, qbConnectionId: string, to: string | null): Promise<{ toReview: number; readyToPost: number }> {
+  const date = to && ISO_DATE.test(to) ? { date: { $lte: to } } : {};
+  const [toReview, readyToPost] = await Promise.all([
+    db.txns.countDocuments({ qbConnectionId, removedAt: null, status: "review", ...date }),
+    db.txns.countDocuments({ qbConnectionId, removedAt: null, status: "ready", ...date }),
+  ]);
+  return { toReview, readyToPost };
 }

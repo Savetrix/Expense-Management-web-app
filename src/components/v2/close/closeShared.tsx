@@ -37,12 +37,15 @@ export const SECTION_TITLES: Record<SectionKey, string> = {
 export interface CloseDataContext {
   /** Real pending invoices dated on or before period end, or null while unknown. */
   pendingInvoiceCount: number | null;
+  /** Bank lines up to period end not yet in the books (to review + ready to post), or null while unknown. */
+  bankOpenCount?: number | null;
 }
 
 /** Only the invoices section has a real source today; every other section waits for the backend (BE). */
 export function sectionStatus(key: SectionKey, ctx: CloseDataContext, touched: boolean): SectionStatus {
-  if (key !== "invoices" || ctx.pendingInvoiceCount === null) return "waiting";
-  if (ctx.pendingInvoiceCount === 0) return "done";
+  const count = key === "invoices" ? ctx.pendingInvoiceCount : key === "bank" ? (ctx.bankOpenCount ?? null) : null;
+  if (count === null) return "waiting";
+  if (count === 0) return "done";
   return touched ? "in_progress" : "todo";
 }
 

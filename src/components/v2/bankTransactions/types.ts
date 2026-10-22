@@ -34,6 +34,8 @@ export interface BankTransaction {
 
 export interface BankAccount {
   id: string;
+  /** The bank login (Plaid item) this account belongs to. */
+  itemId?: string;
   institutionName: string;
   name: string;
   mask?: string;
