@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Mail,
   Plug,
+  Plus,
   Receipt,
   RefreshCw,
   Settings2,
@@ -28,16 +29,12 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Switch } from "@/components/ui/Switch";
 import { Modal, ModalDefinitionRow, PageHeader, SearchInput } from "@/components/v2/ui";
 import { EmailForwardingPanelV2 } from "@/components/v2/accounting/EmailForwardingPanelV2";
-import { providerIdOf, providerInfoOf } from "@/lib/accountingProvider";
-import { confirmDialog, showToast } from "@/lib/dialogManager";
+import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
+import { openAddAccountModal } from "@/lib/addAccountModal";
+import { showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { connectGoogleDrive, getGoogleDriveStatus, disconnectGoogleDrive } from "@/store/googleDrive/googleDriveApi";
-import {
-  getDriveConnectedAt as getStoredDriveConnectedAt,
-  setDriveConnectedAt as setStoredDriveConnectedAt,
-  clearDriveConnectedAt as clearStoredDriveConnectedAt,
-} from "@/lib/storage";
+import { useStorageDrive, type StorageDrive, type StorageDriveId } from "@/store/useStorageDrive";
 import {
   syncQuickBooksAccounts,
   syncQuickBooksTaxCodes,
@@ -51,12 +48,29 @@ import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 // open at a time, so swapping which one is open never needs its own show/hide
 // wiring. (The v1 screen used a sliding right-hand panel for the same state;
 // v2 promotes it to a centered modal, which is what the redesign specifies.)
-type DetailView = { type: "connection"; id: string } | { type: "drive" } | { type: "mcp" } | null;
+type DetailView =
+  | { type: "connection"; id: string }
+  | { type: "storage"; id: StorageDriveId }
+  | { type: "mcp" }
+  | null;
 
-/** Google Drive's own web UI — where "Open Drive" goes. The backend stores no
- *  per-connection folder URL (see checkDriveStatus below), so this is the most
- *  specific destination that actually exists. */
-const GOOGLE_DRIVE_URL = "https://drive.google.com";
+// Per-storage display bits. webUrl is the storage's own web UI — where "Open
+// Drive" goes. The backend stores no per-connection folder URL (status only
+// returns {connected, email}), so this is the most specific destination that
+// actually exists. Microsoft's launch link routes personal accounts to
+// onedrive.live.com and work/school accounts to their SharePoint OneDrive.
+const STORAGE_UI: Record<StorageDriveId, { icon: (size: number) => ReactNode; webUrl: string; accountLabel: string }> = {
+  "google-drive": {
+    icon: (size) => <BrandIcon name="google-drive" size={size} />,
+    webUrl: "https://drive.google.com",
+    accountLabel: "Google account",
+  },
+  onedrive: {
+    icon: (size) => <BrandIcon name="onedrive" size={size} />,
+    webUrl: "https://www.microsoft365.com/launch/onedrive",
+    accountLabel: "Microsoft account",
+  },
+};
 
 const COMING_SOON: { key: string; brand: BrandName | null; name: string; description: string }[] = [
   {
@@ -146,6 +160,34 @@ interface IntegrationRowProps {
   openLabel?: string;
   selected?: boolean;
   muted?: boolean;
+}
+
+// First thing a new user sees here, before any company is connected (the
+// dashboard's "not connected" banner sends them to this page): the header's
+// switcher is easy to miss, so this opens the same "Add an accounting
+// account" modal (lib/addAccountModal.ts). A regular IntegrationRow; the
+// page's only primary button is what makes it stand out.
+function ConnectCompanyPrompt() {
+  const providers = Object.keys(PROVIDERS) as AccountingProviderId[];
+  return (
+    <IntegrationRow
+      icon={
+        <span className="flex -space-x-1.5">
+          {providers.map((id) => (
+            <BrandIcon key={id} name={id} size={18} />
+          ))}
+        </span>
+      }
+      name="Connect your accounting software"
+      description={`Link a ${providers.map((id) => PROVIDERS[id].name).join(" or ")} company to start turning scanned invoices into bills.`}
+      actions={
+        <Button type="button" size="sm" onClick={openAddAccountModal} className="shrink-0">
+          <Plus size={14} strokeWidth={2.5} />
+          Connect a company
+        </Button>
+      }
+    />
+  );
 }
 
 function IntegrationRow({
@@ -238,19 +280,6 @@ export function AccountingSoftwaresContentV2() {
   // Server-side per-connection setting, loaded by getQuickBooksStatus for
   // whichever connection is active — see quickBooksSlice.
   const autoPostEnabled = useAppSelector((state) => state.quickBooks.autoPostEnabled);
-  // Governs the "Add account" affordance below — a plan's QuickBooks slots
-  // are a hard backend limit (402 on connect once full), so this page
-  // disables the button proactively instead of letting the OAuth round trip
-  // fail.
-  const subscription = useAppSelector((state) => state.subscription.subscription);
-
-  const [driveConnected, setDriveConnected] = useState(false);
-  const [driveStatusLoading, setDriveStatusLoading] = useState(true);
-  const [driveConnecting, setDriveConnecting] = useState(false);
-  const [driveDisconnecting, setDriveDisconnecting] = useState(false);
-  // Client-side only — see the storage.ts comment on setDriveConnectedAt.
-  const [driveConnectedAt, setDriveConnectedAt] = useState<string | null>(null);
-  const [driveEmail, setDriveEmail] = useState<string | null>(null);
 
   const [detail, setDetail] = useState<DetailView>(null);
   const [disconnectedExpanded, setDisconnectedExpanded] = useState(false);
@@ -271,7 +300,6 @@ export function AccountingSoftwaresContentV2() {
     disconnectedConnections,
     checkingStatus,
     connecting,
-    connectingProvider,
     disconnectingId,
     reconnectingId,
     activeConnectionId,
@@ -281,6 +309,14 @@ export function AccountingSoftwaresContentV2() {
     handleReconnect,
     handleDisconnect,
   } = useQuickBooksConnections("/accounting-software");
+
+  const googleDrive = useStorageDrive("google-drive", activeConnectionId);
+  const oneDrive = useStorageDrive("onedrive", activeConnectionId);
+  const storageDrives: StorageDrive[] = [googleDrive, oneDrive];
+  const { checkStatus: checkGoogleDriveStatus } = googleDrive;
+  const { checkStatus: checkOneDriveStatus } = oneDrive;
+  const selectedStorage: StorageDrive | null =
+    detail?.type === "storage" ? storageDrives.find((d) => d.id === detail.id) ?? null : null;
 
   const selectedConnection: QBConnection | null =
     detail?.type === "connection" ? connections.find((c) => c._id === detail.id) || null : null;
@@ -294,52 +330,6 @@ export function AccountingSoftwaresContentV2() {
     setRealmCopied(false);
   };
 
-  const checkDriveStatus = useCallback(async () => {
-    // Drive is linked per QB workspace (the backend reads the X-QB-Id header),
-    // so with no company selected it can only ever answer "not connected" —
-    // skip the round trip. Storage is left alone: this isn't a real disconnect.
-    if (!activeConnectionId) {
-      setDriveConnected(false);
-      setDriveEmail(null);
-      setDriveStatusLoading(false);
-      return;
-    }
-    setDriveStatusLoading(true);
-    const result = await dispatch(getGoogleDriveStatus());
-    if (getGoogleDriveStatus.fulfilled.match(result)) {
-      // The backend returns {connected, email} — no connectedAt/folderUrl
-      // exist server-side, so "Connected on" is still stamped client-side
-      // the first time a connection is observed.
-      const data = result.payload?.data;
-      const nowConnected = Boolean(data?.connected);
-      setDriveConnected(nowConnected);
-      setDriveEmail(nowConnected ? data?.email ?? null : null);
-      if (nowConnected) {
-        const stored = getStoredDriveConnectedAt();
-        const stampedAt = stored ?? new Date().toISOString();
-        if (!stored) setStoredDriveConnectedAt(stampedAt);
-        setDriveConnectedAt(stampedAt);
-      } else {
-        clearStoredDriveConnectedAt();
-        setDriveConnectedAt(null);
-      }
-    }
-    setDriveStatusLoading(false);
-  }, [dispatch, activeConnectionId]);
-
-  // checkDriveStatus changes identity with activeConnectionId, so switching
-  // company re-checks — otherwise the previous workspace's Drive state keeps
-  // showing. The Google OAuth return is a full page load (via /google-drive),
-  // so mount covers it; tab visibility covers a disconnect in another tab.
-  useEffect(() => {
-    checkDriveStatus();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") checkDriveStatus();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [checkDriveStatus]);
-
   useEffect(() => {
     dispatch(fetchMySubscription());
     // slotsUsed changes after adding/disconnecting a QuickBooks account in
@@ -351,59 +341,8 @@ export function AccountingSoftwaresContentV2() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [dispatch]);
 
-  const handleDriveDisconnect = async () => {
-    const confirmed = await confirmDialog({
-      title: "Disconnect Google Drive?",
-      message: "Scantrix will stop saving copies of posted invoices to your Drive. This cannot be undone.",
-      confirmLabel: "Disconnect",
-      tone: "destructive",
-    });
-    if (!confirmed) return;
-    setDriveDisconnecting(true);
-    try {
-      const result = await dispatch(disconnectGoogleDrive());
-      if (disconnectGoogleDrive.fulfilled.match(result)) {
-        setDriveConnected(false);
-        clearStoredDriveConnectedAt();
-        setDriveConnectedAt(null);
-        closeDetail();
-      } else {
-        const payload = result.payload as { message?: string } | undefined;
-        showToast(payload?.message || "Could not disconnect. Please try again.", "error");
-      }
-    } finally {
-      setDriveDisconnecting(false);
-    }
-  };
-
-  // Also used as "Reconnect" for an already-connected account — Drive has no
-  // per-connection id like QuickBooks does (it's 1:1 with the current QB
-  // workspace), so re-running the same OAuth flow (server always forces
-  // prompt=consent) is what refreshes/re-authorizes it.
-  const handleDriveConnect = async () => {
-    setDriveConnecting(true);
-    try {
-      const redirectUri = `${window.location.origin}/`;
-      const result = await dispatch(connectGoogleDrive({ redirectUri }));
-      if (connectGoogleDrive.fulfilled.match(result)) {
-        const url = result.payload?.data?.url;
-        if (url) {
-          window.location.href = url;
-          return;
-        }
-        showToast("Could not start Google Drive connection. Please try again.", "error");
-      } else {
-        const payload = result.payload as { message?: string } | undefined;
-        showToast(
-          payload?.message === "X-QB-Id header is required"
-            ? "Connect an accounting company first — Google Drive is linked to that company's workspace."
-            : payload?.message || "Could not start Google Drive connection. Please try again.",
-          "error",
-        );
-      }
-    } finally {
-      setDriveConnecting(false);
-    }
+  const handleStorageDisconnect = async (drive: StorageDrive) => {
+    if (await drive.disconnect()) closeDetail();
   };
 
   const handleCopyMcpUrl = async () => {
@@ -461,8 +400,8 @@ export function AccountingSoftwaresContentV2() {
 
   const handleSyncAll = useCallback(async () => {
     await handleSyncActive();
-    await checkDriveStatus();
-  }, [checkDriveStatus, handleSyncActive]);
+    await Promise.all([checkGoogleDriveStatus(), checkOneDriveStatus()]);
+  }, [checkGoogleDriveStatus, checkOneDriveStatus, handleSyncActive]);
 
   const handleToggleAutoPost = async (value: boolean) => {
     if (!accessToken || savingAutoPost) return;
@@ -479,7 +418,8 @@ export function AccountingSoftwaresContentV2() {
     }
   };
 
-  const driveConnectActionLabel = driveConnecting ? "Connecting…" : driveStatusLoading ? "Checking…" : "Connect";
+  const storageConnectActionLabel = (drive: StorageDrive) =>
+    drive.connecting ? "Connecting…" : drive.statusLoading ? "Checking…" : "Connect";
   const qbConnectActionLabel = connecting
     ? "Connecting…"
     : checkingStatus
@@ -487,15 +427,6 @@ export function AccountingSoftwaresContentV2() {
       : activeConnections.length > 0
         ? "Add account"
         : "Connect";
-
-  // subscription is only null before fetchMySubscription resolves — don't
-  // disable the button on that brief gap, only once the real numbers say
-  // the plan's QuickBooks slots are actually full.
-  // A slot holds one company in any accounting software.
-  const slotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
-  const slotsFullMessage = slotsFull
-    ? `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
-    : undefined;
 
   // Client-side filter over every section — the "Filter connectors" field
   // narrows Connected / Available / Coming soon at once.
@@ -533,23 +464,26 @@ export function AccountingSoftwaresContentV2() {
     return visibleActiveConnections.find((c) => c._id === activeConnectionId) ?? null;
   }, [visibleActiveConnections, activeConnectionId]);
 
-  const driveVisible = driveConnected && matches("Google Drive", "Posted invoices are copied to your Drive");
   // QuickBooks itself is no longer offered in "Available to connect" — adding
-  // a company now happens from the header's company switcher, or from the
-  // "Add account" row at the bottom of Connected below.
+  // a company happens from the header's company switcher, or — while none is
+  // connected — from the ConnectCompanyPrompt in Connected below.
   const showAddAccountRow = matches("QuickBooks", "QuickBooks Online", "Xero", "Add account", "Connect a company");
-  const showDriveAvailable = !driveConnected && matches("Google Drive", "Save a copy of every posted invoice");
+  // Storage belongs to a company (the backend links it per workspace), so it
+  // renders nested under the active company row rather than as a peer of it.
+  const visibleStorage = storageDrives.filter((drive) =>
+    matches(drive.name, `Posted invoices are copied to your ${drive.shortName}`, "Save a copy of every posted invoice"),
+  );
   const showMcpAvailable = matches("Claude MCP", "Ask Claude about your invoices and vendors");
-  const showXeroAvailable = matches("Xero", "Post invoices as bills to a Xero organisation");
 
-  const connectedCount = activeConnections.length + (driveConnected ? 1 : 0);
+  const connectedCount = activeConnections.length;
   const showConnectedSection =
     checkingStatus ||
     Boolean(primaryConnection) ||
-    driveVisible ||
     visibleDisconnectedConnections.length > 0 ||
     showAddAccountRow;
-  const showAvailableSection = showDriveAvailable || showMcpAvailable || showXeroAvailable;
+  // QuickBooks/Xero aren't offered here — a company (in either) is added from
+  // the header's company switcher, and storage lives under that company.
+  const showAvailableSection = showMcpAvailable;
   const nothingMatchesFilter =
     query.trim().length > 0 && !showConnectedSection && !showAvailableSection && visibleComingSoon.length === 0;
 
@@ -654,30 +588,65 @@ export function AccountingSoftwaresContentV2() {
                 })()
               )}
 
-              {driveVisible && (
-                <IntegrationRow
-                  icon={<BrandIcon name="google-drive" size={22} />}
-                  name="Google Drive"
-                  description={driveEmail || "Posted invoices are copied to your Drive automatically."}
-                  selected={detail?.type === "drive"}
-                  onOpen={() => setDetail({ type: "drive" })}
-                  openLabel="Manage Google Drive"
-                  actions={
-                    <>
-                      <Badge variant="success">Connected</Badge>
-                      <a
-                        href={GOOGLE_DRIVE_URL}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`hidden sm:flex ${ROW_ACTION_CLASS}`}
-                      >
-                        <FolderOpen size={13} strokeWidth={2.25} />
-                        Open Drive
-                      </a>
-                    </>
-                  }
-                />
+              {/* Storage for the active company. Only the active one: status,
+                  connect and disconnect all go out with X-QB-Id from state, so
+                  showing them under another company would act on the wrong one. */}
+              {!checkingStatus && primaryConnection && primaryConnection._id === activeConnectionId && visibleStorage.length > 0 && (
+                <div className="ml-[var(--space-lg)] flex flex-col gap-[var(--space-sm)] border-l-2 border-border pl-[var(--space-md)]">
+                  <p className="truncate text-tiny font-bold uppercase tracking-[0.08em] text-content-secondary">
+                    Storage · {primaryConnection.name}
+                  </p>
+                  {visibleStorage.map((drive) =>
+                    drive.connected ? (
+                      <IntegrationRow
+                        key={drive.id}
+                        icon={STORAGE_UI[drive.id].icon(22)}
+                        name={drive.name}
+                        description={drive.email || `Posted invoices are copied to your ${drive.shortName} automatically.`}
+                        selected={detail?.type === "storage" && detail.id === drive.id}
+                        onOpen={() => setDetail({ type: "storage", id: drive.id })}
+                        openLabel={`Manage ${drive.name}`}
+                        actions={
+                          <>
+                            <Badge variant="success">Connected</Badge>
+                            <a
+                              href={STORAGE_UI[drive.id].webUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`hidden sm:flex ${ROW_ACTION_CLASS}`}
+                            >
+                              <FolderOpen size={13} strokeWidth={2.25} />
+                              Open {drive.shortName}
+                            </a>
+                          </>
+                        }
+                      />
+                    ) : (
+                      <IntegrationRow
+                        key={drive.id}
+                        icon={STORAGE_UI[drive.id].icon(22)}
+                        name={drive.name}
+                        description={`Save a copy of every posted invoice to your ${drive.shortName}.`}
+                        actions={
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={drive.connect}
+                            loading={drive.connecting}
+                            disabled={drive.statusLoading}
+                            className="shrink-0"
+                          >
+                            {!drive.connecting && <Plug size={14} strokeWidth={2.25} />}
+                            {storageConnectActionLabel(drive)}
+                          </Button>
+                        }
+                      />
+                    ),
+                  )}
+                </div>
               )}
+
+              {!checkingStatus && connectedCount === 0 && showAddAccountRow && <ConnectCompanyPrompt />}
             </div>
 
             {visibleDisconnectedConnections.length > 0 && (
@@ -737,47 +706,6 @@ export function AccountingSoftwaresContentV2() {
           <section>
             <SectionHeading label="Available to connect" meta="Connect once, sync continuously" />
             <div className="flex flex-col gap-[var(--space-sm)]">
-              {showXeroAvailable && (
-                <IntegrationRow
-                  icon={<BrandIcon name="xero" size={22} />}
-                  name="Xero"
-                  description="Post invoices as bills to a Xero organisation."
-                  actions={
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => handleConnect("xero")}
-                      loading={connectingProvider === "xero"}
-                      disabled={connecting || slotsFull}
-                      title={slotsFull ? slotsFullMessage : undefined}
-                      className="shrink-0"
-                    >
-                      {connectingProvider !== "xero" && <Plug size={14} strokeWidth={2.25} />}
-                      Connect
-                    </Button>
-                  }
-                />
-              )}
-              {showDriveAvailable && (
-                <IntegrationRow
-                  icon={<BrandIcon name="google-drive" size={22} />}
-                  name="Google Drive"
-                  description="Save a copy of every posted invoice to your Drive."
-                  actions={
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={handleDriveConnect}
-                      loading={driveConnecting}
-                      disabled={driveStatusLoading}
-                      className="shrink-0"
-                    >
-                      {!driveConnecting && <Plug size={14} strokeWidth={2.25} />}
-                      {driveConnectActionLabel}
-                    </Button>
-                  }
-                />
-              )}
               {showMcpAvailable && (
                 <IntegrationRow
                   icon={<BrandIcon name="claude" size={22} />}
@@ -992,67 +920,75 @@ export function AccountingSoftwaresContentV2() {
         )}
       </Modal>
 
-      {/* ── Google Drive detail ──────────────────────────────────────────── */}
+      {/* ── Storage (Google Drive / OneDrive) detail ─────────────────────── */}
       <Modal
-        open={detail?.type === "drive" && driveConnected}
+        open={Boolean(selectedStorage?.connected)}
         onClose={closeDetail}
         widthClassName="max-w-md"
         title={
-          <span className="flex min-w-0 items-center gap-[var(--space-sm)]">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt">
-              <BrandIcon name="google-drive" size={18} />
+          selectedStorage ? (
+            <span className="flex min-w-0 items-center gap-[var(--space-sm)]">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt">
+                {STORAGE_UI[selectedStorage.id].icon(18)}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="text-tiny font-bold uppercase tracking-[0.08em] text-content-secondary">Storage</span>
+                <span className="truncate text-h3 font-bold text-content-primary">{selectedStorage.name}</span>
+              </span>
             </span>
-            <span className="flex min-w-0 flex-col">
-              <span className="text-tiny font-bold uppercase tracking-[0.08em] text-content-secondary">Storage</span>
-              <span className="truncate text-h3 font-bold text-content-primary">Google Drive</span>
-            </span>
-          </span>
+          ) : (
+            ""
+          )
         }
       >
-        <p className="flex items-center gap-[var(--space-xs)] text-caption font-semibold text-content-secondary">
-          <StatusDot tone="success" />
-          Active connection
-        </p>
+        {selectedStorage && (
+          <>
+            <p className="flex items-center gap-[var(--space-xs)] text-caption font-semibold text-content-secondary">
+              <StatusDot tone="success" />
+              Active connection
+            </p>
 
-        <div className="mt-[var(--space-md)] rounded-md border border-border bg-surface-alt px-[var(--space-md)] py-[var(--space-xs)]">
-          <ModalDefinitionRow label="Google account" icon={<Mail size={14} strokeWidth={2} />}>
-            <span className="truncate">{driveEmail || "—"}</span>
-          </ModalDefinitionRow>
-          <ModalDefinitionRow label="Connected on" icon={<CalendarDays size={14} strokeWidth={2} />}>
-            {formatConnectedDate(driveConnectedAt)}
-          </ModalDefinitionRow>
-          <ModalDefinitionRow label="Linked company" icon={<Building2 size={14} strokeWidth={2} />}>
-            <span className="truncate">{linkedCompanyName}</span>
-          </ModalDefinitionRow>
-        </div>
+            <div className="mt-[var(--space-md)] rounded-md border border-border bg-surface-alt px-[var(--space-md)] py-[var(--space-xs)]">
+              <ModalDefinitionRow label={STORAGE_UI[selectedStorage.id].accountLabel} icon={<Mail size={14} strokeWidth={2} />}>
+                <span className="truncate">{selectedStorage.email || "—"}</span>
+              </ModalDefinitionRow>
+              <ModalDefinitionRow label="Connected on" icon={<CalendarDays size={14} strokeWidth={2} />}>
+                {formatConnectedDate(selectedStorage.connectedAt)}
+              </ModalDefinitionRow>
+              <ModalDefinitionRow label="Linked company" icon={<Building2 size={14} strokeWidth={2} />}>
+                <span className="truncate">{linkedCompanyName}</span>
+              </ModalDefinitionRow>
+            </div>
 
-        <div className="mt-[var(--space-md)] flex flex-col gap-[var(--space-sm)]">
-          <a
-            href={GOOGLE_DRIVE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className={MODAL_GHOST_BUTTON_CLASS}
-          >
-            <ExternalLink size={14} strokeWidth={2.25} />
-            Open Google Drive
-          </a>
-          <button
-            type="button"
-            onClick={handleDriveConnect}
-            disabled={driveConnecting}
-            className={MODAL_GHOST_BUTTON_CLASS}
-          >
-            {driveConnecting ? "Reconnecting…" : "Reconnect"}
-          </button>
-          <button
-            type="button"
-            onClick={handleDriveDisconnect}
-            disabled={driveDisconnecting}
-            className={MODAL_DANGER_BUTTON_CLASS}
-          >
-            {driveDisconnecting ? "Disconnecting…" : "Disconnect"}
-          </button>
-        </div>
+            <div className="mt-[var(--space-md)] flex flex-col gap-[var(--space-sm)]">
+              <a
+                href={STORAGE_UI[selectedStorage.id].webUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={MODAL_GHOST_BUTTON_CLASS}
+              >
+                <ExternalLink size={14} strokeWidth={2.25} />
+                Open {selectedStorage.name}
+              </a>
+              <button
+                type="button"
+                onClick={selectedStorage.connect}
+                disabled={selectedStorage.connecting}
+                className={MODAL_GHOST_BUTTON_CLASS}
+              >
+                {selectedStorage.connecting ? "Reconnecting…" : "Reconnect"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStorageDisconnect(selectedStorage)}
+                disabled={selectedStorage.disconnecting}
+                className={MODAL_DANGER_BUTTON_CLASS}
+              >
+                {selectedStorage.disconnecting ? "Disconnecting…" : "Disconnect"}
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* ── Claude MCP setup guide ───────────────────────────────────────── */}

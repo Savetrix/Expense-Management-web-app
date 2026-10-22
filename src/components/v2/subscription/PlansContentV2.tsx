@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ChevronRight, Eye, ArrowRight, ShieldCheck } from "lucide-react";
+import { Check, ChevronRight, Eye, ArrowRight, ShieldCheck, Tag, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { showToast } from "@/lib/dialogManager";
+import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { Spinner } from "@/components/ui/Spinner";
 import { CustomPlanEnquiryModal } from "@/components/subscription/CustomPlanEnquiryModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -13,8 +13,21 @@ import {
   fetchMySubscription,
   startCheckout,
   openBillingPortal,
+  validateCoupon,
+  previewPlanChange,
+  changePlan,
+  type AppliedCoupon,
+  type CouponMode,
+  type SavedCard,
   type SubscriptionPlanKey,
 } from "@/store/subscription/subscriptionApi";
+
+const BRAND_NAMES: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "Amex", discover: "Discover" };
+const cardLabel = (card: SavedCard | null) =>
+  card ? `${BRAND_NAMES[card.brand] ?? card.brand} •••• ${card.last4}` : "your saved card";
+const money = (amount: number) => `$${amount.toFixed(2)}`;
+const formatDay = (value: string) =>
+  new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 type BillingCycle = "monthly" | "yearly";
 
@@ -69,6 +82,11 @@ function priceLabel(planKey: string, prices: { monthly: number; yearly: number }
   return `$${cycle === "monthly" ? prices.monthly : prices.yearly}`;
 }
 
+// A price after a coupon's % off, to the cent.
+function discounted(price: number, percentOff: number) {
+  return Math.round(price * (100 - percentOff)) / 100;
+}
+
 function priceSuffix(planKey: string, cycle: BillingCycle) {
   if (planKey === "trial") return "/ 14 days";
   return cycle === "monthly" ? "/ month" : "/ year";
@@ -85,6 +103,15 @@ export function PlansContentV2() {
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [switchingKey, setSwitchingKey] = useState<string | null>(null);
   const [enquiryOpen, setEnquiryOpen] = useState(false);
+  // Coupon: typed code → checked by the backend → shown on every paid plan
+  // and sent along to Checkout, where Stripe applies it.
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [couponInput, setCouponInput] = useState("");
+  const [couponChecking, setCouponChecking] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
+  // How it'll be used: at Checkout, or with an upgrade of the running plan.
+  const [couponMode, setCouponMode] = useState<CouponMode>("checkout");
 
   const user = useAppSelector((state) => state.auth.user);
   const plans = useAppSelector((state) => state.subscription.plans);
@@ -107,32 +134,151 @@ export function PlansContentV2() {
   // second, separate subscription rather than changing the existing one —
   // so plan switches for an existing Stripe subscriber go through the
   // Billing Portal instead, which updates the existing subscription in place.
+  const openPortal = async () => {
+    const result = await dispatch(openBillingPortal());
+    if (openBillingPortal.fulfilled.match(result)) {
+      window.location.href = result.payload.data.url;
+    } else {
+      const payload = result.payload as { message?: string } | undefined;
+      showToast(payload?.message || "Could not open billing portal. Please try again.", "error");
+    }
+  };
+
+  const dropCoupon = (message: string) => {
+    setAppliedCoupon(null);
+    setCouponError(message);
+    setCouponOpen(true);
+  };
+
+  const offerPaymentPage = async (message: string, url: string) => {
+    const open = await confirmDialog({
+      title: "Complete your payment",
+      message: `${message} Your bank needs you to confirm it on Stripe's payment page. Your plan changes as soon as it's paid.`,
+      confirmLabel: "Open payment page",
+    });
+    if (open) window.open(url, "_blank", "noopener");
+  };
+
+  // An existing Stripe subscriber buying a bigger plan or yearly billing: in
+  // the app, so a coupon can come along (the Billing Portal can't take it).
+  // Moving down still happens in the Billing Portal.
+  const handleUpgrade = async (planKey: SubscriptionPlanKey, planName: string) => {
+    const input = { plan: planKey, billingInterval: cycle, couponCode: appliedCoupon?.code };
+    const priced = await dispatch(previewPlanChange(input));
+    if (!previewPlanChange.fulfilled.match(priced)) {
+      const error = priced.payload;
+      if (error?.code === "USE_BILLING_PORTAL") return openPortal();
+      if (error?.code === "COUPON_INVALID") dropCoupon(error.message);
+      if (error?.code === "PAYMENT_ACTION_REQUIRED" && error.hostedInvoiceUrl) {
+        return offerPaymentPage(error.message, error.hostedInvoiceUrl);
+      }
+      showToast(error?.message || `Could not price ${planName}. Please try again.`, "error");
+      return;
+    }
+
+    const p = priced.payload;
+    const suffix = p.billingInterval === "yearly" ? "/yr" : "/mo";
+    const confirmed = await confirmDialog({
+      title: `Upgrade to ${p.planName} (${p.billingInterval})?`,
+      message: [
+        p.amountDueNow > 0
+          ? `${money(p.amountDueNow)} will be charged now to ${cardLabel(p.paymentMethod)}. No payment page opens.`
+          : "Nothing to pay now. The unused time on your current plan covers it.",
+        "The unused time on your current plan is already taken off.",
+        ...(p.coupon
+          ? [`${p.coupon.code}: ${p.coupon.description}${p.discountNow > 0 ? ` (${money(p.discountNow)} off today)` : ""}.`]
+          : []),
+        "",
+        `From ${formatDay(p.renewalDate)}, each renewal is ${money(p.renewalAmount)}${suffix}:`,
+        `• ${p.planName} plan: ${money(p.planRenewal)}${p.planRenewal < p.planListPrice ? " (with your coupon)" : ""}`,
+        ...(p.extraSlots > 0
+          ? [`• ${p.extraSlots} extra slot${p.extraSlots === 1 ? "" : "s"}: ${money(p.extraSlots * p.extraSlotsPrice)}`]
+          : []),
+      ].join("\n"),
+      confirmLabel: p.amountDueNow > 0 ? `Pay ${money(p.amountDueNow)}` : "Upgrade",
+    });
+    if (!confirmed) return;
+
+    const result = await dispatch(changePlan({ ...input, prorationDate: p.prorationDate, expectedAmountDue: p.amountDueNow }));
+    if (changePlan.fulfilled.match(result)) {
+      showToast(result.payload.message, "success");
+      setAppliedCoupon(null);
+      dispatch(fetchMySubscription({ force: true }));
+      return;
+    }
+    const error = result.payload;
+    if (error?.code === "PRICE_CHANGED") {
+      showToast(`${error.message} Choose the plan again to see the new price.`, "warning");
+    } else if (error?.code === "PAYMENT_ACTION_REQUIRED" && error.hostedInvoiceUrl) {
+      await offerPaymentPage(error.message, error.hostedInvoiceUrl);
+    } else if (error?.code === "COUPON_INVALID") {
+      dropCoupon(error.message);
+      showToast(error.message, "error");
+    } else if (!error?.statusCode) {
+      showToast("We couldn't confirm the result. Check your subscription before trying again.", "warning");
+    } else {
+      showToast(error.message || `Could not upgrade to ${planName}. Please try again.`, "error");
+    }
+    dispatch(fetchMySubscription({ force: true }));
+  };
+
   const handleChoosePlan = async (planKey: SubscriptionPlanKey, planName: string) => {
     if (subscriptionLoading) return;
     setSwitchingKey(`${planKey}-${cycle}`);
     try {
-      if (subscription?.provider === "stripe") {
-        const result = await dispatch(openBillingPortal());
-        if (openBillingPortal.fulfilled.match(result)) {
-          window.location.href = result.payload.data.url;
-        } else {
-          const payload = result.payload as { message?: string } | undefined;
-          showToast(payload?.message || "Could not open billing portal. Please try again.", "error");
-        }
+      if (subscription?.provider === "stripe" && ["active", "past_due"].includes(subscription.status)) {
+        await handleUpgrade(planKey, planName);
         return;
       }
 
-      const result = await dispatch(startCheckout({ plan: planKey, billingInterval: cycle }));
+      const result = await dispatch(startCheckout({ plan: planKey, billingInterval: cycle, couponCode: appliedCoupon?.code }));
       if (startCheckout.fulfilled.match(result)) {
         window.location.href = result.payload.data.url;
       } else {
-        const payload = result.payload as { message?: string } | undefined;
+        const payload = result.payload as { message?: string; code?: string } | undefined;
+        if (payload?.code === "COUPON_INVALID") {
+          // Became unusable since it was applied (used up, deactivated…).
+          dropCoupon(payload.message || "This coupon can't be used.");
+        }
         showToast(payload?.message || `Could not start checkout for ${planName}. Please try again.`, "error");
       }
     } finally {
       setSwitchingKey(null);
     }
   };
+
+  // A valid code is only ever used when a plan is bought: shown on the plans
+  // meanwhile, then passed to Checkout (someone starting a plan) or to the
+  // upgrade (someone already paying) — never put on a plan already paid for.
+  const handleApplyCoupon = async (typed?: string) => {
+    const code = (typed ?? couponInput).trim();
+    if (!code || couponChecking) return;
+    setCouponChecking(true);
+    setCouponError(null);
+    try {
+      const result = await dispatch(validateCoupon(code));
+      if (!validateCoupon.fulfilled.match(result)) {
+        setCouponError(result.payload?.message || "This coupon can't be used.");
+        return;
+      }
+      setAppliedCoupon(result.payload.coupon);
+      setCouponMode(result.payload.mode);
+      setCouponInput("");
+    } finally {
+      setCouponChecking(false);
+    }
+  };
+
+  // /plans?coupon=CODE (from the Subscription page's coupon card) — check it straight away.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const code = new URLSearchParams(window.location.search).get("coupon");
+    if (!code) return;
+    setCouponOpen(true);
+    setCouponInput(code.toUpperCase());
+    handleApplyCoupon(code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const currentPlanName = subscription?.planName ?? (subscriptionLoading ? "Loading…" : "—");
   const trialDaysLeft = subscription?.plan === "trial" ? daysRemaining(subscription.trialEndsAt) : null;
@@ -212,6 +358,61 @@ export function PlansContentV2() {
         ))}
       </div>
 
+      {/* Always offered: a coupon may be for anyone, new or already paying. */}
+      <div className="mx-auto mt-[var(--space-md)] flex max-w-md flex-col items-center gap-[var(--space-sm)]">
+        {appliedCoupon ? (
+          <div className="flex items-center gap-[var(--space-sm)] rounded-pill border border-success/30 bg-success/10 px-[var(--space-md)] py-[var(--space-xs)] text-body-sm">
+            <Tag size={14} strokeWidth={2.25} className="text-success" />
+            <span className="font-bold text-text-primary">{appliedCoupon.code}</span>
+            <span className="text-text-secondary">
+              {appliedCoupon.description}
+              {couponMode === "plan_change" && ". Used when you upgrade"}
+            </span>
+            <button
+              type="button"
+              aria-label="Remove coupon"
+              onClick={() => setAppliedCoupon(null)}
+              className="rounded-full p-0.5 text-text-secondary hover:bg-surface-alt"
+            >
+              <X size={14} strokeWidth={2.25} />
+            </button>
+          </div>
+        ) : couponOpen ? (
+          <form
+            className="flex w-full gap-[var(--space-sm)]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleApplyCoupon();
+            }}
+          >
+            <input
+              value={couponInput}
+              onChange={(event) => setCouponInput(event.target.value.toUpperCase())}
+              placeholder="Coupon code"
+              aria-label="Coupon code"
+              autoFocus
+              className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-[var(--space-md)] py-[var(--space-sm)] text-body-sm uppercase text-text-primary"
+            />
+            <button
+              type="submit"
+              disabled={!couponInput.trim() || couponChecking}
+              className="rounded-lg bg-primary px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-white disabled:opacity-60"
+            >
+              {couponChecking ? <Spinner size="sm" /> : "Apply"}
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCouponOpen(true)}
+            className="flex items-center gap-[var(--space-xs)] text-body-sm font-semibold text-primary"
+          >
+            <Tag size={14} strokeWidth={2.25} /> Have a coupon code?
+          </button>
+        )}
+        {couponError && <p className="text-caption text-status-danger-text">{couponError}</p>}
+      </div>
+
       {plansLoading && plans.length === 0 ? (
         <div className="flex justify-center py-[var(--space-xl)]">
           <Spinner size="md" />
@@ -227,6 +428,11 @@ export function PlansContentV2() {
                 subscription?.plan === plan.key &&
                 (!isPaid || subscription?.billingInterval === cycle);
               const isSwitching = switchingKey === `${plan.key}-${cycle}`;
+              // The plan's price after the applied coupon (paid plans only).
+              const couponPrice =
+                appliedCoupon && isPaid && plan.prices
+                  ? discounted(cycle === "monthly" ? plan.prices.monthly : plan.prices.yearly, appliedCoupon.percentOff)
+                  : null;
               const topRightBadge = isCurrent
                 ? { label: "Active", className: "bg-success/10 text-success" }
                 : meta.staticBadge
@@ -257,11 +463,20 @@ export function PlansContentV2() {
                   <p className="mt-[var(--space-xs)] text-caption text-text-secondary">{meta.tagline}</p>
 
                   <div className="mt-[var(--space-md)] flex items-end gap-1">
-                    <span className="text-h1 font-bold text-text-primary">{priceLabel(plan.key, plan.prices, cycle)}</span>
+                    {couponPrice != null && (
+                      <span className="mb-1 text-body text-text-secondary line-through">{priceLabel(plan.key, plan.prices, cycle)}</span>
+                    )}
+                    <span className="text-h1 font-bold text-text-primary">
+                      {couponPrice != null ? `$${couponPrice.toFixed(2)}` : priceLabel(plan.key, plan.prices, cycle)}
+                    </span>
                     <span className="mb-1 text-body-sm text-text-secondary">{priceSuffix(plan.key, cycle)}</span>
                   </div>
                   <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
-                    {isPaid && cycle === "yearly" && plan.prices ? (
+                    {couponPrice != null && appliedCoupon ? (
+                      <span className="font-semibold text-success">
+                        {appliedCoupon.code}: {appliedCoupon.description}
+                      </span>
+                    ) : isPaid && cycle === "yearly" && plan.prices ? (
                       <span className="font-semibold text-success">~17% off billed yearly</span>
                     ) : (
                       meta.priceNote
@@ -277,6 +492,15 @@ export function PlansContentV2() {
                         <span className="text-body-sm text-text-primary">{feature}</span>
                       </div>
                     ))}
+                    {plan.addon && (
+                      <div className="flex items-start gap-[var(--space-sm)]">
+                        <Check size={16} strokeWidth={2.5} className="mt-0.5 shrink-0 text-success" />
+                        <span className="text-body-sm text-text-primary">
+                          Need more? Extra slots ${cycle === "monthly" ? plan.addon.prices.monthly : plan.addon.prices.yearly}
+                          {cycle === "monthly" ? "/mo" : "/yr"} each
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {isCurrent ? (

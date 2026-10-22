@@ -41,6 +41,7 @@ export function LoginFormV2() {
   const loading = useAppSelector((state) => state.auth.loading);
 
   const sessionExpired = searchParams.get("sessionExpired") === "true";
+  const accountDeleted = searchParams.get("accountDeleted") === "true";
   const fromInvite = searchParams.get("fromInvite") === "true";
 
   const [email, setEmail] = useState("");
@@ -128,6 +129,12 @@ export function LoginFormV2() {
           {sessionExpired && (
             <div className="mb-[var(--space-md)] rounded-md border border-status-warning-border bg-status-warning-bg p-[var(--space-sm)] text-center text-body-sm font-semibold text-status-warning-text">
               Your session has expired. Please login again.
+            </div>
+          )}
+
+          {accountDeleted && (
+            <div className="mb-[var(--space-md)] rounded-md border border-status-success-border bg-status-success-bg p-[var(--space-sm)] text-center text-body-sm font-semibold text-status-success-text">
+              Your account has been deleted.
             </div>
           )}
 

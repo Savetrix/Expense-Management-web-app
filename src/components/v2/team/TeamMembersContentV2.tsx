@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   Check,
   ChevronRight,
@@ -9,20 +8,24 @@ import {
   Mail,
   Plus,
   RefreshCw,
+  Users,
   UserX,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { capitalizeWords } from "@/lib/textFormat";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar, PageHeader } from "@/components/v2/ui";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { selectConnectedAccounts } from "@/store/quickBooks/quickBooksSlice";
 import {
   fetchQBMembers,
   inviteQBMember,
@@ -119,7 +122,8 @@ export function TeamMembersContentV2() {
   const inboundAliases = useAppSelector((state) => state.inboundEmail.aliases);
 
   // Loaded once by AppShell into the quickBooks slice — no per-page fetch.
-  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const connections = useAppSelector(selectConnectedAccounts);
+  const router = useRouter();
   const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [members, setMembers] = useState<QBMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -364,24 +368,19 @@ export function TeamMembersContentV2() {
   if (!activeConnection) {
     return (
       <div className="mx-auto max-w-2xl p-[var(--space-lg)]">
-        <div className="flex flex-col items-center rounded-lg border border-border bg-surface p-[var(--space-xl)] text-center shadow-sm">
-          <p className="font-bold text-text-primary">
-            {connections.length > 0
-              ? "Select a company"
-              : "No company connected"}
-          </p>
-          <p className="mt-[var(--space-xs)] text-body-sm text-text-secondary">
-            {connections.length > 0
-              ? "Choose a company from the switcher up top to manage its team."
-              : "Connect an accounting company before inviting your team to collaborate on it."}
-          </p>
-          {connections.length === 0 && (
-            <Link href="/accounting-software">
-              <Button className="mt-[var(--space-md)]">
-                Connect accounting software
-              </Button>
-            </Link>
-          )}
+        <div className="rounded-lg border border-border bg-surface p-[var(--space-lg)] shadow-sm">
+          <EmptyState
+            icon={<Users size={28} strokeWidth={1.75} />}
+            title="Team"
+            description={
+              connections.length > 0
+                ? "Choose a company from the switcher up top to manage its team."
+                : "Connect an accounting company before inviting your team to collaborate on it."
+            }
+            actionLabel={connections.length > 0 ? undefined : "Connect accounting software"}
+            onAction={connections.length > 0 ? undefined : () => router.push("/accounting-software")}
+            actionVariant="primary"
+          />
         </div>
       </div>
     );

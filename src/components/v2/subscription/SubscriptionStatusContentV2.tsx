@@ -10,6 +10,8 @@ import { Spinner } from "@/components/ui/Spinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchMySubscription, openBillingPortal, confirmCheckout } from "@/store/subscription/subscriptionApi";
+import { ExtraSlotsCardV2 } from "./ExtraSlotsCardV2";
+import { CouponCardV2 } from "./CouponCardV2";
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   active: { label: "Active", className: "bg-success/10 text-success" },
@@ -172,6 +174,11 @@ export function SubscriptionStatusContentV2() {
                   <p className="text-caption text-text-secondary">Accounting slots</p>
                   <p className="mt-1 text-body-sm font-bold text-text-primary">
                     {subscription.slotsUsed}/{subscription.maxSlots}
+                    {subscription.addonSlots > 0 && (
+                      <span className="ml-1 font-normal text-text-secondary">
+                        ({subscription.baseSlots} + {subscription.addonSlots} extra)
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -201,6 +208,12 @@ export function SubscriptionStatusContentV2() {
             </div>
           </div>
         )} */}
+
+        {subscription.addon && (
+          <ExtraSlotsCardV2 subscription={subscription} startWithOneMore={searchParams.get("addSlot") === "1"} />
+        )}
+
+        <CouponCardV2 subscription={subscription} />
 
         {/* Connected Companies */}
         {subscription.slots.length > 0 && (

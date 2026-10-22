@@ -50,6 +50,21 @@ quickBooksApi.ts) and keep it tolerant of a partial state — a label must
 never be what fails a request. Where no company is in play, say "accounting
 software" or "QuickBooks or Xero".
 
+## Auth tokens
+The client is built for a short-lived access token (the backend's
+`JWT_ACCESS_EXPIRES_IN`; still long in production until the mobile app's
+refresh is fixed). `src/lib/api.ts` refreshes it ~1 min before it expires
+(measured against the server's clock, not the device's — see
+`isExpiringSoon`), one tab at a time across the browser (a Web Lock, so two
+tabs never spend the same refresh token) (never ahead of `/auth/*` calls — that would rotate the refresh
+token a logout is about to send) and re-sends a request whose 401 the backend
+marked `data.code: "TOKEN_EXPIRED"`, writes included (that 401 is raised
+before any handler runs). Any other 401'd write is not re-sent. Callers that
+can't use the axios client (`fetch` to our Next API routes: chat, chat
+history, email forwarding) must go through `src/lib/authFetch.ts`, never read
+the token from Redux and send it themselves. Policy helpers:
+`src/lib/tokenExpiry.ts`; tests: `src/test/tokenRefresh.test.ts`.
+
 ## Build & verify
 - Typecheck: `npx tsc --noEmit`
 - Full gate (required, not optional — tsc alone misses SSR failures):

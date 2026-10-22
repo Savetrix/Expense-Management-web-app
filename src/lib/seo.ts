@@ -6,6 +6,8 @@
 // No browser-only calls in this file, so it is safe to import from a Server
 // Component (which is the only place it is used).
 
+import { SUPPORT_EMAIL } from "@/lib/legal";
+
 /**
  * Canonical origin, no trailing slash. Follows the same env-with-fallback
  * pattern as src/lib/api.ts's BASE_URL: deployment can override, and the
@@ -17,9 +19,6 @@ export const SITE_URL = (
 ).replace(/\/$/, "");
 
 export const SITE_NAME = "Scantrix";
-
-/** Sourced from src/app/api/custom-plan-enquiry/route.ts:149. */
-export const SUPPORT_EMAIL = "support@scantrix.ai";
 
 /** Absolute URL for a site-relative path. */
 export function absoluteUrl(path = "/"): string {
@@ -47,9 +46,9 @@ export function jsonLdScriptProps(payload: unknown): {
 const ORGANIZATION_ID = `${SITE_URL}/#organization`;
 
 /**
- * Organization. "Founded in 2025" is stated on the landing page itself
- * (src/components/landing/LandingPage.tsx:1105-1114); the support address
- * comes from the custom-plan enquiry route's own fallback copy.
+ * Organization. "Founded in 2025" was stated in the About section of the
+ * landing page before the October 2026 redesign; the support address comes
+ * from src/lib/legal.ts.
  */
 export const organizationJsonLd = {
   "@context": "https://schema.org",
@@ -74,9 +73,9 @@ export const organizationJsonLd = {
 /**
  * SoftwareApplication.
  *
- * `featureList` is a one-for-one restatement of the capability tiles in
- * src/components/landing/LandingPage.tsx:466-570, each of which is backed by a
- * thunk in src/store: scanInvoice / postInvoiceToQuickBooks
+ * `featureList` restates the capability tiles of the landing page as it was
+ * before the October 2026 redesign, each of which was backed by a thunk in
+ * src/store: scanInvoice / postInvoiceToQuickBooks
  * (invoice/invoiceApi.ts), getMyQBConnections + fetchQuickBooksVendors +
  * fetchQuickBooksAccounts + fetchQuickBooksTaxCodes (quickBooks/quickBooksApi.ts),
  * connectGoogleDrive (googleDrive/googleDriveApi.ts), enableInboundForwarding
@@ -84,8 +83,8 @@ export const organizationJsonLd = {
  *
  * There is deliberately no `offers` block. The only price stated anywhere in
  * the codebase is the trial's "$0 for 14 days"; Standard and Enterprise read
- * "Monthly / yearly" and the page defers to the app ("Current plan pricing is
- * shown in the app when you start your trial" — LandingPage.tsx:1044-1047).
+ * "Monthly or yearly billing" and the page defers to the app ("Current prices
+ * are shown in the app when you start your trial" — Pricing.tsx).
  * Emitting a price we cannot read from the code would be inventing one.
  */
 export const softwareApplicationJsonLd = {
@@ -116,43 +115,70 @@ export const softwareApplicationJsonLd = {
 };
 
 /**
- * FAQ. Every answer restates something already visible on the landing page and
- * implemented in code — Google requires FAQPage answers to be present on the
- * page, which the FAQ section in LandingPage.tsx satisfies. The two questions
- * are kept identical in both places by importing this array into the component.
+ * FAQ, rendered on /faq (src/app/faq/page.tsx). Google requires FAQPage
+ * answers to be visible on the page that carries the JSON-LD, which is why
+ * faqPageJsonLd is emitted there and nowhere else. Every answer states only
+ * what the code implements; the source is noted above each one that was
+ * checked against it.
+ *
+ * `key` is a stable handle for links (src/lib/faq.ts). The URL fragment is
+ * derived from the question, so rewording a question moves its anchor and
+ * every link follows.
  */
-export const FAQ_ITEMS: { question: string; answer: string }[] = [
+export const FAQ_ITEMS: { key: string; question: string; answer: string }[] = [
   {
-    question: "Does Scantrix post invoices to QuickBooks automatically?",
+    // Xero posting: src/lib/accountingProvider.ts (PROVIDERS.xero).
+    key: "auto-post",
+    question: "Does ScanTrix post invoices to QuickBooks or Xero automatically?",
     answer:
-      "Yes. An invoice Scantrix reads confidently is posted to QuickBooks Online as a bill without a manual step. Anything it is unsure about, or that fails, is held in a review queue with the reason attached rather than posted quietly.",
+      "Yes. An invoice ScanTrix reads confidently is posted to QuickBooks Online or Xero as a bill without a manual step. Anything it is unsure about, or that fails, is held in a review queue with the reason attached rather than posted quietly.",
   },
   {
-    question: "How do invoices get into Scantrix?",
+    // Drives are storage, not a source: src/store/useStorageDrive.ts.
+    key: "intake",
+    question: "How do invoices get into ScanTrix?",
     answer:
-      "Four ways: forward the email to the address for that company, upload a PDF or photo, pull the file from a connected Google Drive, or ask the built-in assistant to handle it. All four land in the same queue and follow the same reading, vendor-matching and review rules.",
+      "Three ways: forward the email to the address for that company, upload a PDF or photo in the web app, or snap the paper invoice with the ScanTrix mobile app. All three land in the same queue and follow the same reading, vendor-matching and review rules.",
   },
   {
-    question: "Which accounting software does Scantrix connect to?",
+    // Providers: src/lib/accountingProvider.ts. Coming soon:
+    // COMING_SOON in src/components/v2/accounting/AccountingSoftwaresContentV2.tsx.
+    key: "software",
+    question: "Which accounting software does ScanTrix connect to?",
     answer:
-      "QuickBooks Online, which is live today, together with Google Drive as an invoice source. Zoho Books and Sage Intacct are listed on the site as not yet available.",
+      "QuickBooks Online and Xero. Posted invoices can also be copied to a connected Google Drive or OneDrive. Sage, FreshBooks and Zoho Books are listed in the app as coming soon.",
   },
   {
-    question: "Can Scantrix handle more than one QuickBooks company?",
+    // Forwarding addresses are tied to a QuickBooks connection
+    // (alias.qbConnectionId); not yet confirmed for Xero, so this stays QuickBooks.
+    key: "multi-company",
+    question: "Can ScanTrix handle more than one QuickBooks company?",
     answer:
       "Yes. You can connect several QuickBooks companies and switch between them, and each company gets its own forwarding address — the address decides which set of books an emailed invoice belongs to, so nobody picks from a dropdown at the moment of forwarding.",
   },
   {
+    // aliasAuthorizedSenders (src/lib/inboundEmail/pipeline.ts),
+    // MAX_ADDITIONAL_SENDERS (src/app/api/inbound/aliases/[id]/route.ts),
+    // evaluateEmailAuthentication (src/lib/inboundEmail/authorization.ts).
+    key: "senders",
+    question: "Who can send invoices to my ScanTrix address?",
+    answer:
+      "You, and up to 10 more email addresses you add in the forwarding settings. Your account email is approved when you turn forwarding on. Mail from any other address is discarded without a reply, and every accepted message must also pass the email-authentication checks its domain publishes.",
+  },
+  {
+    key: "security",
     question: "Is email forwarding safe to give to a supplier?",
     answer:
       "Forwarding accepts mail only from senders you have listed; anything else is discarded without a reply. Each message is checked against the anti-spoofing records its own domain publishes, attachments are verified against their actual leading bytes rather than their filename and are virus-scanned before download, and links in the message body are never opened. Forwarding never posts a bill on its own.",
   },
   {
+    key: "trial",
     question: "Is there a free trial, and does it need a card?",
     answer:
       "Every plan starts with a 14-day free trial and no credit card is required to begin it.",
   },
   {
+    key: "team",
     question: "Can my whole team use one account?",
     answer:
       "Yes. Every plan includes unlimited team members, who can scan, review and post against the same connected books.",
@@ -162,7 +188,7 @@ export const FAQ_ITEMS: { question: string; answer: string }[] = [
 export const faqPageJsonLd = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
-  "@id": `${SITE_URL}/#faq`,
+  "@id": `${SITE_URL}/faq#faq`,
   mainEntity: FAQ_ITEMS.map((item) => ({
     "@type": "Question",
     name: item.question,
