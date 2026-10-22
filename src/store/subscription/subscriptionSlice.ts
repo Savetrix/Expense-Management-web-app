@@ -8,6 +8,8 @@ export interface PlanCatalogEntry {
   maxSlots: number;
   trialDays?: number;
   prices: { monthly: number; yearly: number } | null;
+  /** Extra slots on top of maxSlots — Enterprise only. Prices are per slot. */
+  addon?: { maxSlots: number; prices: { monthly: number; yearly: number } };
 }
 
 export interface SubscriptionSlot {
@@ -34,7 +36,17 @@ export interface MySubscription {
   currentPeriod: { start: string; end: string } | null;
   lockCycle: { start: string; end: string } | null;
   downgradeAvailableAt: string | null;
+  /** Plan slots + extra slots. */
   maxSlots: number;
+  /** The plan's own slots. */
+  baseSlots: number;
+  /** Extra slots usable right now (already paid for this period). */
+  addonSlots: number;
+  /** A removal waiting for the period end: the extra-slot count from addonSlotsNextAt on. */
+  addonSlotsNext: number | null;
+  addonSlotsNextAt: string | null;
+  /** null on plans without extra slots. purchasable = bought on the web, on a live Stripe plan. */
+  addon: { maxSlots: number; prices: { monthly: number; yearly: number }; purchasable: boolean } | null;
   slotsUsed: number;
   slots: SubscriptionSlot[];
 }
