@@ -15,3 +15,4 @@ export { RoleInfoBanner } from "./RoleInfoBanner";
 export { InlineEditField } from "./InlineEditField";
 export type { InlineEditFieldHandle } from "./InlineEditField";
 export { StatusPill } from "./StatusPill";
+export { CreatableCombobox } from "./CreatableCombobox";

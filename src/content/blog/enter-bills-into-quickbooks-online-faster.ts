@@ -11,7 +11,6 @@ export const post: BlogPostSource = {
   category: "QuickBooks",
   tags: ["QuickBooks Online", "Bill entry", "Accounts payable"],
   author: "Scantrix Team",
-  featured: true,
   body: `
 Entering a bill into QuickBooks Online takes a minute or two. Entering sixty of them takes an afternoon, and it rarely happens in one sitting. It happens between client calls, on the last day of the month, from a PDF in one window and QuickBooks in the other.
 
