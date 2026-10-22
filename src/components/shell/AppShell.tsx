@@ -9,6 +9,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CreditCard,
+  ShieldCheck,
+  type LucideIcon,
   FileText,
   Landmark,
   LayoutDashboard,
@@ -44,7 +46,13 @@ import type { QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
 // QuickBooks connection management now lives entirely under Integrations
 // (see AccountingSoftwaresContent's connected-accounts drill-down) — a
 // separate top-level "QuickBooks" link duplicated that same destination.
-const NAV_ITEMS = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/team", label: "Team", icon: Users },
@@ -52,7 +60,12 @@ const NAV_ITEMS = [
   { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
   { href: "/accounting-software", label: "Integrations", icon: Puzzle },
   { href: "/subscription", label: "Subscription", icon: CreditCard },
-] as const;
+];
+
+// Scantrix's own admins only (User.isSuperAdmin, sent with the signed-in
+// user). One entry for the whole admin area — its sections are tabs inside
+// (AdminShellV2). Hiding the link is convenience; every admin API re-checks it.
+const ADMIN_NAV_ITEMS: NavItem[] = [{ href: "/admin", label: "Admin", icon: ShieldCheck }];
 
 // Floating label that appears next to a single icon on hover, instead of
 // widening the whole rail — keeps every other row untouched while you're
@@ -69,7 +82,7 @@ function NavLink({
   pathname,
   collapsed,
 }: {
-  item: (typeof NAV_ITEMS)[number];
+  item: NavItem;
   pathname: string;
   collapsed: boolean;
 }) {
@@ -131,6 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // this disables the row proactively instead of letting the OAuth round
   // trip fail.
   const subscription = useAppSelector((state) => state.subscription.subscription);
+  const navItems = user?.data?.user?.isSuperAdmin ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS] : NAV_ITEMS;
 
   const connections = useAppSelector((state) => state.quickBooks.connections);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -271,8 +285,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // plan's slots are actually full. A slot holds one company in any
   // accounting software.
   const slotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  // Enterprise on a web (Stripe) plan can buy one more slot instead of upgrading.
+  const canBuyExtraSlot =
+    slotsFull && Boolean(subscription!.addon?.purchasable) && subscription!.addonSlots < subscription!.addon!.maxSlots;
+  const extraSlotPrice = canBuyExtraSlot
+    ? `$${subscription!.addon!.prices[subscription!.billingInterval ?? "monthly"]}${subscription!.billingInterval === "yearly" ? "/yr" : "/mo"}`
+    : null;
   const addAccountTitle = slotsFull
-    ? `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+    ? canBuyExtraSlot
+      ? `All ${subscription!.maxSlots} accounting slots on your plan are in use. Disconnect an account or add an extra slot for ${extraSlotPrice}.`
+      : `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
     : undefined;
 
   // Opens the slots modal instead of jumping straight into the OAuth
@@ -409,7 +431,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className={`flex flex-1 mt-4 flex-col gap-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)] overflow-y-auto"}`}>
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
           ))}
         </nav>
@@ -632,7 +654,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             <nav className="flex flex-1 flex-col gap-[var(--space-xs)] overflow-y-auto px-[var(--space-sm)]">
-              {NAV_ITEMS.map((item) => (
+              {navItems.map((item) => (
                 <NavLink key={item.href} item={item} pathname={pathname} collapsed={false} />
               ))}
             </nav>
@@ -692,11 +714,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             {slotsFull && (
               <Link
-                href="/subscription"
+                href={canBuyExtraSlot ? "/subscription?addSlot=1" : "/subscription"}
                 onClick={() => setAddAccountModalOpen(false)}
                 className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover"
               >
-                Upgrade plan
+                {canBuyExtraSlot ? `Add a slot (${extraSlotPrice})` : "Upgrade plan"}
               </Link>
             )}
           </>
