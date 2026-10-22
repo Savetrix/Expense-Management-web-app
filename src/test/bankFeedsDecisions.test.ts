@@ -136,6 +136,18 @@ describe("bank line decisions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not
     assert.deepEqual([ev.detail.before.status, ev.detail.after.status], ["review", "excluded"]);
   });
 
+  it("Post (ready) needs a GL account, keeps the coding and clears a bill match", async () => {
+    const [, uber, atlassian] = await seed();
+    const noGl = await decide(db, { qbConnectionId: "qb-1", id: uber.id, userId: "u1", patch: { status: "ready" } });
+    assert.equal(!noGl.ok && noGl.status, 400);
+    const posted = await decide(db, { qbConnectionId: "qb-1", id: uber.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-travel", vendorId: "v-uber", payee: "Uber" } });
+    assert.ok(posted.ok && posted.txn.status === "ready" && posted.txn.categoryId === "gl-travel");
+    await decide(db, { qbConnectionId: "qb-1", id: atlassian.id, userId: "u1", patch: { status: "matched", matchedInvoiceId: "inv-9" } });
+    const repost = await decide(db, { qbConnectionId: "qb-1", id: atlassian.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-software" } });
+    assert.ok(repost.ok && repost.txn.matchedInvoiceId === undefined);
+    assert.equal((await listTransactions(db, "qb-1", { status: "ready" })).length, 2);
+  });
+
   it("reads only known fields from a request body", () => {
     assert.equal(readPatch({ status: "posted" }), "Unknown status.");
     const p = readPatch({ status: "excluded", categoryId: " gl-1 ", sealed_access_token: "x", payee: "" });

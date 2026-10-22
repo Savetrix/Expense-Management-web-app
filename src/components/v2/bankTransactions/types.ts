@@ -1,4 +1,5 @@
-export type BankTxnStatus = "review" | "matched" | "excluded" | "transfer";
+/** "ready" = the user pressed Post; it goes to QuickBooks/Xero once posting is switched on. */
+export type BankTxnStatus = "review" | "ready" | "matched" | "excluded" | "transfer";
 
 export interface BankTransaction {
   id: string;

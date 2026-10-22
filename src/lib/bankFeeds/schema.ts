@@ -14,7 +14,13 @@
 import type { Db } from "./db";
 
 export type ItemStatus = "active" | "login_required" | "pending_expiration" | "pending_disconnect" | "revoked" | "error";
-export type TxnStatus = "review" | "matched" | "excluded" | "transfer";
+/**
+ * review   — waiting for the user.
+ * ready    — the user pressed Post: coding confirmed, waiting to go to
+ *            QuickBooks/Xero (posting itself is not switched on yet).
+ * matched / excluded / transfer — decided another way.
+ */
+export type TxnStatus = "review" | "ready" | "matched" | "excluded" | "transfer";
 
 /** One bank login (a Plaid "item"); it can hold several accounts. */
 export interface ItemDoc {

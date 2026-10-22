@@ -69,27 +69,7 @@ export function useBankLookups(): Lookups {
   }, [qb.accounts, qb.vendors, qb.taxCodes]);
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-
-/**
- * No history yet? A vendor already in the accounting software whose name the
- * bank line carries is still a good first guess, with that vendor's own
- * default GL account and tax code.
- */
-export function vendorMatch(txn: BankTransaction, vendors: Vendor[]): Vendor | null {
-  const names = [txn.merchantName, txn.payee, txn.description].filter(Boolean).map((n) => norm(n as string));
-  if (names.length === 0) return null;
-  let best: Vendor | null = null;
-  for (const v of vendors) {
-    const key = norm(v.displayName || "");
-    if (key.length < 3) continue;
-    const hit = names.some((n) => n === key || (n.startsWith(key) && key.length >= 4));
-    if (hit && (!best || key.length > norm(best.displayName).length)) best = v;
-  }
-  return best;
-}
-
-export type CodingSource = "user" | "autopilot" | "suggested" | "vendor" | "none";
+export type CodingSource = "user" | "autopilot" | "suggested" | "none";
 
 export interface Coding {
   vendorId?: string;
@@ -101,36 +81,38 @@ export interface Coding {
   suggestion: LineSuggestion | null;
 }
 
-/** What a line is coded as now, or what Scantrix would suggest. */
-export function codingFor(txn: BankTransaction, lookups: Lookups): Coding {
+/**
+ * What a line shows: the user's own coding, Scantrix's coding, or — for a line
+ * still to review whose payee was seen before — the suggestion from history.
+ * A payee seen for the first time stays blank (the client's rule).
+ */
+export function codingFor(txn: BankTransaction): Coding {
   const suggestion = suggestionOf(txn);
-  if (txn.categoryId || txn.vendorId || txn.taxCodeId) {
-    return {
-      vendorId: txn.vendorId,
-      payee: txn.payee,
-      glAccountId: txn.categoryId,
-      taxCodeId: txn.taxCodeId,
-      source: suggestion?.autoCoded && txn.categoryId === suggestion.glAccountId ? "autopilot" : "user",
-      reason: suggestion?.autoCoded ? suggestion.reason : null,
-      suggestion,
-    };
+  const own = { vendorId: txn.vendorId, payee: txn.payee, glAccountId: txn.categoryId, taxCodeId: txn.taxCodeId };
+  const hasOwn = Boolean(own.vendorId || own.glAccountId || own.taxCodeId);
+  // Scantrix coded it itself: the values are saved, but not yet confirmed by a person.
+  if (hasOwn && suggestion?.autoCoded && own.glAccountId === suggestion.glAccountId) {
+    return { ...own, source: "autopilot", reason: suggestion.reason, suggestion };
   }
-  if (suggestion?.kind === "expense" && suggestion.glAccountId) {
-    return { vendorId: suggestion.vendorId, payee: suggestion.payee, glAccountId: suggestion.glAccountId, taxCodeId: suggestion.taxCodeId, source: "suggested", reason: suggestion.reason, suggestion };
-  }
-  const vendor = vendorMatch(txn, lookups.vendors);
-  if (vendor) {
-    return {
-      vendorId: vendor._id,
-      payee: vendor.displayName,
-      glAccountId: vendor.glAccountId ?? undefined,
-      taxCodeId: vendor.taxCodeId ?? undefined,
-      source: "vendor",
-      reason: `Matches ${vendor.displayName}, already a vendor${vendor.glAccountId ? "; uses its default account" : ""}.`,
-      suggestion,
-    };
-  }
+  // History fills, field by field, whatever the user hasn't set on a line still to review.
+  const fromHistory = txn.status === "review" && suggestion?.kind === "expense" && suggestion.glAccountId ? suggestion : null;
+  const merged = {
+    vendorId: own.vendorId ?? fromHistory?.vendorId,
+    payee: own.payee ?? fromHistory?.payee,
+    glAccountId: own.glAccountId ?? fromHistory?.glAccountId,
+    taxCodeId: own.taxCodeId ?? fromHistory?.taxCodeId,
+  };
+  if (hasOwn) return { ...merged, source: "user", reason: fromHistory?.reason ?? null, suggestion };
+  if (fromHistory) return { ...merged, source: "suggested", reason: fromHistory.reason, suggestion };
   return { source: "none", reason: suggestion?.reason ?? null, suggestion };
+}
+
+/** True when this field shows a value the user hasn't chosen (a suggestion, or Scantrix's own coding). */
+export function isSuggestedField(txn: BankTransaction, field: "vendorId" | "categoryId" | "taxCodeId"): boolean {
+  const c = codingFor(txn);
+  if (c.source === "autopilot") return true;
+  const shown = field === "vendorId" ? c.vendorId : field === "categoryId" ? c.glAccountId : c.taxCodeId;
+  return Boolean(shown) && !txn[field];
 }
 
 /** "Uber · Travel · GST 5%" — the parts that are known. */

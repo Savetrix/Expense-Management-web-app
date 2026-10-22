@@ -13,7 +13,6 @@ import {
   SearchInput,
   TextInput,
 } from "@/components/v2/ui";
-import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
 import { codingFor, codingLabel, type Lookups } from "./coding";
@@ -29,10 +28,14 @@ interface TransactionModalProps {
   bankAccounts: BankAccount[];
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
+  /** Open on the transfer form instead of the details (the row's transfer button). */
+  initialFocus?: "match" | "transfer";
+  providerName?: string;
 }
 
 export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
   review: "To review",
+  ready: "Ready to post",
   matched: "Matched",
   excluded: "Excluded",
   transfer: "Transfer",
@@ -45,9 +48,11 @@ export function TransactionModal({
   bankAccounts,
   onClose,
   onUpdate,
+  initialFocus,
+  providerName = "QuickBooks",
 }: TransactionModalProps) {
   const router = useRouter();
-  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(initialFocus === "transfer");
   const [search, setSearch] = useState("");
   const [pickedInvoice, setPickedInvoice] = useState("");
   const [payee, setPayee] = useState(txn?.payee ?? "");
@@ -72,11 +77,12 @@ export function TransactionModal({
   if (!txn) return null;
   const excluded = txn.status === "excluded";
   const transfer = txn.status === "transfer";
-  const inactive = excluded || transfer;
+  const ready = txn.status === "ready";
+  const inactive = excluded || transfer || ready;
   const matchedInvoice = invoices.find((c) => c.id === txn.matchedInvoiceId);
-  const coding = codingFor(txn, lookups);
+  const coding = codingFor(txn);
   const suggestion = coding.suggestion;
-  const pendingSuggestion = coding.source === "suggested" || coding.source === "vendor";
+  const pendingSuggestion = coding.source === "suggested";
   const useSuggestion = () => {
     const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
     const nextPayee = coding.payee ?? vendorName;
@@ -93,12 +99,12 @@ export function TransactionModal({
         widthClassName="max-w-xl"
         footer={
           <>
-            {excluded ? (
+            {excluded || ready ? (
               <Button
                 variant="outline"
                 onClick={() => onUpdate(txn.id, { status: "review" })}
               >
-                Restore
+                {excluded ? "Restore" : "Back to review"}
               </Button>
             ) : transfer ? (
               <Button
@@ -240,6 +246,10 @@ export function TransactionModal({
                   </div>
                 </>
               )}
+              <p className="rounded-md border border-dashed border-border px-[var(--space-sm)] py-[var(--space-xs)] text-caption text-content-secondary">
+                Entered straight into {providerName}? Searching {providerName} for bills and expenses that didn&apos;t come through Scantrix
+                isn&apos;t switched on yet (BE).
+              </p>
             </section>
           )}
 
@@ -385,12 +395,21 @@ export function TransactionModal({
               <div>
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    notifyBackendPending("Create bill/expense from this")
-                  }
+                  disabled={!coding.glAccountId}
+                  title={coding.glAccountId ? undefined : "Pick a GL account first"}
+                  onClick={() => {
+                    const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
+                    onUpdate(txn.id, {
+                      status: "ready",
+                      vendorId: coding.vendorId,
+                      categoryId: coding.glAccountId,
+                      taxCodeId: coding.taxCodeId,
+                      payee: payee.trim() || coding.payee || vendorName,
+                    });
+                    onClose();
+                  }}
                 >
-                  {beLabel("Create bill/expense from this")}
+                  Post
                 </Button>
               </div>
             </section>

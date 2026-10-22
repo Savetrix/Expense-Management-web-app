@@ -94,6 +94,7 @@ export function BankTransactionsContentV2() {
       refetchSoon();
     } else showToast(result.payload?.message ?? "Couldn't save those changes.", "error");
   };
+  const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
 
   return (
@@ -133,7 +134,10 @@ export function BankTransactionsContentV2() {
             providerName={provider.name}
             onImportFile={() => setImportOpen(true)}
             onConnect={() => setConnectOpen(true)}
-            onOpen={setOpenId}
+            onOpen={(id, focus) => {
+              setOpenFocus(focus);
+              setOpenId(id);
+            }}
             onUpdate={patchOne}
             invoices={candidates}
             onBulkUpdate={patchMany}
@@ -198,11 +202,13 @@ export function BankTransactionsContentV2() {
       )}
       {openTxn && (
         <TransactionModal
-          key={openTxn.id}
+          key={`${openTxn.id}-${openFocus ?? "details"}`}
           txn={openTxn}
           invoices={candidates}
           lookups={lookups}
           bankAccounts={bankAccounts}
+          initialFocus={openFocus}
+          providerName={provider.name}
           onClose={() => setOpenId(null)}
           onUpdate={patchOne}
         />

@@ -14,7 +14,7 @@ import type { TxnDoc, TxnStatus } from "./schema";
 import { logEvent } from "./store";
 
 export type { TxnStatus } from "./schema";
-const STATUSES: TxnStatus[] = ["review", "matched", "excluded", "transfer"];
+const STATUSES: TxnStatus[] = ["review", "ready", "matched", "excluded", "transfer"];
 
 /** The browser's shape: components/v2/bankTransactions/types.ts BankTransaction, plus server fields. */
 export interface BankTransactionView {
@@ -141,6 +141,7 @@ export function readPatch(body: Record<string, unknown>): DecisionPatch | string
 
 /**
  * The status rules, so a line can never end up half-decided:
+ *   ready    → (Post) needs a GL account; clears any bill or transfer.
  *   matched  → needs a bill; clears any transfer.
  *   transfer → needs the other account; clears any bill.
  *   excluded → clears bill and transfer (coding is kept, for Restore).
@@ -149,7 +150,13 @@ export function readPatch(body: Record<string, unknown>): DecisionPatch | string
 export function normalise(current: TxnDoc, patch: DecisionPatch): { next: DecisionPatch; error?: string } {
   const status = patch.status ?? current.status;
   const next: DecisionPatch = { ...patch };
-  if (status === "matched") {
+  if (status === "ready") {
+    const gl = patch.glAccountId !== undefined ? patch.glAccountId : current.glAccountId;
+    if (!gl) return { next, error: "Pick a GL account before posting." };
+    next.matchedInvoiceId = null;
+    next.transferLabel = null;
+    next.transferAccountId = null;
+  } else if (status === "matched") {
     const invoice = patch.matchedInvoiceId !== undefined ? patch.matchedInvoiceId : current.matchedInvoiceId;
     if (!invoice) return { next, error: "Pick the bill this line paid." };
     next.transferLabel = null;

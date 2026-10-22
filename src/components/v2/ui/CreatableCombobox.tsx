@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface ComboboxOption {
   id: string;
@@ -29,6 +30,15 @@ interface CreatableComboboxProps {
   /** "sm" (default) is the compact 32px inline-field size; "md" matches the 50px form inputs. */
   uiSize?: "sm" | "md";
   className?: string;
+  /**
+   * Draw the list in a layer above the page, pinned under the input. Needed
+   * inside table cells and other containers that clip their content.
+   */
+  floating?: boolean;
+  /** "suggested": the shown value is Scantrix's suggestion, not yet saved. */
+  tone?: "default" | "suggested";
+  /** Tooltip on the input (e.g. why a value was suggested). */
+  title?: string;
 }
 
 // Type-to-filter picker (vendors, GL accounts). Replaces a native <select>
@@ -48,8 +58,13 @@ export function CreatableCombobox({
   placeholder = `Select or type a ${noun}`,
   uiSize = "sm",
   className = "",
+  floating = false,
+  tone = "default",
+  title,
 }: CreatableComboboxProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -75,7 +90,8 @@ export function CreatableCombobox({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (!rootRef.current?.contains(target) && !listRef.current?.contains(target)) {
         setOpen(false);
         setQuery("");
       }
@@ -87,6 +103,26 @@ export function CreatableCombobox({
   useEffect(() => {
     setActive(0);
   }, [query, open]);
+
+  // Floating list: placed when it opens, then follows the input while the
+  // page or a table scrolls.
+  const place = () => {
+    const r = rootRef.current?.getBoundingClientRect();
+    if (r) setAnchor({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 240) });
+  };
+  const openList = () => {
+    if (floating) place();
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!floating || !open) return;
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [floating, open]);
 
   const close = () => {
     setOpen(false);
@@ -114,7 +150,7 @@ export function CreatableCombobox({
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      if (!open) setOpen(true);
+      if (!open) openList();
       else setActive((a) => Math.min(a + 1, rowCount - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -138,22 +174,27 @@ export function CreatableCombobox({
           aria-expanded={open}
           aria-autocomplete="list"
           aria-label={ariaLabel}
+          title={title}
           disabled={disabled}
           // Closed: show the chosen vendor. Open: show what's being typed.
           value={open ? query : selected?.label || valueLabel || ""}
           placeholder={selected && open ? selected.label : placeholder}
-          onFocus={() => setOpen(true)}
+          onFocus={openList}
           onChange={(e) => {
             setQuery(e.target.value);
-            setOpen(true);
+            if (!open) openList();
           }}
           onKeyDown={onKeyDown}
           className={`${
             uiSize === "md"
               ? "h-[50px] pl-[var(--space-md)] pr-10 text-body"
               : "h-8 pl-[var(--space-sm)] pr-7 text-caption"
-          } w-full truncate rounded-md border bg-surface font-semibold text-content-primary placeholder:font-normal placeholder:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-60 ${
-            error ? "border-status-danger-border bg-status-danger-bg" : "border-border"
+          } w-full truncate rounded-md border font-semibold placeholder:font-normal placeholder:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-60 ${
+            error
+              ? "border-status-danger-border bg-status-danger-bg text-content-primary"
+              : tone === "suggested"
+                ? "border-dashed border-accent/60 bg-accent/5 text-content-secondary"
+                : "border-border bg-surface text-content-primary"
           }`}
         />
         <ChevronDown
@@ -165,10 +206,12 @@ export function CreatableCombobox({
         />
       </div>
 
-      {open && (
+      {open && (!floating || anchor) && maybePortal(
         <ul
+          ref={listRef}
           role="listbox"
-          className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg"
+          style={floating && anchor ? { position: "fixed", top: anchor.top, left: anchor.left, width: anchor.width } : undefined}
+          className={`${floating ? "z-[60]" : "absolute left-0 right-0 z-50 mt-1"} max-h-56 overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg`}
         >
           {showAddRow && (
             <li
@@ -224,8 +267,12 @@ export function CreatableCombobox({
               No {noun}s match &ldquo;{trimmed}&rdquo;.
             </li>
           )}
-        </ul>
+        </ul>,
       )}
     </div>
   );
+
+  function maybePortal(node: React.ReactNode) {
+    return floating && typeof document !== "undefined" ? createPortal(node, document.body) : node;
+  }
 }

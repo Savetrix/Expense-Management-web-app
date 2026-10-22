@@ -131,6 +131,19 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
     }
   });
 
+  it("learns from posted (ready) lines too, and pre-fills a repeat after one decision", async () => {
+    await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(2) });
+    const [a, b] = await listTransactions(db, "qb-1");
+    await decide(db, { qbConnectionId: "qb-1", id: a.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-travel", vendorId: "v-uber" } });
+    await refreshSuggestions(db, "qb-1");
+    const repeat = (await listTransactions(db, "qb-1")).find((l) => l.id === b.id);
+    const s = repeat?.suggestion as Suggestion;
+    assert.equal(s.kind, "expense");
+    assert.equal(s.glAccountId, "gl-travel", "pre-filled from the one earlier decision");
+    assert.equal(s.autoCoded, false, "but not coded by itself: one decision is not enough");
+    assert.equal(repeat?.categoryId, undefined);
+  });
+
   it("never touches a line the user has coded", async () => {
     await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(4) });
     const lines = await listTransactions(db, "qb-1");

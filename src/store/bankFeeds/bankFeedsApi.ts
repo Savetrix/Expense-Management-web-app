@@ -154,7 +154,7 @@ export interface BankTransactionDto {
   accountId: string | null;
   amount: number;
   currency: string | null;
-  status: "review" | "matched" | "excluded" | "transfer";
+  status: "review" | "ready" | "matched" | "excluded" | "transfer";
   source: "csv" | "plaid";
   matchedInvoiceId?: string;
   transferAccount?: string;
