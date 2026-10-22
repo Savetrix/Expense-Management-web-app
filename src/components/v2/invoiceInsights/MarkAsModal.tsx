@@ -29,6 +29,8 @@ interface MarkAsModalProps {
   /** Invoice total as a number, used for schedule previews. */
   totalAmount: number;
   currency?: string;
+  /** The period Scantrix read from the invoice, to pre-fill a prepayment schedule. */
+  initialPeriod?: { start: string; end: string } | null;
 }
 
 function monthsBetween(start: string, end: string): string[] {
@@ -56,14 +58,16 @@ function ScheduleForm({
   totalAmount,
   currency,
   onDone,
+  initialPeriod,
 }: {
   kind: "prepayment" | "deferred_income";
   totalAmount: number;
   currency?: string;
   onDone: () => void;
+  initialPeriod?: { start: string; end: string } | null;
 }) {
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [start, setStart] = useState(initialPeriod?.start ?? "");
+  const [end, setEnd] = useState(initialPeriod?.end ?? "");
   const months = useMemo(() => monthsBetween(start, end), [start, end]);
   const perMonth = months.length > 0 ? totalAmount / months.length : 0;
   const invalidRange = Boolean(start && end) && months.length === 0;
@@ -256,7 +260,7 @@ function ExpenseClaimForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function MarkAsModal({ open, onClose, initialKind, totalAmount, currency }: MarkAsModalProps) {
+export function MarkAsModal({ open, onClose, initialKind, totalAmount, currency, initialPeriod }: MarkAsModalProps) {
   const provider = useActiveProvider();
   const [kind, setKind] = useState<MarkAsKind>(initialKind);
 
@@ -300,7 +304,7 @@ export function MarkAsModal({ open, onClose, initialKind, totalAmount, currency 
       </div>
 
       {(kind === "prepayment" || kind === "deferred_income") && (
-        <ScheduleForm key={kind} kind={kind} totalAmount={totalAmount} currency={currency} onDone={onClose} />
+        <ScheduleForm key={kind} kind={kind} totalAmount={totalAmount} currency={currency} onDone={onClose} initialPeriod={kind === "prepayment" ? initialPeriod : null} />
       )}
       {kind === "fixed_asset" && <FixedAssetForm totalAmount={totalAmount} currency={currency} onDone={onClose} />}
       {kind === "sales_document" && <SalesDocumentForm onDone={onClose} />}

@@ -157,4 +157,26 @@ ALTER TABLE bank_transactions ADD COLUMN payee_key text;
 CREATE INDEX bank_transactions_payee ON bank_transactions (qb_connection_id, payee_key) WHERE removed_at IS NULL;
 `,
   },
+  {
+    version: 3,
+    sql: `
+-- What Scantrix noticed on an invoice: the period it covers (period.ts), and
+-- whether the user said "Not a prepayment". Keyed by the backend's invoice id.
+CREATE TABLE invoice_insights (
+  qb_connection_id text NOT NULL,
+  invoice_id text NOT NULL,
+  period_start date,
+  period_end date,
+  period_months numeric(5, 1),
+  period_source text,
+  period_evidence text,
+  -- The invoice's updatedAt when the period was read; a later edit re-reads it.
+  read_from text,
+  prepayment_dismissed_at timestamptz,
+  prepayment_dismissed_by text,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (qb_connection_id, invoice_id)
+);
+`,
+  },
 ];

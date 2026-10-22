@@ -631,6 +631,7 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
             totalAmountDisplay={totalAfterTax}
             currency={currency}
             invoiceDate={invoiceDate}
+            invoiceId={invoiceObject?._id}
           />
 
         {/* Status History */}

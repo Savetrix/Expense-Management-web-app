@@ -51,7 +51,11 @@ export function BankTransactionsContentV2() {
     refetchTimer.current = setTimeout(() => dispatch(fetchBankTransactions()), 1500);
   };
   const [importOpen, setImportOpen] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // "/bank-transactions?open=<id>" (from an invoice's "Matching bank transaction
+  // found") opens that line once it has loaded.
+  const [openId, setOpenId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("open"),
+  );
 
   // Bills are only needed for matching; load them if nothing is cached yet.
   const noInvoices = pendingInvoices.length + autoPostedInvoices.length + manualPostedInvoices.length === 0 && invoices.length === 0;

@@ -2,7 +2,7 @@
 // door, then the database. Errors use the same shape and codes as the
 // email-forwarding routes: { error } with 401 (session), 403 (not yours),
 // 409 (state), 503 (store, Plaid or config unavailable), 500 (unknown).
-import { readBankConfig, type BankFeedsConfig } from "./config";
+import { readBankConfig, readStoreUrl, type BankFeedsConfig } from "./config";
 import { openDb, BankStoreError, type Db } from "./db";
 import { authorizeBank, type BankAbility, type Caller, type CallerConnection } from "./door";
 import { PlaidCallError } from "./plaid";
@@ -63,4 +63,14 @@ export async function readJson(request: Request): Promise<Record<string, unknown
   } catch {
     return null;
   }
+}
+
+/** Database + door only (no Plaid, no kill switch): for invoice insights. */
+export async function storeContext(request: Request, ability: BankAbility): Promise<{ db: Db; caller: Caller; connection: CallerConnection; bankFeedsOn: boolean } | Response> {
+  const url = readStoreUrl();
+  if (!url) return fail(503, "Invoice insights are not set up on this server yet.", { reason: "not_configured" });
+  const door = await authorizeBank(request, ability);
+  if (!door.ok) return fail(door.status, door.error);
+  const bank = readBankConfig();
+  return { db: openDb(url), caller: door.caller, connection: door.connection, bankFeedsOn: bank.ok && bank.config.enabled };
 }

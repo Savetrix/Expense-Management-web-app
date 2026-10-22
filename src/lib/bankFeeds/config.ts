@@ -85,3 +85,8 @@ export function readBankConfig(): BankConfigOutcome {
     },
   };
 }
+
+/** The database alone — enough for invoice insights, which need no Plaid. */
+export function readStoreUrl(): string | null {
+  return (process.env.BANK_DATABASE_URL || process.env.DATABASE_URL)?.trim() || null;
+}
