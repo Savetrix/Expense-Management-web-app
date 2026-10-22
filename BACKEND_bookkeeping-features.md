@@ -92,6 +92,9 @@ None of them exist yet.
 - Save drivers / vehicles / rates → `PUT /mileage/drivers`, `POST|PUT /mileage/vehicles`, `PUT /mileage/rates`
 
 ### Bank transactions (Plaid)
+
+> **Status (branch `bank-transactions`):** built inside this app, under `src/lib/bankFeeds/` and `src/app/api/{plaid,bank-accounts,bank-transactions}`, on Postgres. Done: connect (link token, exchange, duplicate check), sync (cursor, webhooks, Sync now), needs re-login (update mode), disconnect, mapping, every decision (match, transfer, exclude, restore, vendor/GL/tax), CSV import, suggestions and Autopilot coding for bank lines. Not done: **posting to QuickBooks/Xero** ("Create bill/expense", "Import selected to …") — the Savetrix backend can only post bills today and needs bank-account, expense, bill-payment and transfer endpoints. The paths below were the original suggestions; the built routes use the same names under `/api`.
+
 - Connect a bank → `POST /plaid/link-token` (backend creates the Plaid link token, the front end opens Plaid Link with it; see `src/components/v2/bankTransactions/plaid.ts` for the launcher contract), then `POST /plaid/exchange-public-token {publicToken, institution, accounts}`
 - Reads: `GET /bank-accounts`, `GET /bank-transactions?status=&accountId=&from=&to=`
 - Sync now / Disconnect / Save mapping → `POST /bank-accounts/:id/sync`, `DELETE /bank-accounts/:id`, `PUT /bank-accounts/:id/mapping {ledgerAccountId}`
