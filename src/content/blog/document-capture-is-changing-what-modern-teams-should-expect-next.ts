@@ -10,6 +10,8 @@ export const post: BlogPostSource = {
   tags: ["Document capture", "Data extraction", "Human review", "Audit trail"],
   author: "Scantrix Team",
   body: `
+![Scantrix Insights banner: a scanned invoice turned into structured fields for vendor, invoice date, total and status](/blog/document-capture-is-changing-2026.jpg)
+
 October is a natural reset point for operations teams. Year-end reporting is approaching, peak-season volumes are building, and budgets for next year are taking shape. It's the right moment to ask whether the way your team captures documents and extracts data still fits the way your business works.
 
 Document capture has changed a great deal in the last few years. The change isn't only about reading text off a page. It's about what happens to that data afterward. This post breaks down the biggest shifts in capture and data extraction, and gives you a practical way to evaluate your own workflow before the busiest weeks arrive.
