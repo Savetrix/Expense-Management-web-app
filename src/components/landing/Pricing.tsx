@@ -1,5 +1,10 @@
 // Section 5. The trial and plan CTAs go to /register; Custom opens the same
 // enquiry modal as the in-app /plans page.
+//
+// Prices are the client's (in-app /plans, October 2026), in US dollars:
+// Standard $14.99/month or $149.99/year, Enterprise $29.99/month or
+// $299.99/year, extra companies $10/month ($100/year). Yearly is about 17%
+// off twelve monthly payments. Change them here and on /plans together.
 import { SignupLink } from "@/components/blog/SignupLink";
 
 import { TalkToSalesButton } from "./TalkToSalesButton";
@@ -34,8 +39,9 @@ export function Pricing() {
             <p className="plan-t">Try ScanTrix free for 14 days</p>
             {" "}
             <p className="plan-p">
-              <b>$0</b>
+              <b>Free</b>
               <span>for 14 days</span>
+              <span>No card needed to start</span>
             </p>
             {" "}
             <span className="plan-m pm-1" aria-hidden="true">
@@ -44,36 +50,7 @@ export function Pricing() {
             {" "}
             <ul className="plan-f">
               {" "}
-              <li>Unlimited scans</li>
-              {" "}
-              <li>Unlimited team members</li>
-              {" "}
-              <li>1 company in QuickBooks or Xero</li>
-              {" "}
-            </ul>
-            {" "}
-            <SignupLink className="gbtn plan-cta">Start free trial</SignupLink>
-            {" "}
-          </article>
-          {" "}
-          <article className="plan">
-            {" "}
-            <h3 className="plan-n">Standard</h3>
-            {" "}
-            <p className="plan-t">For growing teams</p>
-            {" "}
-            <p className="plan-p">
-              <b>Monthly</b>
-              <span>or yearly billing</span>
-            </p>
-            {" "}
-            <span className="plan-m pm-1" aria-hidden="true">
-              <i />
-            </span>
-            {" "}
-            <ul className="plan-f">
-              {" "}
-              <li>Unlimited scans</li>
+              <li>Unlimited scans during the trial</li>
               {" "}
               <li>Unlimited team members</li>
               {" "}
@@ -89,13 +66,54 @@ export function Pricing() {
             {" "}
             <span className="tag plan-tag">Most popular</span>
             {" "}
-            <h3 className="plan-n">Enterprise</h3>
+            <h3 className="plan-n">Standard</h3>
             {" "}
-            <p className="plan-t">For multi-entity businesses</p>
+            <p className="plan-t">For growing teams and businesses</p>
             {" "}
             <p className="plan-p">
-              <b>Monthly</b>
-              <span>or yearly billing</span>
+              <b>$14.99</b>
+              <span>per month, cancel anytime</span>
+              <span>or $149.99 a year, about 17% less</span>
+            </p>
+            {" "}
+            <span className="plan-m pm-1" aria-hidden="true">
+              <i />
+            </span>
+            {" "}
+            <ul className="plan-f">
+              {" "}
+              <li>Unlimited scans, posted automatically</li>
+              {" "}
+              <li>Unlimited team members</li>
+              {" "}
+              <li>1 company in QuickBooks or Xero</li>
+              {" "}
+            </ul>
+            {" "}
+            <SignupLink className="pbtn plan-cta">
+              <span>Start free trial</span>
+              <span className="pbtn-c" aria-hidden="true">
+                <svg className="a1" width={16} height={16}>
+                  <use href="#ic-arrow" />
+                </svg>
+                <svg className="a2" width={16} height={16}>
+                  <use href="#ic-arrow" />
+                </svg>
+              </span>
+            </SignupLink>
+            {" "}
+          </article>
+          {" "}
+          <article className="plan">
+            {" "}
+            <h3 className="plan-n">Enterprise</h3>
+            {" "}
+            <p className="plan-t">For multi-entity businesses and firms</p>
+            {" "}
+            <p className="plan-p">
+              <b>$29.99</b>
+              <span>per month</span>
+              <span>or $299.99 a year, about 17% less</span>
             </p>
             {" "}
             <span className="plan-m pm-3" aria-hidden="true">
@@ -112,19 +130,15 @@ export function Pricing() {
               {" "}
               <li>3 companies in QuickBooks or Xero</li>
               {" "}
+              <li>Audit logs and role permissions</li>
+              {" "}
+              <li>Dedicated CPA support and onboarding</li>
+              {" "}
+              <li>More companies at $10 a month each ($100 a year)</li>
+              {" "}
             </ul>
             {" "}
-            <SignupLink className="pbtn plan-cta">
-              <span>Start free trial</span>
-              <span className="pbtn-c" aria-hidden="true">
-                <svg className="a1" width={16} height={16}>
-                  <use href="#ic-arrow" />
-                </svg>
-                <svg className="a2" width={16} height={16}>
-                  <use href="#ic-arrow" />
-                </svg>
-              </span>
-            </SignupLink>
+            <SignupLink className="gbtn plan-cta">Start free trial</SignupLink>
             {" "}
           </article>
           {" "}
@@ -165,7 +179,7 @@ export function Pricing() {
           {" "}
         </div>
         {" "}
-        <p className="price-note">Current prices are shown in the app when you start your trial.</p>
+        <p className="price-note">Prices in US dollars. Every paid plan starts with the 14-day free trial.</p>
         {" "}
       </div>
       {" "}

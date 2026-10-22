@@ -81,11 +81,9 @@ export const organizationJsonLd = {
  * connectGoogleDrive (googleDrive/googleDriveApi.ts), enableInboundForwarding
  * (inboundEmail/inboundEmailApi.ts) and inviteQBMember (quickBooks/quickBooksApi.ts).
  *
- * There is deliberately no `offers` block. The only price stated anywhere in
- * the codebase is the trial's "$0 for 14 days"; Standard and Enterprise read
- * "Monthly or yearly billing" and the page defers to the app ("Current prices
- * are shown in the app when you start your trial" — Pricing.tsx).
- * Emitting a price we cannot read from the code would be inventing one.
+ * There is no `offers` block. Prices now appear on the landing page
+ * (Pricing.tsx: Standard $14.99/month, Enterprise $29.99/month); add them here
+ * as Offer entries only once the client confirms they are final.
  */
 export const softwareApplicationJsonLd = {
   "@context": "https://schema.org",
