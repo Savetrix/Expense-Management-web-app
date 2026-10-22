@@ -3,7 +3,6 @@
 import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { beLabel } from "@/lib/bePlaceholder";
 
 import type { StrongSuggestion } from "./matching";
 
@@ -25,7 +24,7 @@ export function SuggestedMatches({ suggestions, onAccept, onDismiss, onAcceptAll
           Suggested matches ({suggestions.length})
         </h3>
         <Button size="sm" onClick={onAcceptAll}>
-          {beLabel(`Accept all ${suggestions.length} strong match${suggestions.length === 1 ? "" : "es"}`)}
+          {`Accept all ${suggestions.length} strong match${suggestions.length === 1 ? "" : "es"}`}
         </Button>
       </div>
       <ul className="mt-[var(--space-xs)] max-h-48 overflow-y-auto">
@@ -38,7 +37,7 @@ export function SuggestedMatches({ suggestions, onAccept, onDismiss, onAcceptAll
               {s.invoice.number && ` #${s.invoice.number}`}
             </span>
             <Button size="sm" onClick={() => onAccept(s)}>
-              {beLabel("Accept")}
+              Accept
             </Button>
             <Button size="sm" variant="outline" onClick={() => onDismiss(s.txn.id)}>
               Not this

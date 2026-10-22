@@ -222,14 +222,13 @@ export function TransactionModal({
                       size="sm"
                       disabled={!pickedInvoice}
                       onClick={() => {
-                        notifyBackendPending("Match");
                         onUpdate(txn.id, {
                           status: "matched",
                           matchedInvoiceId: pickedInvoice,
                         });
                       }}
                     >
-                      {beLabel("Match")}
+                      Match
                     </Button>
                   </div>
                 </>

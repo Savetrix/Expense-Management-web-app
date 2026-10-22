@@ -16,6 +16,19 @@ export interface BankTransaction {
   /** Local GL account id chosen in "Categorise". */
   categoryId?: string;
   payee?: string;
+  /** Server row version, for conflict checks. Absent before the first save. */
+  version?: number;
+  accountId?: string | null;
+  transferAccountId?: string;
+  taxCodeId?: string;
+  vendorId?: string;
+  /** Plaid's cleaned-up merchant name, when it knows one. */
+  merchantName?: string;
+  /** Plaid's spending category, e.g. TRANSPORTATION_TAXIS_AND_RIDE_SHARES. */
+  bankCategory?: string;
+  currency?: string | null;
+  suggestion?: unknown;
+  postingStatus?: string;
 }
 
 export interface BankAccount {
@@ -25,9 +38,16 @@ export interface BankAccount {
   mask?: string;
   subtype?: string;
   lastSyncedAt: string | null;
-  status: "connected" | "needs_relogin";
+  status: "connected" | "needs_relogin" | "syncing";
   /** GL account the bank account posts to in the accounting software. */
   mappedGlAccountId?: string;
+  mappedGlAccountName?: string;
+  /** Why the bank needs a new sign-in, in plain words. */
+  statusDetail?: string | null;
+  currentBalance?: number | null;
+  currency?: string | null;
+  /** Plaid is still pulling the history on the first connect. */
+  historyLoading?: boolean;
 }
 
 export type DateFormat = "YYYY-MM-DD" | "MM/DD/YYYY" | "DD/MM/YYYY";

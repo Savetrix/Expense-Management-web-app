@@ -5,7 +5,6 @@ import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Modal, SelectDropdown, TextInput } from "@/components/v2/ui";
-import { showToast } from "@/lib/dialogManager";
 
 import { buildRows, detectColumns, parseCsv, splitDuplicates } from "./csv";
 import { FIELD_LABEL_CLASS, formatAmount } from "./format";
@@ -16,7 +15,8 @@ interface ImportFileModalProps {
   onClose: () => void;
   bankAccounts: BankAccount[];
   existing: BankTransaction[];
-  onImport: (txns: BankTransaction[]) => void;
+  /** Saves the rows on the server; resolves false if that failed (the dialog stays open). */
+  onImport: (txns: BankTransaction[]) => Promise<boolean>;
 }
 
 type Step = "file" | "map" | "preview";
@@ -37,6 +37,7 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
   const [outflowMode, setOutflowMode] = useState<OutflowMode>("negative");
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const headers = rows[0] ?? [];
@@ -97,10 +98,11 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
           ? "Choose the amount column."
           : "";
 
-  const doImport = () => {
-    if (!result) return;
+  const doImport = async () => {
+    if (!result || saving) return;
     const name = accountName.trim() || "Imported file";
-    onImport(
+    setSaving(true);
+    const ok = await onImport(
       result.fresh.map((r) => ({
         id: newId(),
         date: r.date,
@@ -111,8 +113,8 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
         source: "csv" as const,
       })),
     );
-    showToast(`Imported ${result.fresh.length} transaction${result.fresh.length === 1 ? "" : "s"}.`, "success");
-    close();
+    setSaving(false);
+    if (ok) close();
   };
 
   const colSelect = (label: string, key: keyof ColumnMapping) => (
@@ -149,7 +151,7 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
         <Button variant="outline" onClick={() => setStep("map")}>
           Back
         </Button>
-        <Button disabled={!result || result.fresh.length === 0} onClick={doImport}>
+        <Button disabled={!result || result.fresh.length === 0 || saving} onClick={doImport}>
           Import {result?.fresh.length ?? 0} transactions
         </Button>
       </>
@@ -191,7 +193,7 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
             />
           </div>
           <p className="text-caption text-content-secondary">
-            Files are read in your browser. Saving imported transactions needs the backend (BE).
+            Files are read in your browser. Only the dates, descriptions and amounts are saved to Scantrix.
           </p>
           {error && <p className="text-caption font-semibold text-status-danger-text">{error}</p>}
           <div>

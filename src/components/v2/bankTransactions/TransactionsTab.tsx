@@ -7,7 +7,8 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { DataTable, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
+import { Spinner } from "@/components/ui/Spinner";
+import { DataTable, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog } from "@/lib/dialogManager";
@@ -29,12 +30,16 @@ interface TransactionsTabProps {
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
   invoices: InvoiceCandidate[];
   onBulkUpdate: (ids: string[], patch: Partial<BankTransaction>) => void;
+  /** Different changes for many lines in one request (accept all matches). */
+  onBulkItems: (items: ({ id: string } & Partial<BankTransaction>)[]) => void;
+  /** First load from the server still running. */
+  loading?: boolean;
 }
 
 const DATE_CLASS =
   "h-8 rounded-md border border-border bg-surface px-[var(--space-sm)] text-caption font-semibold text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40";
 
-export function TransactionsTab({ txns, providerName, onImportFile, onConnect, onOpen, onUpdate, invoices, onBulkUpdate }: TransactionsTabProps) {
+export function TransactionsTab({ txns, providerName, onImportFile, onConnect, onOpen, onUpdate, invoices, onBulkUpdate, onBulkItems, loading = false }: TransactionsTabProps) {
   const router = useRouter();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>("review");
@@ -70,6 +75,15 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }, [txns, status, account, from, to, search]);
 
+  if (txns.length === 0 && loading) {
+    return (
+      <div className="flex items-center justify-center gap-[var(--space-sm)] p-[var(--space-xl)] text-body-sm text-content-secondary">
+        <Spinner size="sm" />
+        Loading transactions…
+      </div>
+    );
+  }
+
   if (txns.length === 0) {
     return (
       <div className="flex flex-col items-center pb-[var(--space-lg)]">
@@ -83,7 +97,7 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
             Import file
           </Button>
           <Button variant="outline" size="sm" onClick={onConnect}>
-            {beLabel("Connect a bank with Plaid")}
+            Connect a bank with Plaid
           </Button>
         </div>
       </div>
@@ -91,18 +105,16 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
   }
 
   const acceptOne = (s: { txn: BankTransaction; invoice: InvoiceCandidate }) => {
-    notifyBackendPending("Accept match");
     onUpdate(s.txn.id, { status: "matched", matchedInvoiceId: s.invoice.id });
   };
   const acceptAll = async () => {
     const ok = await confirmDialog({
       title: `Accept ${suggestions.length} strong match${suggestions.length === 1 ? "" : "es"}?`,
       message: "Each bank line is matched to the bill with the same amount dated within 7 days. You can still change a match afterwards.",
-      confirmLabel: beLabel("Accept all"),
+      confirmLabel: "Accept all",
     });
     if (!ok) return;
-    notifyBackendPending("Accept all strong matches");
-    suggestions.forEach((s) => onUpdate(s.txn.id, { status: "matched", matchedInvoiceId: s.invoice.id }));
+    onBulkItems(suggestions.map((s) => ({ id: s.txn.id, status: "matched" as const, matchedInvoiceId: s.invoice.id })));
   };
 
   const selectedIds = Array.from(selected).filter((id) => rows.some((r) => r.id === id));
@@ -187,9 +199,6 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
             <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={DATE_CLASS} />
           </div>
         </div>
-        <RoleInfoBanner>
-          Imported transactions live only in this session. Saving them needs the backend (BE), so they are lost when you leave or refresh the page.
-        </RoleInfoBanner>
       </div>
 
       {selectedIds.length > 0 && (

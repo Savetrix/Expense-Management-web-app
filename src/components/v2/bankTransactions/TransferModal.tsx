@@ -4,7 +4,6 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Modal, SelectDropdown, TextInput } from "@/components/v2/ui";
-import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 
 import { formatAmount } from "./format";
 import type { BankAccount, BankTransaction } from "./types";
@@ -37,12 +36,9 @@ export function TransferModal({ txn, bankAccounts, onClose, onSave }: TransferMo
           </Button>
           <Button
             disabled={!value}
-            onClick={() => {
-              notifyBackendPending("Save transfer");
-              onSave(value);
-            }}
+            onClick={() => onSave(value)}
           >
-            {beLabel("Save transfer")}
+            Save transfer
           </Button>
         </>
       }

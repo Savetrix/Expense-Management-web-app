@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 
 export interface PlaidLinkMetadata {
+  institutionId?: string;
   institutionName?: string;
   accounts: { id: string; name: string; mask?: string; subtype?: string }[];
 }
@@ -15,7 +16,8 @@ export interface PlaidLinkLauncherProps {
 }
 
 /**
- * Contract for the component that opens Plaid Link. Nothing is wired up yet.
+ * Contract for the component that opens Plaid Link. Implemented by
+ * PlaidLinkLauncher.tsx (react-plaid-link).
  *
  * To plug in the real flow, implement a component with these props, e.g. with
  * `react-plaid-link`:
