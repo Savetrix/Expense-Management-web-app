@@ -97,7 +97,8 @@ export const choosePlan = createAsyncThunk(
 // ================================
 export const startCheckout = createAsyncThunk(
   "subscription/startCheckout",
-  async (data: ChoosePlanPayload, thunkAPI) => {
+  // couponCode: one checked with validateCoupon — Stripe applies it at Checkout.
+  async (data: ChoosePlanPayload & { couponCode?: string }, thunkAPI) => {
     try {
       console.log("========== STRIPE CHECKOUT REQUEST ==========");
       const response = await api.post("/subscription/checkout", data);
@@ -106,7 +107,42 @@ export const startCheckout = createAsyncThunk(
     } catch (error: any) {
       console.log("========== STRIPE CHECKOUT ERROR ==========");
       const message = error?.response?.data?.message || error?.message || "Failed to start checkout";
-      return thunkAPI.rejectWithValue({ message, statusCode: error?.response?.status });
+      // code "COUPON_INVALID" = the coupon can't be used (any more).
+      return thunkAPI.rejectWithValue({ message, statusCode: error?.response?.status, code: error?.response?.data?.data?.code });
+    }
+  },
+);
+
+// ================================
+// COUPON (checked before Checkout, so the plans show the discounted price)
+// ================================
+export interface AppliedCoupon {
+  code: string;
+  percentOff: number;
+  /** once = first payment only, repeating = durationInMonths, forever = every payment */
+  duration: "once" | "repeating" | "forever";
+  durationInMonths: number | null;
+  /** e.g. "5% off your first payment" */
+  description: string;
+}
+
+/** checkout = used when starting a plan; plan_change = used when upgrading a running Stripe subscription. */
+export type CouponMode = "checkout" | "plan_change";
+
+export const validateCoupon = createAsyncThunk<
+  { coupon: AppliedCoupon; mode: CouponMode },
+  string,
+  { rejectValue: { message: string } }
+>(
+  "subscription/validateCoupon",
+  async (code, thunkAPI) => {
+    try {
+      const response = await api.post("/subscription/coupon/validate", { code });
+      return { coupon: response.data.data.coupon as AppliedCoupon, mode: response.data.data.mode as CouponMode };
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({
+        message: error?.response?.data?.message || error?.message || "Could not check this coupon",
+      });
     }
   },
 );
@@ -169,9 +205,11 @@ export interface AddonSlotsPreview {
   currency: string;
   /** The card the charge goes to (no payment page opens). null if none is on file. */
   paymentMethod: SavedCard | null;
-  /** Per-period list prices making up renewalAmount. */
+  /** What renewalAmount is made of: the plan (after any coupon still running) + extra slots (list price). */
   planPrice: number;
   addonPrice: number;
+  /** A coupon lowers the next renewal's plan price. */
+  renewalDiscounted: boolean;
   /** End of the current period = the next renewal. */
   renewalDate: string;
   /** The moment the charge was priced at — send it back to buy at exactly amountDueNow. null when nothing is charged. */
@@ -241,6 +279,102 @@ export const updateAddonSlots = createAsyncThunk<
       return { message: response.data.message as string, charge: response.data.data?.charge ?? null };
     } catch (error: any) {
       return thunkAPI.rejectWithValue(addonSlotsError(error, "Failed to update extra slots"));
+    }
+  },
+);
+
+// ================================
+// IN-APP UPGRADE (existing Stripe subscriber → bigger plan or yearly billing).
+// Moving down stays in the Billing Portal (the preview answers USE_BILLING_PORTAL).
+// ================================
+export interface PlanChangeInput {
+  plan: SubscriptionPlanKey;
+  billingInterval: BillingInterval;
+  couponCode?: string;
+}
+
+export interface PlanChangePreview {
+  plan: SubscriptionPlanKey;
+  planName: string;
+  billingInterval: BillingInterval;
+  /** Charged now to the saved card: the change, prorated, after any coupon. */
+  amountDueNow: number;
+  /** What the coupon takes off that charge. */
+  discountNow: number;
+  /** Send back with the purchase — it's charged at exactly amountDueNow. */
+  prorationDate: number;
+  currency: string;
+  paymentMethod: SavedCard | null;
+  coupon: AppliedCoupon | null;
+  planListPrice: number;
+  /** The plan's price on each renewal, after a coupon that keeps applying. */
+  planRenewal: number;
+  extraSlots: number;
+  extraSlotsPrice: number;
+  renewalAmount: number;
+  renewalDate: string;
+  slotsAfter: number;
+}
+
+interface PlanChangeError {
+  message: string;
+  statusCode?: number;
+  /** USE_BILLING_PORTAL, PRICE_CHANGED, PAYMENT_ACTION_REQUIRED, COUPON_INVALID, … */
+  code?: string;
+  hostedInvoiceUrl?: string | null;
+}
+
+const planChangeError = (error: any, fallback: string): PlanChangeError => ({
+  message: error?.response?.data?.message || error?.message || fallback,
+  statusCode: error?.response?.status,
+  code: error?.response?.data?.data?.code,
+  hostedInvoiceUrl: error?.response?.data?.data?.hostedInvoiceUrl ?? null,
+});
+
+export const previewPlanChange = createAsyncThunk<PlanChangePreview, PlanChangeInput, { rejectValue: PlanChangeError }>(
+  "subscription/previewPlanChange",
+  async (input, thunkAPI) => {
+    try {
+      const response = await api.get("/subscription/change-plan/preview", { params: input });
+      return response.data.data as PlanChangePreview;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(planChangeError(error, "Could not price this plan change"));
+    }
+  },
+);
+
+export const changePlan = createAsyncThunk<
+  { message: string; charge: AddonSlotsCharge | null },
+  PlanChangeInput & { prorationDate: number; expectedAmountDue: number },
+  { rejectValue: PlanChangeError }
+>("subscription/changePlan", async (body, thunkAPI) => {
+  try {
+    // A few Stripe calls — longer than the client's 30s default, so a slow
+    // Stripe isn't reported as a failure for a card it goes on to charge.
+    const response = await api.post("/subscription/change-plan", body, { timeout: 60_000 });
+    return { message: response.data.message as string, charge: response.data.data?.charge ?? null };
+  } catch (error: any) {
+    return thunkAPI.rejectWithValue(planChangeError(error, "Could not change your plan"));
+  }
+});
+
+// The coupon on the user's subscription right now (null when none).
+export interface CurrentDiscount {
+  code: string | null;
+  percentOff: number | null;
+  description: string;
+  /** null = every payment */
+  endsAt: string | null;
+}
+
+export const fetchDiscount = createAsyncThunk<CurrentDiscount | null, void, { rejectValue: { message: string } }>(
+  "subscription/fetchDiscount",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.get("/subscription/discount");
+      return (response.data.data.discount ?? null) as CurrentDiscount | null;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not load your discount" });
     }
   },
 );

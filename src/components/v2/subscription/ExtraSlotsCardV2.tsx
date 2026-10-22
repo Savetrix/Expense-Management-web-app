@@ -141,7 +141,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
   // A failed save the customer must act on, or at least hear about plainly.
   const reportSaveError = (payload: { message?: string; code?: string; statusCode?: number } | undefined) => {
     if (payload?.code === "PRICE_CHANGED") {
-      showToast(payload.message || "The price changed — please review it again.", "warning");
+      showToast(payload.message || "The price changed. Please review it again.", "warning");
       setPreviewAttempt((n) => n + 1);
     } else if (!payload?.statusCode) {
       // Timed out or the connection dropped: the change may still have gone
@@ -155,7 +155,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
   const handleKeepSlots = async () => {
     const confirmed = await confirmDialog({
       title: `Keep your ${plural(subscription.addonSlots)}?`,
-      message: `No charge — you've already paid for them this period. They'll keep renewing with your ${subscription.planName} plan, and then you can add more.`,
+      message: `No charge, you've already paid for them this period. They'll keep renewing with your ${subscription.planName} plan, and then you can add more.`,
       confirmLabel: "Keep slots",
     });
     if (!confirmed) return;
@@ -180,7 +180,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
   const renewalBreakdown = (p: AddonSlotsPreview) =>
     [
       `From ${formatDate(p.renewalDate)}, each renewal is ${formatMoney(p.renewalAmount)}${intervalSuffix}:`,
-      `• ${subscription.planName} plan: ${formatMoney(p.planPrice)}`,
+      `• ${subscription.planName} plan: ${formatMoney(p.planPrice)}${p.renewalDiscounted ? " (with your coupon)" : ""}`,
       ...(target > 0 ? [`• ${plural(target)}: ${formatMoney(target * p.addonPrice)}`] : []),
     ].join("\n");
 
@@ -192,7 +192,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
 
     const message = keeping
       ? [
-          `No charge now — you've already paid for these slots this period.`,
+          `No charge now, you've already paid for these slots this period.`,
           `They'll keep renewing with your ${subscription.planName} plan.`,
           "",
           renewalBreakdown(preview),
@@ -214,7 +214,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
           prorated
             ? `That covers the rest of your current billing period, until ${formatDate(preview.renewalDate)}.`
             : `That covers a full ${periodWord}, until ${formatDate(preview.renewalDate)}.`,
-          `Your ${subscription.planName} plan stays as it is — this is charged on top of it.`,
+          `Your ${subscription.planName} plan stays as it is. This is charged on top of it.`,
           "",
           renewalBreakdown(preview),
         ].join("\n");
@@ -366,7 +366,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
                   </span>
                 ) : keeping ? (
                   <>
-                    No charge — already paid for this period. From {formatDate(preview.renewalDate)}:{" "}
+                    No charge, already paid for this period. From {formatDate(preview.renewalDate)}:{" "}
                     <span className="font-bold text-text-primary">
                       {formatMoney(preview.renewalAmount)}
                       {intervalSuffix}
@@ -396,7 +396,8 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
                         {formatMoney(preview.renewalAmount)}
                         {intervalSuffix}
                       </span>{" "}
-                      ({formatMoney(preview.planPrice)} plan + {formatMoney(target * preview.addonPrice)} for {plural(target)}).
+                      ({formatMoney(preview.planPrice)} plan{preview.renewalDiscounted && " with your coupon"} +{" "}
+                      {formatMoney(target * preview.addonPrice)} for {plural(target)}).
                     </span>
                   </div>
                 )}
@@ -431,8 +432,8 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
 
             {billedNext > 0 && (
               <p className="text-caption text-text-secondary">
-                While you have extra slots, your plan can&apos;t be switched from Manage billing. Set extra slots to 0
-                first — you keep them until the period ends.
+                Upgrade your plan from the Plans page. To move to a smaller plan in Manage billing, set extra slots to
+                0 first. You keep them until the period ends.
               </p>
             )}
           </>
@@ -441,7 +442,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
             {subscription.status !== "active"
               ? "Extra slots can be added while your plan is active."
               : subscription.provider === "apple" || subscription.provider === "google"
-                ? "Your plan is billed through the app store — extra slots can only be added to a plan bought on the web."
+                ? "Your plan is billed through the app store. Extra slots can only be added to a plan bought on the web."
                 : "Contact support to add extra slots to your plan."}
           </p>
         )}

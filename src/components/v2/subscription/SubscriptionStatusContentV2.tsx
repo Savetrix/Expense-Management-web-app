@@ -11,6 +11,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchMySubscription, openBillingPortal, confirmCheckout } from "@/store/subscription/subscriptionApi";
 import { ExtraSlotsCardV2 } from "./ExtraSlotsCardV2";
+import { CouponCardV2 } from "./CouponCardV2";
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   active: { label: "Active", className: "bg-success/10 text-success" },
@@ -211,6 +212,8 @@ export function SubscriptionStatusContentV2() {
         {subscription.addon && (
           <ExtraSlotsCardV2 subscription={subscription} startWithOneMore={searchParams.get("addSlot") === "1"} />
         )}
+
+        <CouponCardV2 subscription={subscription} />
 
         {/* Connected Companies */}
         {subscription.slots.length > 0 && (
