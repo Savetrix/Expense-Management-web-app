@@ -11,6 +11,7 @@ export interface BankFeedsConfig {
   /** Kill switch. Off: every bank route answers 503 and webhooks are acknowledged and ignored. */
   enabled: boolean;
   plaidEnv: PlaidEnvironmentName;
+  /** Empty until the Plaid keys are set: CSV import, decisions and suggestions still work. */
   plaidClientId: string;
   plaidSecret: string;
   /**
@@ -20,7 +21,9 @@ export interface BankFeedsConfig {
   webhookUrl: string | null;
   /** AES-256-GCM key that seals Plaid access tokens at rest. 32 bytes, base64 or hex. */
   tokenEncryptionKey: Buffer;
-  databaseUrl: string;
+  /** MongoDB connection string (its own Atlas cluster, not the backend's database). */
+  mongoUri: string;
+  mongoDbName: string;
   /**
    * Days of history Plaid pulls on the first connect (Plaid default 90, max 730,
    * fixed per bank login once connected). More history costs nothing extra at
@@ -53,10 +56,10 @@ function webhookUrlFromEnv(): string | null {
 export function readBankConfig(): BankConfigOutcome {
   const missing: string[] = [];
 
-  const plaidClientId = process.env.PLAID_CLIENT_ID?.trim();
-  if (!plaidClientId) missing.push("PLAID_CLIENT_ID");
-  const plaidSecret = process.env.PLAID_SECRET?.trim();
-  if (!plaidSecret) missing.push("PLAID_SECRET");
+  // Plaid keys are optional here: without them everything except connecting a
+  // bank works (CSV import, decisions, suggestions); plaid.ts refuses Plaid calls.
+  const plaidClientId = process.env.PLAID_CLIENT_ID?.trim() ?? "";
+  const plaidSecret = process.env.PLAID_SECRET?.trim() ?? "";
 
   // Sandbox unless production is asked for by name: real bank data only ever
   // flows when someone has deliberately switched it on.
@@ -65,10 +68,10 @@ export function readBankConfig(): BankConfigOutcome {
   const tokenEncryptionKey = parseEncryptionKey(process.env.BANK_TOKEN_ENCRYPTION_KEY);
   if (!tokenEncryptionKey) missing.push("BANK_TOKEN_ENCRYPTION_KEY");
 
-  const databaseUrl = (process.env.BANK_DATABASE_URL || process.env.DATABASE_URL)?.trim();
-  if (!databaseUrl) missing.push("BANK_DATABASE_URL");
+  const store = readStoreConfig();
+  if (!store) missing.push("BANK_MONGODB_URI");
 
-  if (missing.length > 0 || !plaidClientId || !plaidSecret || !tokenEncryptionKey || !databaseUrl) {
+  if (missing.length > 0 || !tokenEncryptionKey || !store) {
     return { ok: false, missing };
   }
   return {
@@ -80,13 +83,16 @@ export function readBankConfig(): BankConfigOutcome {
       plaidSecret,
       webhookUrl: webhookUrlFromEnv(),
       tokenEncryptionKey,
-      databaseUrl,
+      mongoUri: store.uri,
+      mongoDbName: store.dbName,
       historyDays: Math.min(730, Math.max(30, Number(process.env.BANK_HISTORY_DAYS) || 365)),
     },
   };
 }
 
 /** The database alone — enough for invoice insights, which need no Plaid. */
-export function readStoreUrl(): string | null {
-  return (process.env.BANK_DATABASE_URL || process.env.DATABASE_URL)?.trim() || null;
+export function readStoreConfig(): { uri: string; dbName: string } | null {
+  const uri = process.env.BANK_MONGODB_URI?.trim();
+  if (!uri) return null;
+  return { uri, dbName: process.env.BANK_MONGODB_DB?.trim() || "scantrix_web" };
 }

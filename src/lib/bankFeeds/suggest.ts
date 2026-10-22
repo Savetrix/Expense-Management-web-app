@@ -17,6 +17,7 @@
 // "autopilot") and says so on the line; the user can change it. It never
 // changes a line's status (exclude, transfer, match) by itself, and never posts.
 import type { Db } from "./db";
+import type { TxnDoc } from "./schema";
 
 // ---------------------------------------------------------------- payee key
 
@@ -204,35 +205,11 @@ function describe(v: Vote): string {
 
 // ---------------------------------------------------------------- persistence
 
-interface CandidateRow {
-  id: string;
-  date: string;
-  amount_cents: string;
-  description: string;
-  merchant_name: string | null;
-  counterparty_name: string | null;
-  payee_key: string | null;
-  decided_by: string | null;
-  status: string;
-  gl_account_id: string | null;
-}
-
-interface VoteRow {
-  payee_key: string;
-  status: string;
-  gl_account_id: string | null;
-  tax_code_id: string | null;
-  vendor_id: string | null;
-  payee: string | null;
-  transfer_label: string | null;
-  decided_at: string;
-}
-
-function toVote(r: VoteRow): Vote | null {
+function toVote(r: Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt">): Vote | null {
   const kind: SuggestionKind | null =
-    r.status === "transfer" ? "transfer" : r.status === "excluded" ? "exclude" : r.status === "matched" ? "bill" : r.gl_account_id ? "expense" : null;
-  if (!kind) return null;
-  return { kind, glAccountId: r.gl_account_id, taxCodeId: r.tax_code_id, vendorId: r.vendor_id, payee: r.payee, transferLabel: r.transfer_label, decidedAt: new Date(r.decided_at).toISOString() };
+    r.status === "transfer" ? "transfer" : r.status === "excluded" ? "exclude" : r.status === "matched" ? "bill" : r.glAccountId ? "expense" : null;
+  if (!kind || !r.decidedAt) return null;
+  return { kind, glAccountId: r.glAccountId, taxCodeId: r.taxCodeId, vendorId: r.vendorId, payee: r.payee, transferLabel: r.transferLabel, decidedAt: r.decidedAt.toISOString() };
 }
 
 /**
@@ -243,81 +220,80 @@ function toVote(r: VoteRow): Vote | null {
  */
 export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKeys?: string[]): Promise<{ scored: number; autoCoded: number }> {
   // 1. Give every line its payee key (new lines from sync/import have none yet).
-  const unkeyed = await db.query<CandidateRow>(
-    "SELECT id, description, merchant_name, counterparty_name FROM bank_transactions WHERE qb_connection_id = $1 AND payee_key IS NULL AND removed_at IS NULL",
-    [qbConnectionId],
-  );
+  const unkeyed = await db.txns
+    .find({ qbConnectionId, payeeKey: null, removedAt: null }, { projection: { _id: 1, description: 1, merchantName: 1, counterpartyName: 1 } })
+    .toArray();
   if (unkeyed.length > 0) {
-    await db.query(
-      `UPDATE bank_transactions t SET payee_key = v.k FROM unnest($2::uuid[], $3::text[]) AS v(id, k) WHERE t.id = v.id AND t.qb_connection_id = $1`,
-      [qbConnectionId, unkeyed.map((r) => r.id), unkeyed.map((r) => payeeKey(r.merchant_name ?? r.counterparty_name, r.description))],
+    await db.txns.bulkWrite(
+      unkeyed.map((r) => ({
+        updateOne: { filter: { _id: r._id, qbConnectionId }, update: { $set: { payeeKey: payeeKey(r.merchantName ?? r.counterpartyName, r.description) } } },
+      })),
+      { ordered: false },
     );
   }
+  const keyFilter = onlyKeys ? { payeeKey: { $in: onlyKeys } } : {};
 
-  // 2. Votes: the USER's own decisions. Lines Scantrix coded by itself do not
-  //    vote, or one early guess would keep confirming itself.
-  const voteRows = await db.query<VoteRow>(
-    `SELECT payee_key, status, gl_account_id, tax_code_id, vendor_id, payee, transfer_label, decided_at
-       FROM bank_transactions
-      WHERE qb_connection_id = $1 AND removed_at IS NULL AND decided_at IS NOT NULL
-        AND decided_by IS NOT NULL AND decided_by <> 'autopilot' AND payee_key IS NOT NULL AND payee_key <> ''
-        AND decided_at > now() - interval '365 days'
-        ${onlyKeys ? "AND payee_key = ANY($2::text[])" : ""}`,
-    onlyKeys ? [qbConnectionId, onlyKeys] : [qbConnectionId],
-  );
+  // 2. Votes: the USER's own decisions in the last year. Lines Scantrix coded by
+  //    itself do not vote, or one early guess would keep confirming itself.
+  const voteRows = await db.txns
+    .find({
+      qbConnectionId,
+      removedAt: null,
+      decidedAt: { $gt: new Date(Date.now() - 365 * 86_400_000) },
+      decidedBy: { $nin: [null, "autopilot"] },
+      payeeKey: { $nin: [null, ""], ...(onlyKeys ? { $in: onlyKeys } : {}) },
+    })
+    .project<Pick<TxnDoc, "payeeKey" | "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt">>({
+      payeeKey: 1, status: 1, glAccountId: 1, taxCodeId: 1, vendorId: 1, payee: 1, transferLabel: 1, decidedAt: 1,
+    })
+    .toArray();
   const votesByKey = new Map<string, Vote[]>();
   for (const r of voteRows) {
     const v = toVote(r);
-    if (!v) continue;
-    const list = votesByKey.get(r.payee_key) ?? [];
+    if (!v || !r.payeeKey) continue;
+    const list = votesByKey.get(r.payeeKey) ?? [];
     list.push(v);
-    votesByKey.set(r.payee_key, list);
+    votesByKey.set(r.payeeKey, list);
   }
 
   // 3. Candidates: lines still to review that the user has not coded.
-  const candidates = await db.query<CandidateRow>(
-    `SELECT id, date, amount_cents, description, merchant_name, counterparty_name, payee_key, decided_by, status, gl_account_id
-       FROM bank_transactions
-      WHERE qb_connection_id = $1 AND removed_at IS NULL AND status = 'review'
-        AND (decided_by IS NULL OR decided_by = 'autopilot') AND posting_status IS NULL
-        ${onlyKeys ? "AND payee_key = ANY($2::text[])" : ""}`,
-    onlyKeys ? [qbConnectionId, onlyKeys] : [qbConnectionId],
-  );
+  const candidates = await db.txns
+    .find({ qbConnectionId, removedAt: null, status: "review", decidedBy: { $in: [null, "autopilot"] }, postingStatus: null, ...keyFilter })
+    .toArray();
 
   let autoCoded = 0;
   const now = Date.now();
   for (const c of candidates) {
-    const key = c.payee_key ?? "";
-    const label = (c.merchant_name ?? c.counterparty_name ?? c.description).trim() || "this payee";
-    const s = score({ date: String(c.date).slice(0, 10), amountCents: Number(c.amount_cents), description: c.description, payeeLabel: label }, key ? (votesByKey.get(key) ?? []) : [], now);
+    const key = c.payeeKey ?? "";
+    const label = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
+    const s = score({ date: c.date, amountCents: c.amountCents, description: c.description, payeeLabel: label }, key ? (votesByKey.get(key) ?? []) : [], now);
+    // Guarded by the same conditions in the filter, so a decision the user makes
+    // while this runs is never overwritten.
+    const guard = { _id: c._id, qbConnectionId, status: "review" as const };
     if (s.autoCoded) {
       autoCoded += 1;
-      await db.query(
-        `UPDATE bank_transactions SET suggestion = $2, gl_account_id = $3, tax_code_id = $4, vendor_id = $5, payee = $6,
-                decided_by = 'autopilot', decided_at = now(), version = version + 1, updated_at = now()
-          WHERE id = $1 AND (decided_by IS NULL OR decided_by = 'autopilot') AND status = 'review'`,
-        [c.id, JSON.stringify(s), s.glAccountId ?? null, s.taxCodeId ?? null, s.vendorId ?? null, s.payee ?? null],
+      await db.txns.updateOne(
+        { ...guard, decidedBy: { $in: [null, "autopilot"] } },
+        {
+          $set: { suggestion: s, glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null, decidedBy: "autopilot", decidedAt: new Date(), updatedAt: new Date() },
+          $inc: { version: 1 },
+        },
       );
-    } else if (c.decided_by === "autopilot") {
+    } else if (c.decidedBy === "autopilot") {
       // History no longer supports the coding Scantrix chose: undo it, keep the explanation.
-      await db.query(
-        `UPDATE bank_transactions SET suggestion = $2, gl_account_id = NULL, tax_code_id = NULL, vendor_id = NULL, payee = NULL,
-                decided_by = NULL, decided_at = NULL, version = version + 1, updated_at = now()
-          WHERE id = $1 AND decided_by = 'autopilot' AND status = 'review'`,
-        [c.id, JSON.stringify(s)],
+      await db.txns.updateOne(
+        { ...guard, decidedBy: "autopilot" },
+        { $set: { suggestion: s, glAccountId: null, taxCodeId: null, vendorId: null, payee: null, decidedBy: null, decidedAt: null, updatedAt: new Date() }, $inc: { version: 1 } },
       );
     } else {
-      await db.query("UPDATE bank_transactions SET suggestion = $2, updated_at = now() WHERE id = $1 AND decided_by IS NULL", [c.id, JSON.stringify(s)]);
+      await db.txns.updateOne({ ...guard, decidedBy: null }, { $set: { suggestion: s, updatedAt: new Date() } });
     }
   }
   return { scored: candidates.length, autoCoded };
 }
 
 export async function payeeKeyOf(db: Db, qbConnectionId: string, id: string): Promise<string | null> {
-  const [row] = await db.query<{ payee_key: string | null; description: string; merchant_name: string | null; counterparty_name: string | null }>(
-    "SELECT payee_key, description, merchant_name, counterparty_name FROM bank_transactions WHERE id = $1 AND qb_connection_id = $2",
-    [id, qbConnectionId],
-  );
+  const row = await db.txns.findOne({ _id: id, qbConnectionId }, { projection: { payeeKey: 1, description: 1, merchantName: 1, counterpartyName: 1 } });
   if (!row) return null;
-  return row.payee_key ?? payeeKey(row.merchant_name ?? row.counterparty_name, row.description);
+  return row.payeeKey ?? payeeKey(row.merchantName ?? row.counterpartyName, row.description);
 }

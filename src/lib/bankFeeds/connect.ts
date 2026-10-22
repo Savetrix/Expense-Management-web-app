@@ -4,7 +4,8 @@ import { sealSecret } from "@/lib/inboundEmail/secretBox";
 import type { BankFeedsConfig } from "./config";
 import type { Db } from "./db";
 import type { PlaidGateway } from "./plaid";
-import { insertItem, logEvent, upsertAccounts, type ItemRow } from "./store";
+import type { ItemDoc } from "./schema";
+import { insertItem, logEvent, upsertAccounts } from "./store";
 import { tokenAad } from "./sync";
 
 export interface LinkMetadata {
@@ -20,15 +21,12 @@ export interface LinkMetadata {
  * masks from Link's onSuccess metadata BEFORE exchanging the public token
  * (plaid.com/docs/link/duplicate-items/), so a duplicate is never created.
  */
-export async function findDuplicateItem(db: Db, qbConnectionId: string, meta: LinkMetadata): Promise<ItemRow | null> {
+export async function findDuplicateItem(db: Db, qbConnectionId: string, meta: LinkMetadata): Promise<ItemDoc | null> {
   if (!meta.institutionId || meta.accountMasks.length === 0) return null;
-  const rows = await db.query<ItemRow>(
-    `SELECT DISTINCT i.* FROM bank_items i JOIN bank_accounts a ON a.item_id = i.id
-      WHERE i.qb_connection_id = $1 AND i.institution_id = $2 AND i.removed_at IS NULL
-        AND a.removed_at IS NULL AND a.mask = ANY($3::text[])`,
-    [qbConnectionId, meta.institutionId, meta.accountMasks],
-  );
-  return rows[0] ?? null;
+  const items = await db.items.find({ qbConnectionId, institutionId: meta.institutionId, removedAt: null }).toArray();
+  if (items.length === 0) return null;
+  const hit = await db.accounts.findOne({ itemId: { $in: items.map((i) => i._id) }, removedAt: null, mask: { $in: meta.accountMasks } });
+  return hit ? (items.find((i) => i._id === hit.itemId) ?? null) : null;
 }
 
 export async function connectItem(
@@ -36,7 +34,7 @@ export async function connectItem(
   gateway: PlaidGateway,
   config: BankFeedsConfig,
   args: { qbConnectionId: string; userId: string; publicToken: string; meta: LinkMetadata },
-): Promise<ItemRow> {
+): Promise<ItemDoc> {
   const { accessToken, itemId } = await gateway.exchangePublicToken(args.publicToken);
   const details = await gateway.getAccounts(accessToken);
   const institutionId = details.institutionId ?? args.meta.institutionId;
@@ -56,7 +54,7 @@ export async function connectItem(
   await upsertAccounts(db, item, details.accounts);
   await logEvent(db, {
     qbConnectionId: args.qbConnectionId,
-    itemId: item.id,
+    itemId: item._id,
     actor: args.userId,
     action: "bank.connected",
     detail: { institutionName, accounts: details.accounts.length, env: config.plaidEnv },

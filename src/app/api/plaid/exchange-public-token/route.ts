@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   try {
     const duplicate = await findDuplicateItem(ctx.db, ctx.connection.id, meta);
     if (duplicate) {
-      return fail(409, `${duplicate.institution_name} is already connected to ${ctx.connection.name}.`, { reason: "duplicate" });
+      return fail(409, `${duplicate.institutionName} is already connected to ${ctx.connection.name}.`, { reason: "duplicate" });
     }
     const gateway = plaidGateway(ctx.config);
     const item = await connectItem(ctx.db, gateway, ctx.config, {
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     });
     // Plaid sends SYNC_UPDATES_AVAILABLE only after the first sync call, so
     // make it now — after the response, so the user is not kept waiting.
-    after(() => syncItem(ctx.db, gateway, ctx.config, item.id, ctx.caller.userId).catch((e) => console.error("[bank] first sync failed", e?.message)));
+    after(() => syncItem(ctx.db, gateway, ctx.config, item._id, ctx.caller.userId).catch((e) => console.error("[bank] first sync failed", e?.message)));
     return json({ accounts: await listAccountViews(ctx.db, ctx.connection.id) }, 201);
   } catch (error) {
     return errorResponse("exchange", error);

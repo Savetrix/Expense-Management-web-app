@@ -231,11 +231,30 @@ class SdkGateway implements PlaidGateway {
   }
 }
 
+const refuse = async (): Promise<never> => {
+  throw new PlaidCallError("PLAID_NOT_CONFIGURED", "API_ERROR", "Plaid keys are not set", "Connecting a bank isn't switched on yet: the Plaid keys still need to be added. CSV import works meanwhile.", 503, null);
+};
+/** Stands in for Plaid until PLAID_CLIENT_ID / PLAID_SECRET are set. */
+const notConfigured: PlaidGateway = {
+  createLinkToken: refuse,
+  exchangePublicToken: refuse,
+  getAccounts: refuse,
+  syncTransactions: refuse,
+  removeItem: refuse,
+  itemError: refuse,
+  institutionName: async () => null,
+  webhookKey: async () => null,
+  sandboxPublicToken: refuse,
+  sandboxFireWebhook: refuse,
+  sandboxResetLogin: refuse,
+};
+
 let override: PlaidGateway | null = null;
 const g = globalThis as { __plaidGateways?: Map<string, PlaidGateway> };
 
 export function plaidGateway(config: BankFeedsConfig): PlaidGateway {
   if (override) return override;
+  if (!config.plaidClientId || !config.plaidSecret) return notConfigured;
   g.__plaidGateways ??= new Map();
   const key = `${config.plaidEnv}:${config.plaidClientId}`;
   let gateway = g.__plaidGateways.get(key);

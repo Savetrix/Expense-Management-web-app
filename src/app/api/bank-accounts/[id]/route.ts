@@ -30,11 +30,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
           console.error("[bank] item remove failed", (error as Error).message);
         }
       }
-      await markItemRemoved(ctx.db, found.item.id);
+      await markItemRemoved(ctx.db, found.item._id);
     }
     await logEvent(ctx.db, {
       qbConnectionId: ctx.connection.id,
-      itemId: found.item.id,
+      itemId: found.item._id,
       actor: ctx.caller.userId,
       action: "bank.account_disconnected",
       detail: { account: found.account.name, removedLogin: remaining === 0, removedAtPlaid },

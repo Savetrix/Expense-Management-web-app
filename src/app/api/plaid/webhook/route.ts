@@ -8,9 +8,9 @@
 import { after } from "next/server";
 
 import { readBankConfig } from "@/lib/bankFeeds/config";
-import { openDb } from "@/lib/bankFeeds/db";
+import { readyDb } from "@/lib/bankFeeds/db";
 import { plaidGateway } from "@/lib/bankFeeds/plaid";
-import { getItemByPlaidId, logEvent, setItemStatus } from "@/lib/bankFeeds/store";
+import { getItemByPlaidId, logEvent, logWebhook, setItemStatus, setItemUpdateFlags } from "@/lib/bankFeeds/store";
 import { syncItem } from "@/lib/bankFeeds/sync";
 import { actionFor, verifyPlaidWebhook, type PlaidWebhook } from "@/lib/bankFeeds/webhook";
 
@@ -43,34 +43,30 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, ignored: "other environment" });
   }
 
-  const db = openDb(config.databaseUrl);
   const action = actionFor(webhook);
   after(async () => {
     try {
-      await db.query("INSERT INTO bank_webhook_log (plaid_item_id, webhook_type, webhook_code, outcome) VALUES ($1, $2, $3, $4)", [
-        webhook.item_id ?? null,
-        webhook.webhook_type,
-        webhook.webhook_code,
-        config.enabled ? action.kind : "disabled",
-      ]);
+      const db = await readyDb(config.mongoUri, config.mongoDbName);
+      await logWebhook(db, {
+        plaidItemId: webhook.item_id ?? null,
+        webhookType: webhook.webhook_type ?? null,
+        webhookCode: webhook.webhook_code ?? null,
+        outcome: config.enabled ? action.kind : "disabled",
+      });
       if (!config.enabled || action.kind === "ignore" || !webhook.item_id) return;
       const item = await getItemByPlaidId(db, webhook.item_id);
       if (!item) return;
       if (action.kind === "sync") {
         if (action.initialComplete || action.historicalComplete) {
-          await db.query(
-            `UPDATE bank_items SET initial_update_complete = initial_update_complete OR $2,
-                    historical_update_complete = historical_update_complete OR $3, updated_at = now() WHERE id = $1`,
-            [item.id, Boolean(action.initialComplete), Boolean(action.historicalComplete)],
-          );
+          await setItemUpdateFlags(db, item._id, { initial: action.initialComplete, historical: action.historicalComplete });
         }
-        await syncItem(db, gateway, config, item.id, "plaid");
+        await syncItem(db, gateway, config, item._id, "plaid");
       } else if (action.kind === "status") {
-        await setItemStatus(db, item.id, action.status, action.code);
-        await logEvent(db, { qbConnectionId: item.qb_connection_id, itemId: item.id, actor: "plaid", action: `bank.${action.status}`, detail: { code: action.code } });
-        if (action.status === "active") await syncItem(db, gateway, config, item.id, "plaid");
+        await setItemStatus(db, item._id, action.status, action.code);
+        await logEvent(db, { qbConnectionId: item.qbConnectionId, itemId: item._id, actor: "plaid", action: `bank.${action.status}`, detail: { code: action.code } });
+        if (action.status === "active") await syncItem(db, gateway, config, item._id, "plaid");
       } else if (action.kind === "new_accounts") {
-        await logEvent(db, { qbConnectionId: item.qb_connection_id, itemId: item.id, actor: "plaid", action: "bank.new_accounts_available" });
+        await logEvent(db, { qbConnectionId: item.qbConnectionId, itemId: item._id, actor: "plaid", action: "bank.new_accounts_available" });
       }
     } catch (error) {
       console.error("[bank] webhook work failed", (error as Error).message);

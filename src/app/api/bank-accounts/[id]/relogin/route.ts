@@ -16,9 +16,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const found = await getItemForAccount(ctx.db, ctx.connection.id, id);
     if (!found) return fail(404, "That bank account isn't connected.");
-    await setItemStatus(ctx.db, found.item.id, "active", null);
-    await logEvent(ctx.db, { qbConnectionId: ctx.connection.id, itemId: found.item.id, actor: ctx.caller.userId, action: "bank.relogin" });
-    const outcome = await syncItem(ctx.db, plaidGateway(ctx.config), ctx.config, found.item.id, ctx.caller.userId);
+    await setItemStatus(ctx.db, found.item._id, "active", null);
+    await logEvent(ctx.db, { qbConnectionId: ctx.connection.id, itemId: found.item._id, actor: ctx.caller.userId, action: "bank.relogin" });
+    const outcome = await syncItem(ctx.db, plaidGateway(ctx.config), ctx.config, found.item._id, ctx.caller.userId);
     return json({ outcome, accounts: await listAccountViews(ctx.db, ctx.connection.id) });
   } catch (error) {
     return errorResponse("relogin", error);

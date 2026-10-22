@@ -3,23 +3,23 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
-import { __closeBankDbForTests, openDb, type Db } from "../lib/bankFeeds/db";
+import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { decide, importCsv, listTransactions, readPatch } from "../lib/bankFeeds/transactions";
 
-import { BANK_TEST_DATABASE_URL as URL, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
-describe("bank line decisions", { skip: URL ? false : "BANK_TEST_DATABASE_URL not set" }, () => {
+describe("bank line decisions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   let db: Db;
   before(async () => {
     await resetBankTestDatabase(URL as string);
     await __closeBankDbForTests();
-    db = openDb(URL as string);
+    db = await openTestDb(URL as string);
   });
   after(async () => {
     await __closeBankDbForTests();
   });
   beforeEach(async () => {
-    await db.query("TRUNCATE bank_events, bank_transactions, bank_accounts, bank_items CASCADE");
+    await clearBankTestData(db);
   });
 
   const seed = async (qb = "qb-1") => {
@@ -123,7 +123,7 @@ describe("bank line decisions", { skip: URL ? false : "BANK_TEST_DATABASE_URL no
 
   it("refuses to change a line that is already in the accounting software", async () => {
     const [line] = await seed();
-    await db.query("UPDATE bank_transactions SET posting_status = 'posted' WHERE id = $1", [line.id]);
+    await db.txns.updateOne({ _id: line.id }, { $set: { postingStatus: "posted" } });
     const r = await decide(db, { qbConnectionId: "qb-1", id: line.id, userId: "u1", patch: { status: "excluded" } });
     assert.equal(!r.ok && r.status, 409);
   });
@@ -131,10 +131,7 @@ describe("bank line decisions", { skip: URL ? false : "BANK_TEST_DATABASE_URL no
   it("writes an audit event with before and after", async () => {
     const [line] = await seed();
     await decide(db, { qbConnectionId: "qb-1", id: line.id, userId: "u1", patch: { status: "excluded" }, action: "bank.excluded" });
-    const [ev] = await db.query<{ action: string; detail: { before: { status: string }; after: { status: string } } }>(
-      "SELECT action, detail FROM bank_events WHERE transaction_id = $1",
-      [line.id],
-    );
+    const ev = (await db.events.findOne({ transactionId: line.id })) as unknown as { action: string; detail: { before: { status: string }; after: { status: string } } };
     assert.equal(ev.action, "bank.excluded");
     assert.deepEqual([ev.detail.before.status, ev.detail.after.status], ["review", "excluded"]);
   });

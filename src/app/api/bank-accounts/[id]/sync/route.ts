@@ -16,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const found = await getItemForAccount(ctx.db, ctx.connection.id, id);
     if (!found) return fail(404, "That bank account isn't connected.");
-    const outcome = await syncItem(ctx.db, plaidGateway(ctx.config), ctx.config, found.item.id, ctx.caller.userId);
+    const outcome = await syncItem(ctx.db, plaidGateway(ctx.config), ctx.config, found.item._id, ctx.caller.userId);
     return json({ outcome, accounts: await listAccountViews(ctx.db, ctx.connection.id) });
   } catch (error) {
     return errorResponse("sync", error);

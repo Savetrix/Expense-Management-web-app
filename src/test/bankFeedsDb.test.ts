@@ -1,20 +1,17 @@
-// Runs against a real Postgres. Skipped unless BANK_TEST_DATABASE_URL points at
-// a throwaway database (every run drops the bank tables first).
+// The database rules the code relies on, enforced by MongoDB indexes. Runs
+// against a real MongoDB; skipped unless BANK_TEST_MONGODB_URI is set.
 //
-//   BANK_TEST_DATABASE_URL=postgres://scantrix@localhost:54329/scantrix_test \
+//   BANK_TEST_MONGODB_URI=mongodb://127.0.0.1:27027/?replicaSet=testset \
 //     node --import tsx --test --test-concurrency=1 src/test/bankFeeds*.test.ts
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
-import { __closeBankDbForTests, openDb } from "../lib/bankFeeds/db";
-import { MIGRATIONS } from "../lib/bankFeeds/schema";
+import { __closeBankDbForTests } from "../lib/bankFeeds/db";
+import { importCsv } from "../lib/bankFeeds/transactions";
 
-import { resetBankTestDatabase } from "./helpers/bankTestDb";
+import { BANK_TEST_DATABASE_URL as URL, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
-const URL = process.env.BANK_TEST_DATABASE_URL;
-
-
-describe("bank feeds database", { skip: URL ? false : "BANK_TEST_DATABASE_URL not set" }, () => {
+describe("bank feeds database", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   before(async () => {
     await resetBankTestDatabase(URL as string);
     await __closeBankDbForTests();
@@ -23,39 +20,27 @@ describe("bank feeds database", { skip: URL ? false : "BANK_TEST_DATABASE_URL no
     await __closeBankDbForTests();
   });
 
-  it("applies every migration exactly once, even when two instances start together", async () => {
-    // Two "instances" (separate schema-ready caches) racing on a cold database.
-    const a = openDb(URL as string);
-    await Promise.all([a.query("SELECT 1"), a.query("SELECT 1")]);
-    await __closeBankDbForTests();
-    const b = openDb(URL as string);
-    const rows = await b.query<{ version: number }>("SELECT version FROM bank_schema_migrations ORDER BY version");
-    assert.deepEqual(
-      rows.map((r) => r.version),
-      MIGRATIONS.map((m) => m.version),
-    );
+  it("creates its indexes once, even when two requests start together", async () => {
+    const [a, b] = await Promise.all([openTestDb(URL as string), openTestDb(URL as string)]);
+    const names = (await a.txns.indexes()).map((i) => i.name);
+    assert.ok(names.some((n) => n?.startsWith("plaidTransactionId")));
+    assert.ok(names.some((n) => n?.includes("csvDedupeKey")));
+    assert.equal(a.database.databaseName, b.database.databaseName);
   });
 
-  it("rolls a failed transaction back", async () => {
-    const db = openDb(URL as string);
-    await assert.rejects(
-      db.tx(async (q) => {
-        await q(
-          "INSERT INTO bank_items (qb_connection_id, plaid_item_id, plaid_env, sealed_access_token, created_by) VALUES ('qb-1', 'item-rollback', 'sandbox', 'x', 'u1')",
-        );
-        throw new Error("boom");
-      }),
-    );
-    const rows = await db.query("SELECT 1 FROM bank_items WHERE plaid_item_id = 'item-rollback'");
-    assert.equal(rows.length, 0);
+  it("keeps one row per Plaid transaction", async () => {
+    const db = await openTestDb(URL as string);
+    const doc = { qbConnectionId: "qb-1", plaidTransactionId: "t-unique", date: "2026-10-01", amountCents: -100 };
+    await db.txns.insertOne({ ...doc, _id: "a" } as never);
+    await assert.rejects(db.txns.insertOne({ ...doc, _id: "b" } as never), /duplicate key/);
   });
 
-  it("refuses a status outside the four the screens know", async () => {
-    const db = openDb(URL as string);
-    await assert.rejects(
-      db.query(
-        "INSERT INTO bank_transactions (qb_connection_id, account_label, source, date, amount_cents, status) VALUES ('qb-1', 'x', 'csv', '2026-10-01', -100, 'posted')",
-      ),
-    );
+  it("lets CSV lines (which have no Plaid id) coexist, but never twice with the same key", async () => {
+    const db = await openTestDb(URL as string);
+    const rows = [{ date: "2026-10-01", description: "A", amount: -1 }];
+    const first = await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "x", rows });
+    const second = await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "x", rows });
+    const otherCompany = await importCsv(db, { qbConnectionId: "qb-2", userId: "u1", accountLabel: "x", rows });
+    assert.deepEqual([first.added, second.added, otherCompany.added], [1, 0, 1]);
   });
 });

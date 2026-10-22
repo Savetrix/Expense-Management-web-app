@@ -8,15 +8,15 @@ import type { AccountBase, Transaction } from "plaid";
 
 import type { BankFeedsConfig } from "../lib/bankFeeds/config";
 import { connectItem, findDuplicateItem } from "../lib/bankFeeds/connect";
-import { __closeBankDbForTests, openDb, type Db } from "../lib/bankFeeds/db";
+import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { PlaidCallError, type PlaidGateway, type SyncPage } from "../lib/bankFeeds/plaid";
 import { listAccountViews, markItemRemoved, removeAccount } from "../lib/bankFeeds/store";
 import { openAccessToken, syncItem } from "../lib/bankFeeds/sync";
 import { __seedWebhookKeyForTests, actionFor, verifyPlaidWebhook } from "../lib/bankFeeds/webhook";
 
-import { resetBankTestDatabase } from "./helpers/bankTestDb";
+import { BANK_TEST_DB_NAME, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
-const URL = process.env.BANK_TEST_DATABASE_URL;
+const URL = process.env.BANK_TEST_MONGODB_URI;
 
 const config: BankFeedsConfig = {
   enabled: true,
@@ -25,7 +25,8 @@ const config: BankFeedsConfig = {
   plaidSecret: "secret",
   webhookUrl: null,
   tokenEncryptionKey: Buffer.alloc(32, 7),
-  databaseUrl: URL ?? "",
+  mongoUri: URL ?? "",
+  mongoDbName: BANK_TEST_DB_NAME,
   historyDays: 365,
 };
 
@@ -94,21 +95,21 @@ class FakePlaid implements PlaidGateway {
 
 const page = (p: Partial<SyncPage>): SyncPage => ({ added: [], modified: [], removed: [], accounts: [], nextCursor: "c", hasMore: false, ...p });
 
-describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL not set" }, () => {
+describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   let db: Db;
   let plaid: FakePlaid;
 
   before(async () => {
     await resetBankTestDatabase(URL as string);
     await __closeBankDbForTests();
-    db = openDb(URL as string);
+    db = await openTestDb(URL as string);
   });
   after(async () => {
     await __closeBankDbForTests();
   });
   beforeEach(async () => {
     plaid = new FakePlaid();
-    await db.query("TRUNCATE bank_events, bank_transactions, bank_accounts, bank_items, bank_webhook_log CASCADE");
+    await clearBankTestData(db);
   });
 
   const connect = (qb = "qb-1", token = "p1") =>
@@ -116,11 +117,11 @@ describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL 
 
   it("seals the access token and never stores it in the clear", async () => {
     const item = await connect();
-    assert.notEqual(item.sealed_access_token, "access-sandbox-p1");
-    assert.doesNotMatch(item.sealed_access_token, /access-sandbox/);
+    assert.notEqual(item.sealedAccessToken, "access-sandbox-p1");
+    assert.doesNotMatch(item.sealedAccessToken, /access-sandbox/);
     assert.equal(openAccessToken(config, item), "access-sandbox-p1");
     // Bound to its item: the same sealed value under another item id does not open.
-    assert.equal(openAccessToken(config, { ...item, plaid_item_id: "item-other" }), null);
+    assert.equal(openAccessToken(config, { ...item, plaidItemId: "item-other" }), null);
   });
 
   it("lists the accounts for the company that connected them, and no one else", async () => {
@@ -147,11 +148,15 @@ describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL 
       page({ added: [txn("t1", "acc-1", 12.4), txn("t2", "acc-1", -2500, { merchant_name: null, original_description: "ACME PAYROLL" })], nextCursor: "c1", hasMore: true }),
       page({ added: [txn("t3", "acc-2", 5, { pending: true })], nextCursor: "c2", hasMore: false }),
     ];
-    const out = await syncItem(db, plaid, config, item.id);
+    const out = await syncItem(db, plaid, config, item._id);
     assert.deepEqual(out, { status: "synced", added: 2, modified: 0, removed: 0 });
-    const rows = await db.query<{ plaid_transaction_id: string; amount_cents: string; description: string; merchant_name: string | null; account_label: string }>(
-      "SELECT plaid_transaction_id, amount_cents, description, merchant_name, account_label FROM bank_transactions ORDER BY plaid_transaction_id",
-    );
+    const rows = (await db.txns.find({}).sort({ plaidTransactionId: 1 }).toArray()).map((r) => ({
+      plaid_transaction_id: r.plaidTransactionId,
+      amount_cents: r.amountCents,
+      description: r.description,
+      merchant_name: r.merchantName,
+      account_label: r.accountLabel,
+    }));
     assert.deepEqual(
       rows.map((r) => [r.plaid_transaction_id, Number(r.amount_cents)]),
       [
@@ -162,8 +167,8 @@ describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL 
     assert.equal(rows[0].description, "UBER *TRIP HELP.UBER.COM");
     assert.equal(rows[0].merchant_name, "Uber");
     assert.equal(rows[0].account_label, "First Platypus Bank Plaid Checking ••0000");
-    const [saved] = await db.query<{ sync_cursor: string }>("SELECT sync_cursor FROM bank_items WHERE id = $1", [item.id]);
-    assert.equal(saved.sync_cursor, "c2");
+    const saved = await db.items.findOne({ _id: item._id });
+    assert.equal(saved?.syncCursor, "c2");
   });
 
   it("restarts from the starting cursor when Plaid's data changes mid-pagination", async () => {
@@ -179,46 +184,44 @@ describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL 
       if (n === 3) return page({ added: [txn("t1", "acc-1", 10), txn("t4", "acc-1", 20)], nextCursor: "c9" });
       return realSync(token, cursor);
     };
-    const out = await syncItem(db, plaid, config, item.id);
+    const out = await syncItem(db, plaid, config, item._id);
     assert.equal(out.status, "synced");
-    const [{ count }] = await db.query<{ count: string }>("SELECT count(*) FROM bank_transactions");
+    const count = await db.txns.countDocuments({});
     assert.equal(Number(count), 2, "t1 re-applied, not duplicated");
   });
 
   it("never overwrites the user's decision when Plaid sends a change", async () => {
     const item = await connect();
     plaid.pages = [page({ added: [txn("t1", "acc-1", 12.4)], nextCursor: "c1" })];
-    await syncItem(db, plaid, config, item.id);
-    await db.query("UPDATE bank_transactions SET status = 'excluded', payee = 'Uber', gl_account_id = 'gl-430' WHERE plaid_transaction_id = 't1'");
+    await syncItem(db, plaid, config, item._id);
+    await db.txns.updateOne({ plaidTransactionId: "t1" }, { $set: { status: "excluded", payee: "Uber", glAccountId: "gl-430" } });
     plaid.pages = [page({ modified: [txn("t1", "acc-1", 13.1)], nextCursor: "c2" })];
-    await syncItem(db, plaid, config, item.id);
-    const [row] = await db.query<{ status: string; payee: string; gl_account_id: string; amount_cents: string }>(
-      "SELECT status, payee, gl_account_id, amount_cents FROM bank_transactions WHERE plaid_transaction_id = 't1'",
-    );
-    assert.deepEqual([row.status, row.payee, row.gl_account_id, Number(row.amount_cents)], ["excluded", "Uber", "gl-430", -1310]);
+    await syncItem(db, plaid, config, item._id);
+    const row = (await db.txns.findOne({ plaidTransactionId: "t1" }))!;
+    assert.deepEqual([row.status, row.payee, row.glAccountId, row.amountCents], ["excluded", "Uber", "gl-430", -1310]);
   });
 
   it("hides a transaction Plaid removes", async () => {
     const item = await connect();
     plaid.pages = [page({ added: [txn("t1", "acc-1", 1)], nextCursor: "c1" })];
-    await syncItem(db, plaid, config, item.id);
+    await syncItem(db, plaid, config, item._id);
     plaid.pages = [page({ removed: [{ transaction_id: "t1", account_id: "acc-1" }], nextCursor: "c2" })];
-    const out = await syncItem(db, plaid, config, item.id);
+    const out = await syncItem(db, plaid, config, item._id);
     assert.equal(out.status === "synced" && out.removed, 1);
-    const [row] = await db.query<{ removed_at: string | null }>("SELECT removed_at FROM bank_transactions WHERE plaid_transaction_id = 't1'");
-    assert.ok(row.removed_at);
+    const row = await db.txns.findOne({ plaidTransactionId: "t1" });
+    assert.ok(row?.removedAt);
   });
 
   it("marks the login as needing re-login when the bank asks for it", async () => {
     const item = await connect();
     plaid.failNext = new PlaidCallError("ITEM_LOGIN_REQUIRED", "ITEM_ERROR", "login required", null, 400, "r");
-    const out = await syncItem(db, plaid, config, item.id);
+    const out = await syncItem(db, plaid, config, item._id);
     assert.deepEqual(out, { status: "login_required", code: "ITEM_LOGIN_REQUIRED" });
     const [view] = await listAccountViews(db, "qb-1");
     assert.equal(view.status, "needs_relogin");
     assert.match(view.statusDetail ?? "", /sign in again/i);
     // The next clean sync clears it.
-    await syncItem(db, plaid, config, item.id);
+    await syncItem(db, plaid, config, item._id);
     assert.equal((await listAccountViews(db, "qb-1"))[0].status, "connected");
   });
 
@@ -232,9 +235,9 @@ describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL 
       if (calls === 1) await gate;
       return page({ nextCursor: `c${calls}` });
     };
-    const first = syncItem(db, plaid, config, item.id);
+    const first = syncItem(db, plaid, config, item._id);
     await new Promise((r) => setTimeout(r, 50));
-    assert.deepEqual(await syncItem(db, plaid, config, item.id), { status: "busy" });
+    assert.deepEqual(await syncItem(db, plaid, config, item._id), { status: "busy" });
     release();
     assert.equal((await first).status, "synced");
     assert.equal(calls, 2, "the folded request ran as a second round");
@@ -245,10 +248,10 @@ describe("bank connect and sync", { skip: URL ? false : "BANK_TEST_DATABASE_URL 
     const [a, b] = await listAccountViews(db, "qb-1");
     assert.equal(await removeAccount(db, "qb-1", a.id), 1);
     assert.equal(await removeAccount(db, "qb-1", b.id), 0);
-    await markItemRemoved(db, item.id);
-    const [row] = await db.query<{ removed_at: string | null; sealed_access_token: string }>("SELECT removed_at, sealed_access_token FROM bank_items WHERE id = $1", [item.id]);
-    assert.ok(row.removed_at);
-    assert.equal(row.sealed_access_token, "removed");
+    await markItemRemoved(db, item._id);
+    const row = (await db.items.findOne({ _id: item._id }))!;
+    assert.ok(row.removedAt);
+    assert.equal(row.sealedAccessToken, "removed");
     assert.equal(await removeAccount(db, "qb-2", a.id), -1, "another company cannot touch it");
   });
 });

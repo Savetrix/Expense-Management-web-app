@@ -3,11 +3,11 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
-import { __closeBankDbForTests, openDb, type Db } from "../lib/bankFeeds/db";
+import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { bankInsight, periodInsight, setPrepaymentDismissed, toIsoDate } from "../lib/bankFeeds/invoiceInsights";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 
-import { BANK_TEST_DATABASE_URL as URL, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
 const atlassian = (updatedAt = "2026-09-02T10:00:00Z") => ({
   _id: "inv-atl",
@@ -31,18 +31,18 @@ describe("toIsoDate", () => {
   });
 });
 
-describe("invoice insights", { skip: URL ? false : "BANK_TEST_DATABASE_URL not set" }, () => {
+describe("invoice insights", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   let db: Db;
   before(async () => {
     await resetBankTestDatabase(URL as string);
     await __closeBankDbForTests();
-    db = openDb(URL as string);
+    db = await openTestDb(URL as string);
   });
   after(async () => {
     await __closeBankDbForTests();
   });
   beforeEach(async () => {
-    await db.query("TRUNCATE invoice_insights, bank_events, bank_transactions, bank_accounts, bank_items CASCADE");
+    await clearBankTestData(db);
   });
 
   it("detects a yearly plan as a prepayment and remembers the reading", async () => {

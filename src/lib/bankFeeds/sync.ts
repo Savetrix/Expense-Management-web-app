@@ -2,9 +2,9 @@
 // Plaid (/transactions/sync) into bank_transactions.
 //
 // Rules (plaid.com/docs/transactions/sync-migration/ and research notes):
-//   * One sync at a time per item: a lease row in bank_items. A webhook that
-//     lands while a sync runs only sets sync_requested_at, and the running sync
-//     goes round once more before releasing the lease.
+//   * One sync at a time per item: a lease on the item document, taken with an
+//     atomic findOneAndUpdate. A webhook that lands while a sync runs only sets
+//     syncRequestedAt, and the running sync goes round once more.
 //   * Pages are applied as they arrive, with upserts keyed by Plaid's id, so a
 //     restart re-applies harmlessly. The cursor is saved only after the LAST
 //     page; on TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION the loop restarts
@@ -12,8 +12,11 @@
 //   * Pending transactions are skipped. A pending charge can change amount or
 //     never post, and nothing should be coded against it. When it posts, Plaid
 //     sends it again as a new posted transaction.
-//   * Only Plaid-fact columns are written. The user's decision, Scantrix's
-//     suggestion and the posting state are never touched by a sync.
+//   * Only Plaid-fact fields are written ($set); the user's decision, the
+//     suggestion and the posting state are written only when a row is first
+//     created ($setOnInsert), so a sync can never overwrite them.
+import { randomUUID } from "node:crypto";
+
 import type { Transaction } from "plaid";
 
 import { openSecret } from "@/lib/inboundEmail/secretBox";
@@ -22,10 +25,11 @@ import type { BankFeedsConfig } from "./config";
 import type { Db } from "./db";
 import { mapPlaidTransaction } from "./plaidMap";
 import { PlaidCallError, type PlaidGateway } from "./plaid";
-import { logEvent, setItemStatus, upsertAccounts, type ItemRow } from "./store";
+import type { ItemDoc, TxnDoc } from "./schema";
+import { logEvent, setItemStatus, upsertAccounts } from "./store";
 import { refreshSuggestions } from "./suggest";
 
-const LEASE_SECONDS = 120;
+const LEASE_MS = 120_000;
 const MAX_RESTARTS = 3;
 const MAX_ROUNDS = 3;
 
@@ -41,104 +45,115 @@ export function tokenAad(plaidItemId: string): string {
   return `bank-item:${plaidItemId}`;
 }
 
-export function openAccessToken(config: BankFeedsConfig, item: Pick<ItemRow, "sealed_access_token" | "plaid_item_id">): string | null {
-  return openSecret(item.sealed_access_token, config.tokenEncryptionKey, tokenAad(item.plaid_item_id));
+export function openAccessToken(config: BankFeedsConfig, item: Pick<ItemDoc, "sealedAccessToken" | "plaidItemId">): string | null {
+  return openSecret(item.sealedAccessToken, config.tokenEncryptionKey, tokenAad(item.plaidItemId));
 }
 
-async function takeLease(db: Db, itemId: string): Promise<ItemRow | null> {
-  const rows = await db.query<ItemRow>(
-    `UPDATE bank_items
-        SET sync_lease_until = now() + make_interval(secs => $2), sync_requested_at = NULL, updated_at = now()
-      WHERE id = $1 AND removed_at IS NULL AND (sync_lease_until IS NULL OR sync_lease_until < now())
-      RETURNING *`,
-    [itemId, LEASE_SECONDS],
+async function takeLease(db: Db, itemId: string): Promise<ItemDoc | null> {
+  const now = new Date();
+  const item = await db.items.findOneAndUpdate(
+    { _id: itemId, removedAt: null, $or: [{ syncLeaseUntil: null }, { syncLeaseUntil: { $lt: now } }] },
+    { $set: { syncLeaseUntil: new Date(now.getTime() + LEASE_MS), syncRequestedAt: null, updatedAt: now } },
+    { returnDocument: "after" },
   );
-  if (rows.length === 1) return rows[0];
-  await db.query("UPDATE bank_items SET sync_requested_at = now() WHERE id = $1 AND removed_at IS NULL", [itemId]);
+  if (item) return item;
+  await db.items.updateOne({ _id: itemId, removedAt: null }, { $set: { syncRequestedAt: now } });
   return null;
 }
 
+/** Releases the lease; true when a request arrived meanwhile and another round is due. */
 async function releaseLease(db: Db, itemId: string): Promise<boolean> {
-  const [row] = await db.query<{ again: boolean }>(
-    `UPDATE bank_items SET sync_lease_until = NULL, updated_at = now() WHERE id = $1
-     RETURNING sync_requested_at IS NOT NULL AS again`,
-    [itemId],
-  );
-  return Boolean(row?.again);
+  const item = await db.items.findOneAndUpdate({ _id: itemId }, { $set: { syncLeaseUntil: null, updatedAt: new Date() } }, { returnDocument: "after" });
+  return Boolean(item?.syncRequestedAt);
 }
 
-function accountLabel(institution: string, name: string, mask: string | null): string {
+export function accountLabel(institution: string, name: string, mask: string | null): string {
   return `${institution} ${name}${mask ? ` ••${mask}` : ""}`.trim();
 }
 
-/** Upserts posted transactions for this item in one statement. Returns rows written. */
-async function applyTransactions(db: Db, item: ItemRow, txns: Transaction[]): Promise<number> {
+/** Upserts posted transactions for this item. Returns rows written. */
+async function applyTransactions(db: Db, item: ItemDoc, txns: Transaction[]): Promise<number> {
   const posted = txns.filter((t) => !t.pending).map(mapPlaidTransaction);
   if (posted.length === 0) return 0;
-  const col = <K extends keyof (typeof posted)[number]>(k: K) => posted.map((p) => p[k]);
-  const rows = await db.query<{ id: string }>(
-    `INSERT INTO bank_transactions (
-        qb_connection_id, account_id, account_label, source, plaid_transaction_id, date, authorized_date, description,
-        merchant_name, merchant_entity_id, counterparty_name, counterparty_type, logo_url, website, amount_cents, currency,
-        category_primary, category_detailed, category_confidence, payment_channel, check_number)
-     SELECT $1, a.id, $2 || ' ' || a.name || coalesce(' ••' || a.mask, ''), 'plaid', v.tid, v.date::date, v.adate::date, v.descr,
-            v.merchant, v.merchant_id, v.cp_name, v.cp_type, v.logo, v.web, v.cents, v.currency,
-            v.cat_p, v.cat_d, v.cat_c, v.channel, v.check_no
-       FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[],
-                   $12::text[], $13::text[], $14::bigint[], $15::text[], $16::text[], $17::text[], $18::text[], $19::text[], $20::text[])
-         AS v(tid, paid, date, adate, descr, merchant, merchant_id, cp_name, cp_type, logo, web, cents, currency, cat_p, cat_d, cat_c, channel, check_no)
-       JOIN bank_accounts a ON a.plaid_account_id = v.paid AND a.item_id = $21 AND a.removed_at IS NULL
-     ON CONFLICT (plaid_transaction_id) DO UPDATE SET
-        date = EXCLUDED.date, authorized_date = EXCLUDED.authorized_date, description = EXCLUDED.description,
-        merchant_name = EXCLUDED.merchant_name, merchant_entity_id = EXCLUDED.merchant_entity_id,
-        counterparty_name = EXCLUDED.counterparty_name, counterparty_type = EXCLUDED.counterparty_type,
-        logo_url = EXCLUDED.logo_url, website = EXCLUDED.website, amount_cents = EXCLUDED.amount_cents,
-        currency = EXCLUDED.currency, category_primary = EXCLUDED.category_primary,
-        category_detailed = EXCLUDED.category_detailed, category_confidence = EXCLUDED.category_confidence,
-        payment_channel = EXCLUDED.payment_channel, check_number = EXCLUDED.check_number,
-        removed_at = NULL, updated_at = now()
-     RETURNING id`,
-    [
-      item.qb_connection_id,
-      item.institution_name,
-      col("plaidTransactionId"),
-      col("plaidAccountId"),
-      col("date"),
-      col("authorizedDate"),
-      col("description"),
-      col("merchantName"),
-      col("merchantEntityId"),
-      col("counterpartyName"),
-      col("counterpartyType"),
-      col("logoUrl"),
-      col("website"),
-      col("amountCents"),
-      col("currency"),
-      col("categoryPrimary"),
-      col("categoryDetailed"),
-      col("categoryConfidence"),
-      col("paymentChannel"),
-      col("checkNumber"),
-      item.id,
-    ],
-  );
-  return rows.length;
+  // Only accounts still shown: a line for an account the user disconnected is dropped.
+  const accounts = await db.accounts.find({ itemId: item._id, removedAt: null, plaidAccountId: { $in: [...new Set(posted.map((p) => p.plaidAccountId))] } }).toArray();
+  const byPlaidId = new Map(accounts.map((a) => [a.plaidAccountId, a]));
+  const now = new Date();
+  const ops = [];
+  for (const p of posted) {
+    const account = byPlaidId.get(p.plaidAccountId);
+    if (!account) continue;
+    const facts: Partial<TxnDoc> = {
+      qbConnectionId: item.qbConnectionId,
+      accountId: account._id,
+      accountLabel: accountLabel(item.institutionName, account.name, account.mask),
+      date: p.date,
+      authorizedDate: p.authorizedDate,
+      description: p.description,
+      merchantName: p.merchantName,
+      merchantEntityId: p.merchantEntityId,
+      counterpartyName: p.counterpartyName,
+      counterpartyType: p.counterpartyType,
+      logoUrl: p.logoUrl,
+      website: p.website,
+      amountCents: p.amountCents,
+      currency: p.currency,
+      categoryPrimary: p.categoryPrimary,
+      categoryDetailed: p.categoryDetailed,
+      categoryConfidence: p.categoryConfidence,
+      paymentChannel: p.paymentChannel,
+      checkNumber: p.checkNumber,
+      removedAt: null,
+      updatedAt: now,
+    };
+    ops.push({
+      updateOne: {
+        filter: { plaidTransactionId: p.plaidTransactionId },
+        update: {
+          $set: facts,
+          $setOnInsert: {
+            _id: randomUUID(),
+            source: "plaid" as const,
+            plaidTransactionId: p.plaidTransactionId,
+            status: "review" as const,
+            matchedInvoiceId: null,
+            transferAccountId: null,
+            transferLabel: null,
+            glAccountId: null,
+            taxCodeId: null,
+            vendorId: null,
+            payee: null,
+            decidedBy: null,
+            decidedAt: null,
+            payeeKey: null,
+            suggestion: null,
+            postingStatus: null,
+            posting: null,
+            version: 1,
+            createdAt: now,
+          },
+        },
+        upsert: true,
+      },
+    });
+  }
+  if (ops.length === 0) return 0;
+  const r = await db.txns.bulkWrite(ops, { ordered: false });
+  return r.upsertedCount + r.matchedCount;
 }
 
-async function applyRemoved(db: Db, item: ItemRow, ids: string[]): Promise<number> {
+async function applyRemoved(db: Db, item: ItemDoc, ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
-  const rows = await db.query<{ id: string }>(
-    `UPDATE bank_transactions SET removed_at = now(), updated_at = now()
-      WHERE plaid_transaction_id = ANY($1::text[]) AND qb_connection_id = $2 AND removed_at IS NULL
-      RETURNING id`,
-    [ids, item.qb_connection_id],
+  const r = await db.txns.updateMany(
+    { plaidTransactionId: { $in: ids }, qbConnectionId: item.qbConnectionId, removedAt: null },
+    { $set: { removedAt: new Date(), updatedAt: new Date() } },
   );
-  return rows.length;
+  return r.modifiedCount;
 }
 
 /** One full pass: all pages from the saved cursor to has_more=false. */
-async function syncPass(db: Db, gateway: PlaidGateway, item: ItemRow, accessToken: string) {
-  const startCursor = item.sync_cursor;
+async function syncPass(db: Db, gateway: PlaidGateway, item: ItemDoc, accessToken: string) {
+  const startCursor = item.syncCursor;
   for (let attempt = 0; ; attempt += 1) {
     let cursor = startCursor;
     let added = 0;
@@ -154,12 +169,19 @@ async function syncPass(db: Db, gateway: PlaidGateway, item: ItemRow, accessToke
         cursor = page.nextCursor;
         if (!page.hasMore) break;
       }
-      await db.query(
-        `UPDATE bank_items SET sync_cursor = $2, last_synced_at = now(), last_sync_error = NULL,
-                status = CASE WHEN status IN ('login_required', 'error') THEN 'active' ELSE status END,
-                error_code = NULL, updated_at = now()
-          WHERE id = $1`,
-        [item.id, cursor],
+      const recovered = item.status === "login_required" || item.status === "error";
+      await db.items.updateOne(
+        { _id: item._id },
+        {
+          $set: {
+            syncCursor: cursor,
+            lastSyncedAt: new Date(),
+            lastSyncError: null,
+            errorCode: null,
+            updatedAt: new Date(),
+            ...(recovered ? { status: "active" as const } : {}),
+          },
+        },
       );
       return { added, modified, removed };
     } catch (error) {
@@ -197,25 +219,23 @@ export async function syncItem(db: Db, gateway: PlaidGateway, config: BankFeedsC
     if (error instanceof PlaidCallError) {
       if (error.needsRelogin) {
         await setItemStatus(db, itemId, error.code === "PENDING_DISCONNECT" ? "pending_disconnect" : "login_required", error.code);
-        await logEvent(db, { qbConnectionId: item.qb_connection_id, itemId, actor, action: "sync.login_required", detail: { code: error.code } });
+        await logEvent(db, { qbConnectionId: item.qbConnectionId, itemId, actor, action: "sync.login_required", detail: { code: error.code } });
         return { status: "login_required", code: error.code };
       }
       if (error.itemGone) {
         await setItemStatus(db, itemId, "revoked", error.code);
         return { status: "gone" };
       }
-      await db.query("UPDATE bank_items SET last_sync_error = $2, updated_at = now() WHERE id = $1", [itemId, error.code]);
+      await db.items.updateOne({ _id: itemId }, { $set: { lastSyncError: error.code, updatedAt: new Date() } });
       return { status: "failed", code: error.code };
     }
     throw error;
   }
 
   if (totals.added + totals.modified + totals.removed > 0) {
-    await logEvent(db, { qbConnectionId: item.qb_connection_id, itemId, actor, action: "sync", detail: totals });
+    await logEvent(db, { qbConnectionId: item.qbConnectionId, itemId, actor, action: "sync", detail: totals });
     // New lines get their suggestions (and Autopilot coding) straight away.
-    await refreshSuggestions(db, item.qb_connection_id);
+    await refreshSuggestions(db, item.qbConnectionId);
   }
   return { status: "synced", ...totals };
 }
-
-export { accountLabel };

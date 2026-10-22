@@ -7,7 +7,7 @@
 import { SAVETRIX_API_BASE_URL } from "./config";
 import type { Db } from "./db";
 import { findPeriod, isPrepaymentPeriod, type InvoicePeriod } from "./period";
-import { toView, type BankTransactionView, type TxnRow } from "./transactions";
+import { toView, type BankTransactionView } from "./transactions";
 
 interface BackendInvoice {
   _id: string;
@@ -62,30 +62,21 @@ export interface PeriodInsight {
   dismissed: boolean;
 }
 
-interface InsightRow {
-  period_start: string | null;
-  period_end: string | null;
-  period_months: string | null;
-  period_source: string | null;
-  period_evidence: string | null;
-  read_from: string | null;
-  prepayment_dismissed_at: string | null;
-}
-
 /** The invoice's period, read once per version of the invoice and saved. */
 export async function periodInsight(db: Db, qbConnectionId: string, invoice: BackendInvoice): Promise<PeriodInsight> {
   const version = invoice.updatedAt ?? "unknown";
-  const [saved] = await db.query<InsightRow>("SELECT * FROM invoice_insights WHERE qb_connection_id = $1 AND invoice_id = $2", [qbConnectionId, invoice._id]);
+  const _id = `${qbConnectionId}:${invoice._id}`;
+  const saved = await db.insights.findOne({ _id });
   let period: InvoicePeriod | null;
-  if (saved && saved.read_from === version) {
+  if (saved && saved.readFrom === version) {
     period =
-      saved.period_start && saved.period_end
+      saved.periodStart && saved.periodEnd
         ? {
-            start: saved.period_start,
-            end: saved.period_end,
-            months: Number(saved.period_months),
-            source: (saved.period_source as InvoicePeriod["source"]) ?? "range",
-            evidence: saved.period_evidence ?? "",
+            start: saved.periodStart,
+            end: saved.periodEnd,
+            months: Number(saved.periodMonths),
+            source: (saved.periodSource as InvoicePeriod["source"]) ?? "range",
+            evidence: saved.periodEvidence ?? "",
           }
         : null;
   } else {
@@ -95,25 +86,36 @@ export async function periodInsight(db: Db, qbConnectionId: string, invoice: Bac
       preferMonthFirst: (d.currency ?? "").toUpperCase() === "USD",
       invoiceDate: toIsoDate(d.invoiceDate),
     });
-    await db.query(
-      `INSERT INTO invoice_insights (qb_connection_id, invoice_id, period_start, period_end, period_months, period_source, period_evidence, read_from)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (qb_connection_id, invoice_id) DO UPDATE SET
-         period_start = EXCLUDED.period_start, period_end = EXCLUDED.period_end, period_months = EXCLUDED.period_months,
-         period_source = EXCLUDED.period_source, period_evidence = EXCLUDED.period_evidence, read_from = EXCLUDED.read_from, updated_at = now()`,
-      [qbConnectionId, invoice._id, period?.start ?? null, period?.end ?? null, period?.months ?? null, period?.source ?? null, period?.evidence ?? null, version],
+    await db.insights.updateOne(
+      { _id },
+      {
+        $set: {
+          qbConnectionId,
+          invoiceId: invoice._id,
+          periodStart: period?.start ?? null,
+          periodEnd: period?.end ?? null,
+          periodMonths: period?.months ?? null,
+          periodSource: period?.source ?? null,
+          periodEvidence: period?.evidence ?? null,
+          readFrom: version,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: { prepaymentDismissedAt: null, prepaymentDismissedBy: null },
+      },
+      { upsert: true },
     );
   }
-  return { period, prepayment: isPrepaymentPeriod(period), dismissed: Boolean(saved?.prepayment_dismissed_at) };
+  return { period, prepayment: isPrepaymentPeriod(period), dismissed: Boolean(saved?.prepaymentDismissedAt) };
 }
 
 export async function setPrepaymentDismissed(db: Db, qbConnectionId: string, invoiceId: string, userId: string, dismissed: boolean): Promise<void> {
-  await db.query(
-    `INSERT INTO invoice_insights (qb_connection_id, invoice_id, prepayment_dismissed_at, prepayment_dismissed_by)
-     VALUES ($1, $2, CASE WHEN $3 THEN now() END, CASE WHEN $3 THEN $4 END)
-     ON CONFLICT (qb_connection_id, invoice_id) DO UPDATE SET
-       prepayment_dismissed_at = CASE WHEN $3 THEN now() END, prepayment_dismissed_by = CASE WHEN $3 THEN $4 END, updated_at = now()`,
-    [qbConnectionId, invoiceId, dismissed, userId],
+  await db.insights.updateOne(
+    { _id: `${qbConnectionId}:${invoiceId}` },
+    {
+      $set: { qbConnectionId, invoiceId, prepaymentDismissedAt: dismissed ? new Date() : null, prepaymentDismissedBy: dismissed ? userId : null, updatedAt: new Date() },
+      $setOnInsert: { periodStart: null, periodEnd: null, periodMonths: null, periodSource: null, periodEvidence: null, readFrom: null },
+    },
+    { upsert: true },
   );
 }
 
@@ -124,32 +126,29 @@ export interface BankInsight {
   candidates: BankTransactionView[];
 }
 
+const dayNumber = (iso: string) => Math.round(Date.parse(`${iso}T00:00:00Z`) / 86_400_000);
+
 /**
  * Candidate = money out for exactly the bill's total, dated from 3 days before
  * the invoice date to 14 days after its due date (or 45 days after the invoice
  * date when there is no due date). Closest date first.
  */
 export async function bankInsight(db: Db, qbConnectionId: string, invoice: BackendInvoice): Promise<BankInsight> {
-  const matchedRows = await db.query<TxnRow>(
-    "SELECT * FROM bank_transactions WHERE qb_connection_id = $1 AND matched_invoice_id = $2 AND removed_at IS NULL ORDER BY date DESC",
-    [qbConnectionId, invoice._id],
-  );
+  const matched = await db.txns.find({ qbConnectionId, matchedInvoiceId: invoice._id, removedAt: null }).sort({ date: -1 }).toArray();
   const d = invoice.extractedData ?? {};
   const total = typeof d.totalAmount === "number" ? d.totalAmount : null;
   const invoiceDate = toIsoDate(d.invoiceDate);
-  if (matchedRows.length > 0 || total === null || total <= 0 || !invoiceDate) {
-    return { matched: matchedRows.map(toView), candidates: [] };
+  if (matched.length > 0 || total === null || total <= 0 || !invoiceDate) {
+    return { matched: matched.map(toView), candidates: [] };
   }
   const dueDate = toIsoDate(d.dueDate);
   const from = addDays(invoiceDate, -3);
   const to = dueDate ? addDays(dueDate, 14) : addDays(invoiceDate, 45);
-  const rows = await db.query<TxnRow>(
-    `SELECT * FROM bank_transactions
-      WHERE qb_connection_id = $1 AND removed_at IS NULL AND status = 'review' AND matched_invoice_id IS NULL
-        AND amount_cents = $2 AND date BETWEEN $3::date AND $4::date
-      ORDER BY abs(date - $5::date), date
-      LIMIT 5`,
-    [qbConnectionId, -Math.round(total * 100), from, to, invoiceDate],
-  );
-  return { matched: [], candidates: rows.map(toView) };
+  const rows = await db.txns
+    .find({ qbConnectionId, removedAt: null, status: "review", matchedInvoiceId: null, amountCents: -Math.round(total * 100), date: { $gte: from, $lte: to } })
+    .limit(50)
+    .toArray();
+  const target = dayNumber(invoiceDate);
+  rows.sort((a, b) => Math.abs(dayNumber(a.date) - target) - Math.abs(dayNumber(b.date) - target) || a.date.localeCompare(b.date));
+  return { matched: [], candidates: rows.slice(0, 5).map(toView) };
 }

@@ -1,14 +1,27 @@
-// Bank-feeds tests run against a real, throwaway Postgres named by
-// BANK_TEST_DATABASE_URL (they are skipped without it). Run them one file at a
-// time (--test-concurrency=1): they share that database.
-import { Pool } from "pg";
+// Bank-feeds tests run against a real, throwaway MongoDB named by
+// BANK_TEST_MONGODB_URI (they are skipped without it), in a database of their
+// own that each file drops first. Run them one file at a time
+// (--test-concurrency=1): they share that database.
+import { MongoClient } from "mongodb";
 
-export const BANK_TEST_DATABASE_URL = process.env.BANK_TEST_DATABASE_URL;
+import { readyDb, type Db } from "../../lib/bankFeeds/db";
 
-export async function resetBankTestDatabase(url: string): Promise<void> {
-  const pool = new Pool({ connectionString: url });
-  await pool.query(
-    "DROP TABLE IF EXISTS invoice_insights, bank_webhook_log, bank_events, bank_transactions, bank_accounts, bank_items, bank_schema_migrations CASCADE",
-  );
-  await pool.end();
+export const BANK_TEST_DATABASE_URL = process.env.BANK_TEST_MONGODB_URI;
+export const BANK_TEST_DB_NAME = "scantrix_web_test";
+
+export async function resetBankTestDatabase(uri: string): Promise<void> {
+  const client = new MongoClient(uri);
+  try {
+    await client.db(BANK_TEST_DB_NAME).dropDatabase();
+  } finally {
+    await client.close();
+  }
+}
+
+export function openTestDb(uri: string): Promise<Db> {
+  return readyDb(uri, BANK_TEST_DB_NAME);
+}
+
+export async function clearBankTestData(db: Db): Promise<void> {
+  await Promise.all([db.items, db.accounts, db.txns, db.events, db.webhooks, db.insights].map((c) => c.deleteMany({})));
 }

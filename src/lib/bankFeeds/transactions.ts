@@ -1,46 +1,20 @@
 // SERVER-ONLY. Listing bank lines and recording what the user decided about
 // each one, so every choice survives a refresh and is shared by the team.
 //
-// Decisions are optimistic-concurrency checked: the browser sends the row's
+// Decisions are optimistic-concurrency checked: the browser sends the line's
 // `version`, and a stale write (another tab or teammate changed the line in the
-// meantime) gets 409 with the current row instead of silently overwriting it.
+// meantime) gets 409 with the current line instead of silently overwriting it.
+// The check is part of the update's filter, so it is atomic.
+import { randomUUID } from "node:crypto";
+
+import type { Filter } from "mongodb";
+
 import type { Db } from "./db";
+import type { TxnDoc, TxnStatus } from "./schema";
 import { logEvent } from "./store";
 
-export type TxnStatus = "review" | "matched" | "excluded" | "transfer";
+export type { TxnStatus } from "./schema";
 const STATUSES: TxnStatus[] = ["review", "matched", "excluded", "transfer"];
-
-export interface TxnRow {
-  id: string;
-  qb_connection_id: string;
-  account_id: string | null;
-  account_label: string;
-  source: "plaid" | "csv";
-  date: string;
-  description: string;
-  merchant_name: string | null;
-  counterparty_name: string | null;
-  amount_cents: string;
-  currency: string | null;
-  category_primary: string | null;
-  category_detailed: string | null;
-  category_confidence: string | null;
-  payment_channel: string | null;
-  status: TxnStatus;
-  matched_invoice_id: string | null;
-  transfer_account_id: string | null;
-  transfer_label: string | null;
-  gl_account_id: string | null;
-  tax_code_id: string | null;
-  vendor_id: string | null;
-  payee: string | null;
-  decided_by: string | null;
-  decided_at: string | null;
-  suggestion: unknown;
-  posting_status: string | null;
-  posting: unknown;
-  version: number;
-}
 
 /** The browser's shape: components/v2/bankTransactions/types.ts BankTransaction, plus server fields. */
 export interface BankTransactionView {
@@ -69,32 +43,30 @@ export interface BankTransactionView {
   version: number;
 }
 
-const dateOnly = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
-
-export function toView(r: TxnRow): BankTransactionView {
+export function toView(r: TxnDoc): BankTransactionView {
   return {
-    id: r.id,
-    date: dateOnly(r.date),
+    id: r._id,
+    date: r.date,
     description: r.description,
-    accountName: r.account_label,
-    accountId: r.account_id,
-    amount: Number(r.amount_cents) / 100,
+    accountName: r.accountLabel,
+    accountId: r.accountId,
+    amount: r.amountCents / 100,
     currency: r.currency,
     status: r.status,
     source: r.source,
-    matchedInvoiceId: r.matched_invoice_id ?? undefined,
-    transferAccount: r.transfer_label ?? undefined,
-    transferAccountId: r.transfer_account_id ?? undefined,
-    categoryId: r.gl_account_id ?? undefined,
-    taxCodeId: r.tax_code_id ?? undefined,
-    vendorId: r.vendor_id ?? undefined,
+    matchedInvoiceId: r.matchedInvoiceId ?? undefined,
+    transferAccount: r.transferLabel ?? undefined,
+    transferAccountId: r.transferAccountId ?? undefined,
+    categoryId: r.glAccountId ?? undefined,
+    taxCodeId: r.taxCodeId ?? undefined,
+    vendorId: r.vendorId ?? undefined,
     payee: r.payee ?? undefined,
-    merchantName: r.merchant_name ?? r.counterparty_name ?? undefined,
-    bankCategory: r.category_detailed ?? r.category_primary ?? undefined,
+    merchantName: r.merchantName ?? r.counterpartyName ?? undefined,
+    bankCategory: r.categoryDetailed ?? r.categoryPrimary ?? undefined,
     suggestion: r.suggestion ?? undefined,
-    postingStatus: r.posting_status ?? undefined,
+    postingStatus: r.postingStatus ?? undefined,
     posting: r.posting ?? undefined,
-    decidedAt: r.decided_at ? new Date(r.decided_at).toISOString() : undefined,
+    decidedAt: r.decidedAt ? r.decidedAt.toISOString() : undefined,
     version: r.version,
   };
 }
@@ -112,28 +84,21 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LIST_LIMIT = 5000;
 
 export async function listTransactions(db: Db, qbConnectionId: string, f: ListFilter = {}): Promise<BankTransactionView[]> {
-  const where = ["qb_connection_id = $1", "removed_at IS NULL"];
-  const params: unknown[] = [qbConnectionId];
-  const add = (sql: string, v: unknown) => {
-    params.push(v);
-    where.push(sql.replace("?", `$${params.length}`));
-  };
-  if (f.status && STATUSES.includes(f.status)) add("status = ?", f.status);
-  if (f.accountId) add("account_id = ?::uuid", f.accountId);
-  if (f.from && ISO_DATE.test(f.from)) add("date >= ?::date", f.from);
-  if (f.to && ISO_DATE.test(f.to)) add("date <= ?::date", f.to);
-  if (f.invoiceId) add("matched_invoice_id = ?", f.invoiceId);
-  const rows = await db.query<TxnRow>(
-    `SELECT * FROM bank_transactions WHERE ${where.join(" AND ")} ORDER BY date DESC, created_at DESC LIMIT ${LIST_LIMIT}`,
-    params,
-  );
+  const q: Filter<TxnDoc> = { qbConnectionId, removedAt: null };
+  if (f.status && STATUSES.includes(f.status)) q.status = f.status;
+  if (typeof f.accountId === "string" && f.accountId) q.accountId = f.accountId;
+  const date: Record<string, string> = {};
+  if (f.from && ISO_DATE.test(f.from)) date.$gte = f.from;
+  if (f.to && ISO_DATE.test(f.to)) date.$lte = f.to;
+  if (Object.keys(date).length) q.date = date;
+  if (typeof f.invoiceId === "string" && f.invoiceId) q.matchedInvoiceId = f.invoiceId;
+  const rows = await db.txns.find(q).sort({ date: -1, createdAt: -1 }).limit(LIST_LIMIT).toArray();
   return rows.map(toView);
 }
 
-export async function getTransaction(db: Db, qbConnectionId: string, id: string): Promise<TxnRow | null> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const rows = await db.query<TxnRow>("SELECT * FROM bank_transactions WHERE id = $1 AND qb_connection_id = $2 AND removed_at IS NULL", [id, qbConnectionId]);
-  return rows[0] ?? null;
+export async function getTransaction(db: Db, qbConnectionId: string, id: string): Promise<TxnDoc | null> {
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  return db.txns.findOne({ _id: id, qbConnectionId, removedAt: null });
 }
 
 /** What a user may change on a line. `undefined` = leave as is, `null` = clear. */
@@ -181,16 +146,16 @@ export function readPatch(body: Record<string, unknown>): DecisionPatch | string
  *   excluded → clears bill and transfer (coding is kept, for Restore).
  *   review   → clears bill and transfer.
  */
-export function normalise(current: TxnRow, patch: DecisionPatch): { next: DecisionPatch; error?: string } {
+export function normalise(current: TxnDoc, patch: DecisionPatch): { next: DecisionPatch; error?: string } {
   const status = patch.status ?? current.status;
   const next: DecisionPatch = { ...patch };
   if (status === "matched") {
-    const invoice = patch.matchedInvoiceId !== undefined ? patch.matchedInvoiceId : current.matched_invoice_id;
+    const invoice = patch.matchedInvoiceId !== undefined ? patch.matchedInvoiceId : current.matchedInvoiceId;
     if (!invoice) return { next, error: "Pick the bill this line paid." };
     next.transferLabel = null;
     next.transferAccountId = null;
   } else if (status === "transfer") {
-    const label = patch.transferLabel !== undefined ? patch.transferLabel : current.transfer_label;
+    const label = patch.transferLabel !== undefined ? patch.transferLabel : current.transferLabel;
     if (!label) return { next, error: "Pick the other account." };
     next.matchedInvoiceId = null;
   } else if (patch.status) {
@@ -203,16 +168,7 @@ export function normalise(current: TxnRow, patch: DecisionPatch): { next: Decisi
 
 export type DecideResult = { ok: true; txn: BankTransactionView } | { ok: false; status: 404 | 409 | 400; error: string; current?: BankTransactionView };
 
-const COLUMN: Record<keyof DecisionPatch, string> = {
-  status: "status",
-  matchedInvoiceId: "matched_invoice_id",
-  transferLabel: "transfer_label",
-  transferAccountId: "transfer_account_id",
-  glAccountId: "gl_account_id",
-  taxCodeId: "tax_code_id",
-  vendorId: "vendor_id",
-  payee: "payee",
-};
+const STALE = "Someone changed this line a moment ago. It has been refreshed.";
 
 export async function decide(
   db: Db,
@@ -221,51 +177,51 @@ export async function decide(
   const current = await getTransaction(db, args.qbConnectionId, args.id);
   if (!current) return { ok: false, status: 404, error: "That transaction isn't here any more." };
   if (args.expectedVersion !== undefined && args.expectedVersion !== current.version) {
-    return { ok: false, status: 409, error: "Someone changed this line a moment ago. It has been refreshed.", current: toView(current) };
+    return { ok: false, status: 409, error: STALE, current: toView(current) };
   }
-  if (current.posting_status === "posted" || current.posting_status === "processing") {
+  if (current.postingStatus === "posted" || current.postingStatus === "processing") {
     return { ok: false, status: 409, error: "This line is already in the accounting software. Undo it there first.", current: toView(current) };
   }
   const { next, error } = normalise(current, args.patch);
   if (error) return { ok: false, status: 400, error };
   if (next.transferAccountId) {
-    const rows = await db.query("SELECT 1 FROM bank_accounts WHERE id = $1 AND qb_connection_id = $2", [next.transferAccountId, args.qbConnectionId]);
-    if (rows.length === 0) return { ok: false, status: 400, error: "Unknown account." };
+    const exists = await db.accounts.countDocuments({ _id: next.transferAccountId, qbConnectionId: args.qbConnectionId });
+    if (exists === 0) return { ok: false, status: 400, error: "Unknown account." };
   }
   if (next.status === "matched" && next.matchedInvoiceId) {
     // One bank line per bill: a bill already matched to another line is not offered twice.
-    const taken = await db.query(
-      "SELECT 1 FROM bank_transactions WHERE qb_connection_id = $1 AND matched_invoice_id = $2 AND id <> $3 AND status = 'matched' AND removed_at IS NULL",
-      [args.qbConnectionId, next.matchedInvoiceId, args.id],
-    );
-    if (taken.length > 0) return { ok: false, status: 409, error: "That bill is already matched to another bank line." };
+    const taken = await db.txns.countDocuments({
+      qbConnectionId: args.qbConnectionId,
+      matchedInvoiceId: next.matchedInvoiceId,
+      _id: { $ne: args.id },
+      status: "matched",
+      removedAt: null,
+    });
+    if (taken > 0) return { ok: false, status: 409, error: "That bill is already matched to another bank line." };
   }
 
-  const sets: string[] = [];
-  const params: unknown[] = [args.id, args.qbConnectionId, current.version];
+  const set: Partial<TxnDoc> = {};
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
-  for (const [key, column] of Object.entries(COLUMN) as [keyof DecisionPatch, string][]) {
+  for (const key of Object.keys(next) as (keyof DecisionPatch)[]) {
     const value = next[key];
     if (value === undefined) continue;
-    params.push(value);
-    sets.push(`${column} = $${params.length}${column === "transfer_account_id" ? "::uuid" : ""}`);
-    before[key] = (current as unknown as Record<string, unknown>)[column] ?? null;
+    (set as Record<string, unknown>)[key] = value;
+    before[key] = (current as unknown as Record<string, unknown>)[key] ?? null;
     after[key] = value;
   }
-  if (sets.length === 0) return { ok: true, txn: toView(current) };
-  params.push(args.userId);
-  const rows = await db.query<TxnRow>(
-    `UPDATE bank_transactions SET ${sets.join(", ")}, decided_by = $${params.length}, decided_at = now(), version = version + 1, updated_at = now()
-      WHERE id = $1 AND qb_connection_id = $2 AND version = $3 RETURNING *`,
-    params,
+  if (Object.keys(set).length === 0) return { ok: true, txn: toView(current) };
+  const updated = await db.txns.findOneAndUpdate(
+    { _id: args.id, qbConnectionId: args.qbConnectionId, version: current.version },
+    { $set: { ...set, decidedBy: args.userId, decidedAt: new Date(), updatedAt: new Date() }, $inc: { version: 1 } },
+    { returnDocument: "after" },
   );
-  if (rows.length === 0) {
+  if (!updated) {
     const fresh = await getTransaction(db, args.qbConnectionId, args.id);
-    return { ok: false, status: 409, error: "Someone changed this line a moment ago. It has been refreshed.", current: fresh ? toView(fresh) : undefined };
+    return { ok: false, status: 409, error: STALE, current: fresh ? toView(fresh) : undefined };
   }
   await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after } });
-  return { ok: true, txn: toView(rows[0]) };
+  return { ok: true, txn: toView(updated) };
 }
 
 // ---------------------------------------------------------------- CSV import
@@ -281,40 +237,80 @@ export function csvKey(r: CsvRowIn): string {
   return `${r.date}|${r.amount.toFixed(2)}|${r.description.trim().toLowerCase().replace(/\s+/g, " ")}`;
 }
 
+/** A new line's starting state: undecided, unposted. */
+export function blankDecision(now: Date): Pick<
+  TxnDoc,
+  | "status" | "matchedInvoiceId" | "transferAccountId" | "transferLabel" | "glAccountId" | "taxCodeId" | "vendorId" | "payee"
+  | "decidedBy" | "decidedAt" | "payeeKey" | "suggestion" | "postingStatus" | "posting" | "version" | "createdAt" | "updatedAt" | "removedAt"
+> {
+  return {
+    status: "review",
+    matchedInvoiceId: null,
+    transferAccountId: null,
+    transferLabel: null,
+    glAccountId: null,
+    taxCodeId: null,
+    vendorId: null,
+    payee: null,
+    decidedBy: null,
+    decidedAt: null,
+    payeeKey: null,
+    suggestion: null,
+    postingStatus: null,
+    posting: null,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+    removedAt: null,
+  };
+}
+
 /**
  * Saves CSV rows. Re-importing the same file adds nothing; two identical lines
  * in one file (two coffees, same day, same price) are both kept, because each
  * gets an occurrence number in its key.
  */
 export async function importCsv(db: Db, args: { qbConnectionId: string; userId: string; accountLabel: string; rows: CsvRowIn[] }): Promise<{ added: number; duplicates: number }> {
+  if (args.rows.length === 0) return { added: 0, duplicates: 0 };
   const seen = new Map<string, number>();
-  const keyed = args.rows.map((r) => {
+  const now = new Date();
+  const label = args.accountLabel.trim().slice(0, 200) || "Imported file";
+  const docs: TxnDoc[] = args.rows.map((r) => {
     const base = csvKey(r);
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
-    return { ...r, key: `${base}#${n}` };
+    return {
+      _id: randomUUID(),
+      qbConnectionId: args.qbConnectionId,
+      accountId: null,
+      accountLabel: label,
+      source: "csv",
+      csvDedupeKey: `${base}#${n}`,
+      date: r.date,
+      authorizedDate: null,
+      description: r.description.slice(0, 500),
+      merchantName: null,
+      merchantEntityId: null,
+      counterpartyName: null,
+      counterpartyType: null,
+      logoUrl: null,
+      website: null,
+      amountCents: Math.round(r.amount * 100),
+      currency: null,
+      categoryPrimary: null,
+      categoryDetailed: null,
+      categoryConfidence: null,
+      paymentChannel: null,
+      checkNumber: null,
+      ...blankDecision(now),
+    };
   });
-  if (keyed.length === 0) return { added: 0, duplicates: 0 };
-  const inserted = await db.query<{ id: string }>(
-    `INSERT INTO bank_transactions (qb_connection_id, account_label, source, csv_dedupe_key, date, description, amount_cents)
-     SELECT $1, $2, 'csv', v.k, v.d::date, v.descr, v.c
-       FROM unnest($3::text[], $4::text[], $5::text[], $6::bigint[]) AS v(k, d, descr, c)
-     ON CONFLICT (qb_connection_id, csv_dedupe_key) WHERE csv_dedupe_key IS NOT NULL DO NOTHING
-     RETURNING id`,
-    [
-      args.qbConnectionId,
-      args.accountLabel.trim().slice(0, 200) || "Imported file",
-      keyed.map((r) => r.key),
-      keyed.map((r) => r.date),
-      keyed.map((r) => r.description.slice(0, 500)),
-      keyed.map((r) => Math.round(r.amount * 100)),
-    ],
+  // Upsert on the dedupe key: an existing line is left exactly as it is.
+  const r = await db.txns.bulkWrite(
+    docs.map((d) => ({ updateOne: { filter: { qbConnectionId: d.qbConnectionId, csvDedupeKey: d.csvDedupeKey }, update: { $setOnInsert: d }, upsert: true } })),
+    { ordered: false },
   );
-  await logEvent(db, {
-    qbConnectionId: args.qbConnectionId,
-    actor: args.userId,
-    action: "bank.csv_imported",
-    detail: { accountLabel: args.accountLabel, rows: keyed.length, added: inserted.length },
-  });
-  return { added: inserted.length, duplicates: keyed.length - inserted.length };
+  const added = r.upsertedCount;
+  await logEvent(db, { qbConnectionId: args.qbConnectionId, actor: args.userId, action: "bank.csv_imported", detail: { accountLabel: label, rows: docs.length, added } });
+  return { added, duplicates: docs.length - added };
 }

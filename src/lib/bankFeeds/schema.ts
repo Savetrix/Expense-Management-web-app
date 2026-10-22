@@ -1,182 +1,180 @@
-// Bank-feeds tables. Append a new migration to change the schema; never edit
-// one that has shipped (db.ts records each version once it is applied).
+// Bank-feeds documents and the indexes that enforce their rules.
 //
-// Everything is scoped by `qb_connection_id`: bank data belongs to a company
-// (one connection in QuickBooks or Xero), not to the person who connected it,
-// so every team member with access to that company sees the same feed.
+// Everything is scoped by `qbConnectionId`: bank data belongs to a company (one
+// connection in QuickBooks or Xero), not to the person who connected it, so
+// every team member with access to that company sees the same feed.
+//
+// Ids are random UUID strings (not ObjectIds), so the browser sees the same
+// opaque ids whatever the database.
 //
 // Money is integer cents, negative = money out. Plaid reports money out as a
 // POSITIVE amount, so sync inverts it once, on the way in (plaidMap.ts).
+// Dates of bank lines are calendar dates kept as "YYYY-MM-DD" strings, never
+// Date objects, so no time zone can move them a day.
+import type { Db } from "./db";
 
-export interface Migration {
-  version: number;
-  sql: string;
+export type ItemStatus = "active" | "login_required" | "pending_expiration" | "pending_disconnect" | "revoked" | "error";
+export type TxnStatus = "review" | "matched" | "excluded" | "transfer";
+
+/** One bank login (a Plaid "item"); it can hold several accounts. */
+export interface ItemDoc {
+  _id: string;
+  qbConnectionId: string;
+  plaidItemId: string;
+  plaidEnv: string;
+  institutionId: string | null;
+  institutionName: string;
+  /** AES-256-GCM sealed access token (secretBox), bound to plaidItemId. "removed" once disconnected. */
+  sealedAccessToken: string;
+  syncCursor: string | null;
+  status: ItemStatus;
+  errorCode: string | null;
+  consentExpiresAt: string | null;
+  initialUpdateComplete: boolean;
+  historicalUpdateComplete: boolean;
+  lastSyncedAt: Date | null;
+  lastSyncError: string | null;
+  /** One sync at a time per item; a webhook that lands mid-sync sets syncRequestedAt. */
+  syncLeaseUntil: Date | null;
+  syncRequestedAt: Date | null;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+  removedAt: Date | null;
 }
 
-export const MIGRATIONS: Migration[] = [
-  {
-    version: 1,
-    sql: `
-CREATE TABLE bank_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  qb_connection_id text NOT NULL,
-  plaid_item_id text NOT NULL UNIQUE,
-  plaid_env text NOT NULL,
-  institution_id text,
-  institution_name text NOT NULL DEFAULT 'Bank',
-  sealed_access_token text NOT NULL,
-  sync_cursor text,
-  -- active | login_required | pending_expiration | pending_disconnect | revoked | error
-  status text NOT NULL DEFAULT 'active',
-  error_code text,
-  consent_expires_at timestamptz,
-  initial_update_complete boolean NOT NULL DEFAULT false,
-  historical_update_complete boolean NOT NULL DEFAULT false,
-  last_synced_at timestamptz,
-  last_sync_error text,
-  -- One sync at a time per item; a webhook that lands mid-sync sets sync_requested_at.
-  sync_lease_until timestamptz,
-  sync_requested_at timestamptz,
-  created_by text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  removed_at timestamptz
-);
-CREATE INDEX bank_items_connection ON bank_items (qb_connection_id) WHERE removed_at IS NULL;
+export interface AccountDoc {
+  _id: string;
+  itemId: string;
+  qbConnectionId: string;
+  plaidAccountId: string;
+  name: string;
+  officialName: string | null;
+  mask: string | null;
+  type: string | null;
+  subtype: string | null;
+  currency: string | null;
+  currentBalanceCents: number | null;
+  availableBalanceCents: number | null;
+  balanceUpdatedAt: Date | null;
+  /** The bank or credit-card account in QuickBooks/Xero that this account posts to. */
+  ledgerAccountId: string | null;
+  ledgerAccountName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  removedAt: Date | null;
+}
 
-CREATE TABLE bank_accounts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  item_id uuid NOT NULL REFERENCES bank_items(id),
-  qb_connection_id text NOT NULL,
-  plaid_account_id text NOT NULL UNIQUE,
-  name text NOT NULL,
-  official_name text,
-  mask text,
-  type text,
-  subtype text,
-  currency text,
-  current_balance_cents bigint,
-  available_balance_cents bigint,
-  balance_updated_at timestamptz,
-  -- The bank or credit-card account in QuickBooks/Xero that this account posts to.
-  ledger_account_id text,
-  ledger_account_name text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  removed_at timestamptz
-);
-CREATE INDEX bank_accounts_connection ON bank_accounts (qb_connection_id) WHERE removed_at IS NULL;
-CREATE INDEX bank_accounts_item ON bank_accounts (item_id);
+export interface TxnDoc {
+  _id: string;
+  qbConnectionId: string;
+  accountId: string | null;
+  /** Shown in the list. A CSV line has only this, no accountId. */
+  accountLabel: string;
+  source: "plaid" | "csv";
+  /** Present only on Plaid lines (unique). */
+  plaidTransactionId?: string;
+  /** Present only on CSV lines (unique per company). */
+  csvDedupeKey?: string;
+  date: string;
+  authorizedDate: string | null;
+  description: string;
+  merchantName: string | null;
+  merchantEntityId: string | null;
+  counterpartyName: string | null;
+  counterpartyType: string | null;
+  logoUrl: string | null;
+  website: string | null;
+  amountCents: number;
+  currency: string | null;
+  categoryPrimary: string | null;
+  categoryDetailed: string | null;
+  categoryConfidence: string | null;
+  paymentChannel: string | null;
+  checkNumber: string | null;
 
-CREATE TABLE bank_transactions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  qb_connection_id text NOT NULL,
-  account_id uuid REFERENCES bank_accounts(id),
-  -- Shown in the list. A CSV row has only this, no account_id.
-  account_label text NOT NULL,
-  source text NOT NULL CHECK (source IN ('plaid', 'csv')),
-  plaid_transaction_id text UNIQUE,
-  csv_dedupe_key text,
-  date date NOT NULL,
-  authorized_date date,
-  description text NOT NULL DEFAULT '',
-  merchant_name text,
-  merchant_entity_id text,
-  counterparty_name text,
-  counterparty_type text,
-  logo_url text,
-  website text,
-  amount_cents bigint NOT NULL,
-  currency text,
-  category_primary text,
-  category_detailed text,
-  category_confidence text,
-  payment_channel text,
-  check_number text,
+  // The user's decision. Plaid updates never touch these fields.
+  status: TxnStatus;
+  matchedInvoiceId: string | null;
+  transferAccountId: string | null;
+  transferLabel: string | null;
+  glAccountId: string | null;
+  taxCodeId: string | null;
+  vendorId: string | null;
+  payee: string | null;
+  decidedBy: string | null;
+  decidedAt: Date | null;
 
-  -- The user's decision. Plaid updates never touch these columns.
-  status text NOT NULL DEFAULT 'review' CHECK (status IN ('review', 'matched', 'excluded', 'transfer')),
-  matched_invoice_id text,
-  transfer_account_id uuid REFERENCES bank_accounts(id),
-  transfer_label text,
-  gl_account_id text,
-  tax_code_id text,
-  vendor_id text,
-  payee text,
-  decided_by text,
-  decided_at timestamptz,
+  /** Who the line was paid to, normalised (suggest.ts payeeKey). */
+  payeeKey: string | null;
+  /** What Scantrix suggested, and why (suggest.ts). */
+  suggestion: unknown;
+  /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
+  postingStatus: string | null;
+  posting: unknown;
 
-  -- What Scantrix suggested, and why (suggest.ts).
-  suggestion jsonb,
-  -- Posting to QuickBooks/Xero: null | processing | posted | failed.
-  posting_status text,
-  posting jsonb,
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+  /** Plaid removed the transaction; kept for the audit trail, hidden from lists. */
+  removedAt: Date | null;
+}
 
-  version integer NOT NULL DEFAULT 1,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  -- Plaid removed the transaction; kept for the audit trail, hidden from lists.
-  removed_at timestamptz
-);
-CREATE UNIQUE INDEX bank_transactions_csv_key ON bank_transactions (qb_connection_id, csv_dedupe_key) WHERE csv_dedupe_key IS NOT NULL;
-CREATE INDEX bank_transactions_list ON bank_transactions (qb_connection_id, status, date DESC) WHERE removed_at IS NULL;
-CREATE INDEX bank_transactions_invoice ON bank_transactions (qb_connection_id, matched_invoice_id) WHERE matched_invoice_id IS NOT NULL;
-CREATE INDEX bank_transactions_account ON bank_transactions (account_id);
+/** Who did what, for the audit trail and for learning from the user's choices. */
+export interface EventDoc {
+  qbConnectionId: string;
+  transactionId: string | null;
+  itemId: string | null;
+  /** A user id, or "plaid" / "autopilot" / "system". */
+  actor: string;
+  action: string;
+  detail: unknown;
+  at: Date;
+}
 
--- Who did what, for the audit trail and for learning from the user's choices.
-CREATE TABLE bank_events (
-  id bigserial PRIMARY KEY,
-  qb_connection_id text NOT NULL,
-  transaction_id uuid,
-  item_id uuid,
-  -- A user id, or "plaid" / "autopilot" / "system".
-  actor text NOT NULL,
-  action text NOT NULL,
-  detail jsonb,
-  at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX bank_events_connection ON bank_events (qb_connection_id, at DESC);
-CREATE INDEX bank_events_transaction ON bank_events (transaction_id);
+export interface WebhookLogDoc {
+  plaidItemId: string | null;
+  webhookType: string | null;
+  webhookCode: string | null;
+  outcome: string;
+  receivedAt: Date;
+}
 
-CREATE TABLE bank_webhook_log (
-  id bigserial PRIMARY KEY,
-  plaid_item_id text,
-  webhook_type text,
-  webhook_code text,
-  outcome text NOT NULL,
-  received_at timestamptz NOT NULL DEFAULT now()
-);
-`,
-  },
-  {
-    version: 2,
-    sql: `
--- Who a line was paid to, normalised (suggest.ts payeeKey). Past decisions on
--- lines with the same key are what Scantrix learns from.
-ALTER TABLE bank_transactions ADD COLUMN payee_key text;
-CREATE INDEX bank_transactions_payee ON bank_transactions (qb_connection_id, payee_key) WHERE removed_at IS NULL;
-`,
-  },
-  {
-    version: 3,
-    sql: `
--- What Scantrix noticed on an invoice: the period it covers (period.ts), and
--- whether the user said "Not a prepayment". Keyed by the backend's invoice id.
-CREATE TABLE invoice_insights (
-  qb_connection_id text NOT NULL,
-  invoice_id text NOT NULL,
-  period_start date,
-  period_end date,
-  period_months numeric(5, 1),
-  period_source text,
-  period_evidence text,
-  -- The invoice's updatedAt when the period was read; a later edit re-reads it.
-  read_from text,
-  prepayment_dismissed_at timestamptz,
-  prepayment_dismissed_by text,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (qb_connection_id, invoice_id)
-);
-`,
-  },
-];
+/** What Scantrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
+export interface InsightDoc {
+  _id: string;
+  qbConnectionId: string;
+  invoiceId: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodMonths: number | null;
+  periodSource: string | null;
+  periodEvidence: string | null;
+  /** The invoice's updatedAt when the period was read; a later edit re-reads it. */
+  readFrom: string | null;
+  prepaymentDismissedAt: Date | null;
+  prepaymentDismissedBy: string | null;
+  updatedAt: Date;
+}
+
+const isString = { $type: "string" } as const;
+
+/** Idempotent: safe to run on every cold start. */
+export async function ensureIndexes(db: Db): Promise<void> {
+  await Promise.all([
+    db.items.createIndex({ plaidItemId: 1 }, { unique: true }),
+    db.items.createIndex({ qbConnectionId: 1 }),
+    db.accounts.createIndex({ plaidAccountId: 1 }, { unique: true }),
+    db.accounts.createIndex({ qbConnectionId: 1 }),
+    db.accounts.createIndex({ itemId: 1 }),
+    db.txns.createIndex({ plaidTransactionId: 1 }, { unique: true, partialFilterExpression: { plaidTransactionId: isString } }),
+    db.txns.createIndex({ qbConnectionId: 1, csvDedupeKey: 1 }, { unique: true, partialFilterExpression: { csvDedupeKey: isString } }),
+    db.txns.createIndex({ qbConnectionId: 1, status: 1, date: -1 }),
+    db.txns.createIndex({ qbConnectionId: 1, matchedInvoiceId: 1 }),
+    db.txns.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
+    db.txns.createIndex({ accountId: 1 }),
+    db.events.createIndex({ qbConnectionId: 1, at: -1 }),
+    db.events.createIndex({ transactionId: 1 }),
+    db.webhooks.createIndex({ receivedAt: -1 }),
+  ]);
+}

@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
-import { __closeBankDbForTests, openDb, type Db } from "../lib/bankFeeds/db";
+import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { payeeKey, refreshSuggestions, score, voteWeight, type Suggestion, type Vote } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 
-import { BANK_TEST_DATABASE_URL as URL, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
 const NOW = Date.parse("2026-10-22T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
@@ -85,18 +85,18 @@ describe("scoring", () => {
   });
 });
 
-describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_DATABASE_URL not set" }, () => {
+describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   let db: Db;
   before(async () => {
     await resetBankTestDatabase(URL as string);
     await __closeBankDbForTests();
-    db = openDb(URL as string);
+    db = await openTestDb(URL as string);
   });
   after(async () => {
     await __closeBankDbForTests();
   });
   beforeEach(async () => {
-    await db.query("TRUNCATE bank_events, bank_transactions, bank_accounts, bank_items CASCADE");
+    await clearBankTestData(db);
   });
 
   const today = new Date().toISOString().slice(0, 10);
@@ -124,13 +124,10 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_DATABASE_URL not
     // The user recodes two of their own decisions: history now disagrees.
     for (const l of lines.slice(0, 2)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-meals" } });
     await refreshSuggestions(db, "qb-1");
-    const rows = await db.query<{ decided_by: string | null; gl_account_id: string | null }>(
-      "SELECT decided_by, gl_account_id FROM bank_transactions WHERE id = ANY($1::uuid[])",
-      [lines.slice(3).map((l) => l.id)],
-    );
+    const rows = await db.txns.find({ _id: { $in: lines.slice(3).map((l) => l.id) } }).toArray();
     for (const r of rows) {
-      assert.equal(r.decided_by, null, "Scantrix's coding was taken back");
-      assert.equal(r.gl_account_id, null);
+      assert.equal(r.decidedBy, null, "Scantrix's coding was taken back");
+      assert.equal(r.glAccountId, null);
     }
   });
 
@@ -140,7 +137,7 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_DATABASE_URL not
     for (const l of lines.slice(0, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", payee: "Uber" } });
     await decide(db, { qbConnectionId: "qb-1", id: lines[3].id, userId: "u2", patch: { glAccountId: "gl-client-travel" } });
     await refreshSuggestions(db, "qb-1");
-    const [row] = await db.query<{ gl_account_id: string }>("SELECT gl_account_id FROM bank_transactions WHERE id = $1", [lines[3].id]);
-    assert.equal(row.gl_account_id, "gl-client-travel");
+    const row = await db.txns.findOne({ _id: lines[3].id });
+    assert.equal(row?.glAccountId, "gl-client-travel");
   });
 });
