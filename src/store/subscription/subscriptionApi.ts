@@ -149,3 +149,98 @@ export const confirmCheckout = createAsyncThunk(
     }
   },
 );
+
+// ================================
+// EXTRA SLOTS (Enterprise add-on on the Stripe subscription)
+// quantity is always the new TOTAL of extra slots, not a delta.
+// ================================
+export interface SavedCard {
+  brand: string;
+  last4: string;
+}
+
+export interface AddonSlotsPreview {
+  quantity: number;
+  currentAddonSlots: number;
+  /** Charged right away to the saved card, for the rest of the period. 0 for a removal. */
+  amountDueNow: number;
+  /** The new slots' price for a whole period — amountDueNow is below it only when prorated. */
+  fullPeriodAmount: number;
+  currency: string;
+  /** The card the charge goes to (no payment page opens). null if none is on file. */
+  paymentMethod: SavedCard | null;
+  /** Per-period list prices making up renewalAmount. */
+  planPrice: number;
+  addonPrice: number;
+  /** End of the current period = the next renewal. */
+  renewalDate: string;
+  /** The moment the charge was priced at — send it back to buy at exactly amountDueNow. null when nothing is charged. */
+  prorationDate: number | null;
+  /** List price of every renewal from the next period on (plan + extra slots). */
+  renewalAmount: number;
+  billingInterval: BillingInterval;
+  /** When the new count applies — a removal waits for the period end. */
+  effectiveAt: string;
+}
+
+interface AddonSlotsError {
+  message: string;
+  statusCode?: number;
+  /** e.g. PAYMENT_ACTION_REQUIRED, PRICE_CHANGED, ADDON_REMOVAL_PENDING */
+  code?: string;
+  /** Stripe's invoice page, when the charge needs the customer (3DS / declined card). */
+  hostedInvoiceUrl?: string | null;
+}
+
+const addonSlotsError = (error: any, fallback: string): AddonSlotsError => ({
+  message: error?.response?.data?.message || error?.message || fallback,
+  statusCode: error?.response?.status,
+  code: error?.response?.data?.data?.code,
+  hostedInvoiceUrl: error?.response?.data?.data?.hostedInvoiceUrl ?? null,
+});
+
+export const previewAddonSlots = createAsyncThunk<AddonSlotsPreview, number, { rejectValue: AddonSlotsError }>(
+  "subscription/previewAddonSlots",
+  async (quantity, thunkAPI) => {
+    try {
+      const response = await api.get("/subscription/addon-slots/preview", { params: { quantity } });
+      return response.data.data as AddonSlotsPreview;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(addonSlotsError(error, "Failed to price extra slots"));
+    }
+  },
+);
+
+export interface AddonSlotsCharge {
+  amount: number;
+  currency: string;
+  /** Stripe's page for the paid invoice. */
+  receiptUrl: string | null;
+  paymentMethod: SavedCard | null;
+}
+
+export interface UpdateAddonSlotsArgs {
+  quantity: number;
+  /** From the preview the customer confirmed — a purchase is charged exactly amountDueNow. */
+  prorationDate?: number | null;
+  expectedAmountDue?: number;
+}
+
+export const updateAddonSlots = createAsyncThunk<
+  { message: string; charge: AddonSlotsCharge | null },
+  UpdateAddonSlotsArgs,
+  { rejectValue: AddonSlotsError }
+>(
+  "subscription/updateAddonSlots",
+  async (args, thunkAPI) => {
+    try {
+      // Longer than the client's 30s default: a purchase makes a few Stripe
+      // calls, and giving up early would report a failure for a card the
+      // server goes on to charge.
+      const response = await api.post("/subscription/addon-slots", args, { timeout: 60_000 });
+      return { message: response.data.message as string, charge: response.data.data?.charge ?? null };
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue(addonSlotsError(error, "Failed to update extra slots"));
+    }
+  },
+);

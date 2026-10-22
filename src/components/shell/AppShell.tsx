@@ -271,8 +271,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // plan's slots are actually full. A slot holds one company in any
   // accounting software.
   const slotsFull = Boolean(subscription) && subscription!.slotsUsed >= subscription!.maxSlots;
+  // Enterprise on a web (Stripe) plan can buy one more slot instead of upgrading.
+  const canBuyExtraSlot =
+    slotsFull && Boolean(subscription!.addon?.purchasable) && subscription!.addonSlots < subscription!.addon!.maxSlots;
+  const extraSlotPrice = canBuyExtraSlot
+    ? `$${subscription!.addon!.prices[subscription!.billingInterval ?? "monthly"]}${subscription!.billingInterval === "yearly" ? "/yr" : "/mo"}`
+    : null;
   const addAccountTitle = slotsFull
-    ? `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
+    ? canBuyExtraSlot
+      ? `All ${subscription!.maxSlots} accounting slots on your plan are in use. Disconnect an account or add an extra slot for ${extraSlotPrice}.`
+      : `All ${subscription!.maxSlots} accounting slot${subscription!.maxSlots === 1 ? "" : "s"} on your plan are in use. Disconnect an account or upgrade your plan to add another.`
     : undefined;
 
   // Opens the slots modal instead of jumping straight into the OAuth
@@ -692,11 +700,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             {slotsFull && (
               <Link
-                href="/subscription"
+                href={canBuyExtraSlot ? "/subscription?addSlot=1" : "/subscription"}
                 onClick={() => setAddAccountModalOpen(false)}
                 className="rounded-lg bg-accent px-[var(--space-md)] py-[var(--space-sm)] text-body-sm font-bold text-accent-ink hover:bg-accent-hover"
               >
-                Upgrade plan
+                {canBuyExtraSlot ? `Add a slot — ${extraSlotPrice}` : "Upgrade plan"}
               </Link>
             )}
           </>

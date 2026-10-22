@@ -277,6 +277,15 @@ export function PlansContentV2() {
                         <span className="text-body-sm text-text-primary">{feature}</span>
                       </div>
                     ))}
+                    {plan.addon && (
+                      <div className="flex items-start gap-[var(--space-sm)]">
+                        <Check size={16} strokeWidth={2.5} className="mt-0.5 shrink-0 text-success" />
+                        <span className="text-body-sm text-text-primary">
+                          Need more? Extra slots ${cycle === "monthly" ? plan.addon.prices.monthly : plan.addon.prices.yearly}
+                          {cycle === "monthly" ? "/mo" : "/yr"} each
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {isCurrent ? (

@@ -26,7 +26,7 @@ interface PendingConnection {
 
 const CALLBACK_ERRORS: Record<string, string> = {
   SUBSCRIPTION_REQUIRED: "An active subscription is required to connect accounting software.",
-  UPGRADE_REQUIRED: "All accounting connection slots on your plan are in use. Disconnect one or upgrade to add another.",
+  UPGRADE_REQUIRED: "All accounting connection slots on your plan are in use. Disconnect one, upgrade, or add an extra slot from Subscription.",
   access_denied: "Connection was cancelled.",
   invalid_state: "That connection link has expired. Please connect again.",
 };
