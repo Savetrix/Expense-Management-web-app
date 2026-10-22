@@ -1,6 +1,6 @@
 "use client";
 
-import { Landmark } from "lucide-react";
+import { Landmark, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -13,6 +13,7 @@ import type { DataTableColumn } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
 import { confirmDialog } from "@/lib/dialogManager";
 
+import { codingFor, codingLabel, type Lookups } from "./coding";
 import { formatAmount } from "./format";
 import { findStrongSuggestions, paperworkHref } from "./matching";
 import { SuggestedMatches } from "./SuggestedMatches";
@@ -32,6 +33,7 @@ interface TransactionsTabProps {
   onBulkUpdate: (ids: string[], patch: Partial<BankTransaction>) => void;
   /** Different changes for many lines in one request (accept all matches). */
   onBulkItems: (items: ({ id: string } & Partial<BankTransaction>)[]) => void;
+  lookups: Lookups;
   /** First load from the server still running. */
   loading?: boolean;
 }
@@ -39,7 +41,7 @@ interface TransactionsTabProps {
 const DATE_CLASS =
   "h-8 rounded-md border border-border bg-surface px-[var(--space-sm)] text-caption font-semibold text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40";
 
-export function TransactionsTab({ txns, providerName, onImportFile, onConnect, onOpen, onUpdate, invoices, onBulkUpdate, onBulkItems, loading = false }: TransactionsTabProps) {
+export function TransactionsTab({ txns, providerName, onImportFile, onConnect, onOpen, onUpdate, invoices, onBulkUpdate, onBulkItems, lookups, loading = false }: TransactionsTabProps) {
   const router = useRouter();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>("review");
@@ -146,7 +148,24 @@ export function TransactionsTab({ txns, providerName, onImportFile, onConnect, o
       key: "description",
       header: "Description",
       width: "34%",
-      render: (t) => <span className="block truncate font-semibold">{t.description || "—"}</span>,
+      render: (t) => {
+        const c = t.status === "review" ? codingFor(t, lookups) : null;
+        const label = c ? codingLabel(c, lookups) : "";
+        return (
+          <span className="block min-w-0">
+            <span className="block truncate font-semibold">{t.description || "—"}</span>
+            {c && label && (
+              <span className={`flex min-w-0 items-center gap-1 text-caption ${c.source === "user" ? "text-content-secondary" : "text-accent"}`} title={c.reason ?? undefined}>
+                {c.source !== "user" && <Sparkles size={12} strokeWidth={2.25} className="shrink-0" />}
+                <span className="truncate">
+                  {c.source === "autopilot" ? "Coded by Scantrix: " : c.source === "suggested" || c.source === "vendor" ? "Suggested: " : ""}
+                  {label}
+                </span>
+              </span>
+            )}
+          </span>
+        );
+      },
     },
     { key: "account", header: "Account", width: "20%", render: (t) => <span className="block truncate text-content-secondary">{t.accountName || "—"}</span> },
     {

@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckCircle2, CircleDashed, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -13,8 +14,9 @@ import {
   TextInput,
 } from "@/components/v2/ui";
 import { beLabel, notifyBackendPending } from "@/lib/bePlaceholder";
-import type { GLAccount } from "@/store/quickBooks/quickBooksSlice";
+import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
+import { codingFor, codingLabel, type Lookups } from "./coding";
 import { formatAmount } from "./format";
 import { isExactAmount, paperworkHref, rankInvoices } from "./matching";
 import { TransferModal } from "./TransferModal";
@@ -23,7 +25,7 @@ import type { BankAccount, BankTransaction, InvoiceCandidate } from "./types";
 interface TransactionModalProps {
   txn: BankTransaction | null;
   invoices: InvoiceCandidate[];
-  glAccounts: GLAccount[];
+  lookups: Lookups;
   bankAccounts: BankAccount[];
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
@@ -39,7 +41,7 @@ export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
 export function TransactionModal({
   txn,
   invoices,
-  glAccounts,
+  lookups,
   bankAccounts,
   onClose,
   onUpdate,
@@ -49,7 +51,7 @@ export function TransactionModal({
   const [search, setSearch] = useState("");
   const [pickedInvoice, setPickedInvoice] = useState("");
   const [payee, setPayee] = useState(txn?.payee ?? "");
-  const [categoryId, setCategoryId] = useState(txn?.categoryId ?? "");
+  const [showChecks, setShowChecks] = useState(false);
 
   const ranked = useMemo(
     () => (txn ? rankInvoices(txn, invoices) : []),
@@ -63,19 +65,24 @@ export function TransactionModal({
         )
       : ranked;
   }, [ranked, search]);
-  const glOptions = useMemo(
-    () =>
-      glAccounts
-        .filter((a) => !a.isDeleted)
-        .map((a) => ({ id: a._id, label: a.name })),
-    [glAccounts],
-  );
+  const glOptions = useMemo(() => lookups.glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name })), [lookups.glAccounts]);
+  const vendorOptions = useMemo(() => lookups.vendors.map((v) => ({ id: v._id, label: v.displayName })), [lookups.vendors]);
+  const taxOptions = useMemo(() => lookups.taxCodes.map((t) => ({ id: taxCodeId(t), label: taxCodeLabel(t) })), [lookups.taxCodes]);
 
   if (!txn) return null;
   const excluded = txn.status === "excluded";
   const transfer = txn.status === "transfer";
   const inactive = excluded || transfer;
   const matchedInvoice = invoices.find((c) => c.id === txn.matchedInvoiceId);
+  const coding = codingFor(txn, lookups);
+  const suggestion = coding.suggestion;
+  const pendingSuggestion = coding.source === "suggested" || coding.source === "vendor";
+  const useSuggestion = () => {
+    const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
+    const nextPayee = coding.payee ?? vendorName;
+    if (nextPayee) setPayee(nextPayee);
+    onUpdate(txn.id, { vendorId: coding.vendorId, categoryId: coding.glAccountId, taxCodeId: coding.taxCodeId, payee: nextPayee });
+  };
 
   return (
     <>
@@ -269,18 +276,103 @@ export function TransactionModal({
               <h3 className="text-body font-bold text-content-primary">
                 Categorise
               </h3>
+              {(coding.source !== "none" || suggestion) && (
+                <div className="rounded-md border border-border bg-surface-alt p-[var(--space-sm)]">
+                  <div className="flex flex-wrap items-start justify-between gap-[var(--space-sm)]">
+                    <p className="flex min-w-0 flex-1 items-start gap-[var(--space-xs)] text-body-sm text-content-primary">
+                      <Sparkles size={16} strokeWidth={2.25} className="mt-0.5 shrink-0 text-accent" />
+                      <span>
+                        <span className="font-semibold">
+                          {coding.source === "autopilot" ? "Coded by Scantrix" : pendingSuggestion ? "Scantrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
+                        </span>
+                        {pendingSuggestion && codingLabel(coding, lookups) && <> · {codingLabel(coding, lookups)}</>}
+                        {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by Scantrix — /, "")}</span>}
+                      </span>
+                    </p>
+                    {pendingSuggestion && (
+                      <Button size="sm" onClick={useSuggestion}>
+                        Use suggestion
+                      </Button>
+                    )}
+                    {coding.source === "none" && suggestion?.kind === "exclude" && (
+                      <Button size="sm" variant="outline" onClick={() => onUpdate(txn.id, { status: "excluded", matchedInvoiceId: undefined })}>
+                        Exclude
+                      </Button>
+                    )}
+                    {coding.source === "none" && suggestion?.kind === "transfer" && suggestion.transferLabel && (
+                      <Button size="sm" variant="outline" onClick={() => onUpdate(txn.id, { status: "transfer", transferAccount: suggestion.transferLabel, matchedInvoiceId: undefined })}>
+                        Transfer to {suggestion.transferLabel}
+                      </Button>
+                    )}
+                  </div>
+                  {suggestion && (
+                    <>
+                      <button type="button" className="mt-[var(--space-xs)] text-caption font-semibold text-content-secondary underline" onClick={() => setShowChecks((v) => !v)}>
+                        {showChecks ? "Hide the checks" : "How Scantrix decided"}
+                      </button>
+                      {showChecks && (
+                        <ul className="mt-[var(--space-xs)] flex flex-col gap-[var(--space-xs)] text-caption text-content-secondary">
+                          {(["legibility", "completeness", "history"] as const).map((k) => (
+                            <li key={k} className="flex items-start gap-[var(--space-xs)]">
+                              {suggestion.checks[k].ok ? (
+                                <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-status-success-text" />
+                              ) : (
+                                <CircleDashed size={14} className="mt-0.5 shrink-0" />
+                              )}
+                              <span>
+                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : "Matches your history"}: </span>
+                                {suggestion.checks[k].detail}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              <CreatableCombobox
+                options={vendorOptions}
+                noun="vendor"
+                ariaLabel="Vendor"
+                value={txn.vendorId ?? ""}
+                onSelect={(id) => {
+                  const v = lookups.vendorById.get(id);
+                  if (v) setPayee(v.displayName);
+                  onUpdate(txn.id, {
+                    vendorId: id || undefined,
+                    ...(v ? { payee: v.displayName } : {}),
+                    // A vendor's own defaults fill only what is still empty.
+                    ...(v?.glAccountId && !txn.categoryId ? { categoryId: v.glAccountId } : {}),
+                    ...(v?.taxCodeId && !txn.taxCodeId ? { taxCodeId: v.taxCodeId } : {}),
+                  });
+                }}
+                clearLabel="No vendor"
+                placeholder="Vendor"
+                uiSize="md"
+              />
               <CreatableCombobox
                 options={glOptions}
                 noun="GL account"
                 ariaLabel="GL account"
-                value={categoryId}
-                onSelect={(id) => {
-                  setCategoryId(id);
-                  onUpdate(txn.id, { categoryId: id || undefined });
-                }}
+                value={txn.categoryId ?? ""}
+                onSelect={(id) => onUpdate(txn.id, { categoryId: id || undefined })}
                 clearLabel="No category"
+                placeholder="GL account"
                 uiSize="md"
               />
+              {taxOptions.length > 0 && (
+                <CreatableCombobox
+                  options={taxOptions}
+                  noun="tax code"
+                  ariaLabel="Tax code"
+                  value={txn.taxCodeId ?? ""}
+                  onSelect={(id) => onUpdate(txn.id, { taxCodeId: id || undefined })}
+                  clearLabel="No tax code"
+                  placeholder="Tax code"
+                  uiSize="md"
+                />
+              )}
               <TextInput
                 label="Vendor / payee"
                 value={payee}

@@ -3,6 +3,7 @@
 // Body: { accountName, rows: [{ date: "YYYY-MM-DD", description, amount }] },
 // amount negative = money out.
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
+import { refreshSuggestions } from "@/lib/bankFeeds/suggest";
 import { importCsv, listTransactions, type CsvRowIn } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
       accountLabel: typeof body?.accountName === "string" ? body.accountName : "Imported file",
       rows,
     });
+    if (result.added > 0) await refreshSuggestions(ctx.db, ctx.connection.id);
     return json({ ...result, transactions: await listTransactions(ctx.db, ctx.connection.id) }, 201);
   } catch (error) {
     return errorResponse("import", error);

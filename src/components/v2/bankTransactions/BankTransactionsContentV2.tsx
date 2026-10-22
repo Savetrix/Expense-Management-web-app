@@ -1,7 +1,7 @@
 "use client";
 
 import { FileUp, Landmark } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { PageHeader, Tabs } from "@/components/v2/ui";
@@ -18,6 +18,7 @@ import {
 import { getInvoices } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
+import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
@@ -41,6 +42,14 @@ export function BankTransactionsContentV2() {
   const txns: BankTransaction[] = bank.transactionsConnectionId === qbConnectionId ? bank.transactions : [];
   const [connectOpen, setConnectOpen] = useState(false);
   const [relogin, setRelogin] = useState<BankAccount | null>(null);
+  const lookups = useBankLookups();
+  // After a decision the server re-scores lines with the same payee in the
+  // background; reload shortly after so lines Scantrix just coded show it.
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refetchSoon = () => {
+    if (refetchTimer.current) clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(() => dispatch(fetchBankTransactions()), 1500);
+  };
   const [importOpen, setImportOpen] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -70,6 +79,7 @@ export function BankTransactionsContentV2() {
     const row = txns.find((t) => t.id === id);
     const result = await dispatch(updateBankTransaction({ id, patch: patch as BankTxnPatch, version: "status" in patch ? row?.version : undefined }));
     if (updateBankTransaction.rejected.match(result)) showToast(result.payload?.message ?? "Couldn't save that change.", "error");
+    else refetchSoon();
   };
   const patchMany = async (ids: string[], patch: Partial<BankTransaction>) => {
     if (ids.length === 1) return patchOne(ids[0], patch);
@@ -77,6 +87,7 @@ export function BankTransactionsContentV2() {
     if (bulkUpdateBankTransactions.fulfilled.match(result)) {
       const { updated, failed } = result.payload;
       if (failed.length > 0) showToast(`${updated.length} saved, ${failed.length} not: ${failed[0].error}`, "warning");
+      refetchSoon();
     } else showToast(result.payload?.message ?? "Couldn't save those changes.", "error");
   };
   const openTxn = txns.find((t) => t.id === openId) ?? null;
@@ -129,6 +140,7 @@ export function BankTransactionsContentV2() {
                 showToast(failed.length ? `${updated.length} matched, ${failed.length} not: ${failed[0].error}` : `${updated.length} matched.`, failed.length ? "warning" : "success");
               } else showToast(result.payload?.message ?? "Couldn't save those matches.", "error");
             }}
+            lookups={lookups}
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
           />
         ) : (
@@ -185,7 +197,7 @@ export function BankTransactionsContentV2() {
           key={openTxn.id}
           txn={openTxn}
           invoices={candidates}
-          glAccounts={glAccounts}
+          lookups={lookups}
           bankAccounts={bankAccounts}
           onClose={() => setOpenId(null)}
           onUpdate={patchOne}

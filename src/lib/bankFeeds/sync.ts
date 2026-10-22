@@ -23,6 +23,7 @@ import type { Db } from "./db";
 import { mapPlaidTransaction } from "./plaidMap";
 import { PlaidCallError, type PlaidGateway } from "./plaid";
 import { logEvent, setItemStatus, upsertAccounts, type ItemRow } from "./store";
+import { refreshSuggestions } from "./suggest";
 
 const LEASE_SECONDS = 120;
 const MAX_RESTARTS = 3;
@@ -211,6 +212,8 @@ export async function syncItem(db: Db, gateway: PlaidGateway, config: BankFeedsC
 
   if (totals.added + totals.modified + totals.removed > 0) {
     await logEvent(db, { qbConnectionId: item.qb_connection_id, itemId, actor, action: "sync", detail: totals });
+    // New lines get their suggestions (and Autopilot coding) straight away.
+    await refreshSuggestions(db, item.qb_connection_id);
   }
   return { status: "synced", ...totals };
 }

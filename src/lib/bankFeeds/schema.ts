@@ -148,4 +148,13 @@ CREATE TABLE bank_webhook_log (
 );
 `,
   },
+  {
+    version: 2,
+    sql: `
+-- Who a line was paid to, normalised (suggest.ts payeeKey). Past decisions on
+-- lines with the same key are what Scantrix learns from.
+ALTER TABLE bank_transactions ADD COLUMN payee_key text;
+CREATE INDEX bank_transactions_payee ON bank_transactions (qb_connection_id, payee_key) WHERE removed_at IS NULL;
+`,
+  },
 ];

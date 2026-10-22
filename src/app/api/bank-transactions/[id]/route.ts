@@ -2,7 +2,10 @@
 // restore, mark as transfer, match to a bill, or set vendor / GL / tax code.
 // Body: { status?, matchedInvoiceId?, transferAccount?, transferAccountId?,
 //         categoryId?, taxCodeId?, vendorId?, payee?, version }
+import { after } from "next/server";
+
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
+import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
 import { decide, readPatch } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
@@ -26,6 +29,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       action: typeof body.action === "string" ? `bank.${body.action.replace(/[^a-z_]/g, "").slice(0, 40)}` : undefined,
     });
     if (!result.ok) return fail(result.status, result.error, result.current ? { current: result.current } : undefined);
+    // Learn from the decision: re-score the other lines with the same payee.
+    after(async () => {
+      const key = await payeeKeyOf(ctx.db, ctx.connection.id, id);
+      if (key) await refreshSuggestions(ctx.db, ctx.connection.id, [key]).catch((e) => console.error("[bank] suggestions", e?.message));
+    });
     return json({ transaction: result.txn });
   } catch (error) {
     return errorResponse("decide", error);
