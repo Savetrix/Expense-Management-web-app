@@ -403,7 +403,8 @@ export function TransactionsTab({
         </div>
         {(status === "review" || status === "ready") && (
           <RoleInfoBanner>
-            Post saves a line as ready, with its vendor, GL account and tax code. Sending ready lines to {providerName} isn&apos;t switched on yet (BE).
+            Post saves a line as ready, with its vendor, GL account and tax code. Sending ready lines to {providerName}{" "}
+            isn&apos;t switched on yet (BE).
           </RoleInfoBanner>
         )}
         {status === "review" && anySuggested && (

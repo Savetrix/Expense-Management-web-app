@@ -64,7 +64,7 @@ export function CreatableCombobox({
 }: CreatableComboboxProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -108,7 +108,11 @@ export function CreatableCombobox({
   // page or a table scrolls.
   const place = () => {
     const r = rootRef.current?.getBoundingClientRect();
-    if (r) setAnchor({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 240) });
+    if (!r) return;
+    const width = Math.max(r.width, 240);
+    // Open upward when the list (max 224px) would run off the bottom of the screen.
+    const below = window.innerHeight - r.bottom;
+    setAnchor(below < 240 && r.top > below ? { bottom: window.innerHeight - r.top + 4, left: r.left, width } : { top: r.bottom + 4, left: r.left, width });
   };
   const openList = () => {
     if (floating) place();
@@ -210,7 +214,7 @@ export function CreatableCombobox({
         <ul
           ref={listRef}
           role="listbox"
-          style={floating && anchor ? { position: "fixed", top: anchor.top, left: anchor.left, width: anchor.width } : undefined}
+          style={floating && anchor ? { position: "fixed", top: anchor.top, bottom: anchor.bottom, left: anchor.left, width: anchor.width } : undefined}
           className={`${floating ? "z-[60]" : "absolute left-0 right-0 z-50 mt-1"} max-h-56 overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg`}
         >
           {showAddRow && (
