@@ -7,7 +7,7 @@ import { MongoClient } from "mongodb";
 import { readyDb, type Db } from "../../lib/bankFeeds/db";
 
 export const BANK_TEST_DATABASE_URL = process.env.BANK_TEST_MONGODB_URI;
-export const BANK_TEST_DB_NAME = "scantrix_web_test";
+export const BANK_TEST_DB_NAME = "bank-transactions-test";
 
 export async function resetBankTestDatabase(uri: string): Promise<void> {
   const client = new MongoClient(uri);

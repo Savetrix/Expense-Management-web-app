@@ -94,5 +94,5 @@ export function readBankConfig(): BankConfigOutcome {
 export function readStoreConfig(): { uri: string; dbName: string } | null {
   const uri = process.env.BANK_MONGODB_URI?.trim();
   if (!uri) return null;
-  return { uri, dbName: process.env.BANK_MONGODB_DB?.trim() || "scantrix_web" };
+  return { uri, dbName: process.env.BANK_MONGODB_DB?.trim() || "bank-transactions" };
 }
