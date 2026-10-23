@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 
+import { EBOOKS } from "@/content/ebooks";
 import { getAllPosts } from "@/lib/blog";
 import { absoluteUrl } from "@/lib/seo";
 
@@ -38,6 +39,31 @@ export default function sitemap(): MetadataRoute.Sitemap {
           },
         ]
       : []),
+    // The e-books index and each e-book that has an in-site reading page.
+    {
+      url: absoluteUrl("/ebooks"),
+      lastModified: new Date("2026-10-23T00:00:00Z"),
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    },
+    ...EBOOKS.filter((book) => book.body).map((book) => ({
+      url: absoluteUrl(`/ebooks/${book.slug}`),
+      lastModified: new Date("2026-10-23T00:00:00Z"),
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    })),
+    {
+      url: absoluteUrl("/privacy-policy"),
+      lastModified: new Date("2026-10-12T00:00:00Z"),
+      changeFrequency: "yearly" as const,
+      priority: 0.3,
+    },
+    {
+      url: absoluteUrl("/terms-and-conditions"),
+      lastModified: new Date("2026-10-12T00:00:00Z"),
+      changeFrequency: "yearly" as const,
+      priority: 0.3,
+    },
     ...posts.map((post) => ({
       url: absoluteUrl(post.href),
       lastModified: new Date(`${changed(post)}T00:00:00Z`),
