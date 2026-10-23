@@ -11,29 +11,30 @@ export function EbookCard({ book }: { book: Ebook }) {
     <Image
       src={book.cover}
       alt={`Cover of ${book.title}`}
-      width={300}
-      height={400}
-      className="h-auto w-[150px] rounded-l-md rounded-r-xl shadow-lg"
+      width={528}
+      height={696}
+      sizes="220px"
+      className="h-auto w-[220px] rounded-md shadow-lg"
     />
   ) : (
     // Generated cover, used until a real cover image is supplied.
     <div
       aria-hidden
-      className="relative flex aspect-[3/4] w-[150px] flex-col justify-between rounded-l-md rounded-r-xl p-4 pl-5 text-white shadow-lg"
+      className="relative flex aspect-[3/4] w-[220px] flex-col justify-between rounded-md p-5 pl-6 text-white shadow-lg"
       style={{ background: "linear-gradient(155deg, var(--lp-navy) 0%, var(--lp-navy-950) 80%)" }}
     >
       <span className="absolute inset-y-0 left-2 w-px bg-white/15" />
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--lp-teal)]">
         Scantrix
       </span>
-      <span className="text-[16px] font-semibold leading-tight tracking-[-0.01em]">{book.title}</span>
+      <span className="text-[20px] font-semibold leading-tight tracking-[-0.01em]">{book.title}</span>
       <span className="h-[3px] w-7 rounded-full bg-[color:var(--lp-teal)]" />
     </div>
   );
 
   const body = (
     <>
-      <div className="flex items-center justify-center rounded-xl bg-[color:var(--lp-soft)] py-7">{cover}</div>
+      <div className="flex items-center justify-center rounded-xl bg-[color:var(--lp-soft)] py-6">{cover}</div>
       <span className="mt-5 w-fit rounded-pill bg-[color:var(--lp-teal-050)] px-2.5 py-1 text-[12px] font-semibold text-[color:var(--lp-teal-700)]">
         {book.meta}
       </span>
