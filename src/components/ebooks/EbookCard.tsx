@@ -7,34 +7,34 @@ import type { Ebook } from "@/content/ebooks";
 // a PDF is a download link; one without shows "Coming soon" instead, so the page
 // never links to a file that isn't there.
 export function EbookCard({ book }: { book: Ebook }) {
+  // A wide banner: the cover fills the card's full width at a short height, so
+  // it shows the top of the (portrait) cover, anchored to its top edge.
   const cover = book.cover ? (
     <Image
       src={book.cover}
       alt={`Cover of ${book.title}`}
-      width={528}
-      height={696}
-      sizes="220px"
-      className="h-auto w-[220px] rounded-md shadow-lg"
+      fill
+      sizes="(min-width: 1024px) 380px, (min-width: 768px) 50vw, 100vw"
+      className="object-cover object-top"
     />
   ) : (
-    // Generated cover, used until a real cover image is supplied.
+    // Generated banner, used until a real cover image is supplied.
     <div
       aria-hidden
-      className="relative flex aspect-[3/4] w-[220px] flex-col justify-between rounded-md p-5 pl-6 text-white shadow-lg"
+      className="absolute inset-0 flex flex-col justify-between p-6 text-white"
       style={{ background: "linear-gradient(155deg, var(--lp-navy) 0%, var(--lp-navy-950) 80%)" }}
     >
-      <span className="absolute inset-y-0 left-2 w-px bg-white/15" />
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--lp-teal)]">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--lp-teal)]">
         Scantrix
       </span>
-      <span className="text-[20px] font-semibold leading-tight tracking-[-0.01em]">{book.title}</span>
-      <span className="h-[3px] w-7 rounded-full bg-[color:var(--lp-teal)]" />
+      <span className="max-w-[80%] text-[22px] font-semibold leading-tight tracking-[-0.01em]">{book.title}</span>
+      <span className="h-[3px] w-8 rounded-full bg-[color:var(--lp-teal)]" />
     </div>
   );
 
   const body = (
     <>
-      <div className="flex items-center justify-center rounded-xl bg-[color:var(--lp-soft)] py-6">{cover}</div>
+      <div className="relative h-56 overflow-hidden rounded-xl bg-[color:var(--lp-navy-950)]">{cover}</div>
       <span className="mt-5 w-fit rounded-pill bg-[color:var(--lp-teal-050)] px-2.5 py-1 text-[12px] font-semibold text-[color:var(--lp-teal-700)]">
         {book.meta}
       </span>
