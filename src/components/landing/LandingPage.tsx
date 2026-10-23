@@ -2,7 +2,6 @@ import "./lp2.css";
 
 import { ClosingCta } from "./ClosingCta";
 import { ConfidenceFork } from "./ConfidenceFork";
-import { Ebooks } from "./Ebooks";
 import { LP2_FONTS } from "./fonts";
 import { Hero } from "./Hero";
 import { HowItWorks } from "./HowItWorks";
@@ -26,7 +25,6 @@ export function LandingPage() {
         <HowItWorks />
         <ConfidenceFork />
         <Integrations />
-        <Ebooks />
         <Pricing />
         <ClosingCta />
       </main>

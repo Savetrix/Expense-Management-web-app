@@ -1,4 +1,4 @@
-// The homepage E-books section (src/components/landing/Ebooks.tsx) reads this list.
+// The /ebooks page (src/app/ebooks/page.tsx) reads this list.
 //
 // To publish an e-book:
 //   1. Put the PDF in public/ebooks/ and, optionally, a cover image in
@@ -6,8 +6,8 @@
 //   2. Fill in `file` (e.g. "/ebooks/ap-automation-guide.pdf") and, if you have
 //      one, `cover`. An entry with no `file` shows a "Coming soon" label instead
 //      of a download link, so nothing on the page ever 404s.
-//   3. Remove the placeholder entries below. The section hides itself when this
-//      list is empty.
+//   3. Remove the placeholder entries below. The page stays out of search
+//      results (noindex) until at least one entry has a `file`.
 export interface Ebook {
   /** Unique, URL-safe. Used as the React key and the download filename. */
   slug: string;

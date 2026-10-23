@@ -373,7 +373,7 @@ export function HeaderMenus({ links }: { links: HeaderLinks }) {
                         <span className="pr-a-d">Guides on bills, AP and month-end</span>
                       </Link>
                       {" "}
-                      <Link className="pr-a" href="/#ebooks" onClick={closeAll}>
+                      <Link className="pr-a" href="/ebooks" onClick={closeAll}>
                         <span className="pr-a-t">
                           E-books <Arrow size={14} />
                         </span>
@@ -506,7 +506,7 @@ export function HeaderMenus({ links }: { links: HeaderLinks }) {
               <Link href="/blog" onClick={closeMobile}>
                 Blog
               </Link>
-              <Link href="/#ebooks" onClick={closeMobile}>
+              <Link href="/ebooks" onClick={closeMobile}>
                 E-books
               </Link>
               <Link href="/faq" onClick={closeMobile}>
