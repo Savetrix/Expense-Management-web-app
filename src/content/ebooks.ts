@@ -1,4 +1,5 @@
-// The /ebooks page (src/app/ebooks/page.tsx) reads this list.
+// The /ebooks page (src/app/ebooks/page.tsx) and each e-book's reading page
+// (src/app/ebooks/[slug]/page.tsx) read this list.
 //
 // To publish an e-book:
 //   1. Put the PDF in public/ebooks/ and, optionally, a cover image in
@@ -6,8 +7,14 @@
 //   2. Fill in `file` (e.g. "/ebooks/ap-automation-guide.pdf") and, if you have
 //      one, `cover`. An entry with no `file` shows a "Coming soon" label instead
 //      of a download link, so nothing on the page ever 404s.
-//   3. The page stays out of search results (noindex) until at least one entry
-//      has a `file`.
+//   3. To make it readable on the site, put the text as Markdown in
+//      src/content/ebooks-text/<slug>.ts (export `body`) and set `body` here.
+//      With a `body` the card opens a reading page at /ebooks/<slug>, with the
+//      PDF as a separate download button; without one it just downloads.
+//   4. The /ebooks page stays out of search results (noindex) until at least
+//      one entry has a `file`.
+import { body as aiInvoiceProcessingBody } from "./ebooks-text/ai-invoice-processing-for-accountants";
+
 export interface Ebook {
   /** Unique, URL-safe. Used as the React key and the download filename. */
   slug: string;
@@ -20,6 +27,10 @@ export interface Ebook {
   file?: string;
   /** Public path to a portrait cover image. Omit to use the generated cover. */
   cover?: string;
+  /** Markdown text for the in-site reading page. No H1; chapters start at "##". */
+  body?: string;
+  /** Shown on the reading page, e.g. "October 2026". */
+  publishedLabel?: string;
 }
 
 export const EBOOKS: readonly Ebook[] = [
@@ -31,5 +42,7 @@ export const EBOOKS: readonly Ebook[] = [
     meta: "Guide · 14 pages",
     file: "/ebooks/ai-invoice-processing-for-accountants.pdf",
     cover: "/ebooks/covers/ai-invoice-processing-for-accountants.jpg",
+    body: aiInvoiceProcessingBody,
+    publishedLabel: "October 2026",
   },
 ];
