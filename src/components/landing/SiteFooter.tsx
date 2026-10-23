@@ -1,15 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { faqHref } from "@/lib/faq";
-import { PRIVACY_URL, TERMS_URL } from "@/lib/legal";
 
 import { APP_STORE_URL } from "./links";
 
 // The footer used by every public page (/, /faq, /blog). Section links are
-// root-relative ("/#how") so they work from /blog too. Help center points at
-// the FAQ until a help center exists. The legal documents are the same PDFs
-// the app's profile screen opens.
+// root-relative ("/#how") so they work from /blog too. Privacy and Terms are
+// the site's own pages.
 export function SiteFooter() {
   return (
     <footer className="ftr">
@@ -35,8 +32,6 @@ export function SiteFooter() {
             <Link href="/blog">Blog</Link>
             <Link href="/ebooks">E-books</Link>
             <Link href="/faq">FAQ</Link>
-            <Link href="/faq">Help center</Link>
-            <Link href={faqHref("security")}>Security</Link>
             <Link href="/login">Log in</Link>
             {" "}
           </nav>
@@ -50,12 +45,8 @@ export function SiteFooter() {
           <span>QuickBooks, Xero, Google Drive and OneDrive are trademarks of their owners.</span>
           {" "}
           <span className="ftr-legal">
-            <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
-              Privacy
-            </a>
-            <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
-              Terms
-            </a>
+            <Link href="/privacy-policy">Privacy</Link>
+            <Link href="/terms-and-conditions">Terms</Link>
           </span>
           {" "}
         </div>

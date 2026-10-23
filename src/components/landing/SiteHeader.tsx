@@ -19,7 +19,6 @@ export function SiteHeader() {
           faqAutoPost: faqHref("auto-post"),
           faqSoftware: faqHref("software"),
           faqSenders: faqHref("senders"),
-          faqSecurity: faqHref("security"),
         }}
       />
     </>

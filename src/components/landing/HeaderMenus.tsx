@@ -27,7 +27,6 @@ export interface HeaderLinks {
   faqAutoPost: string;
   faqSoftware: string;
   faqSenders: string;
-  faqSecurity: string;
 }
 
 type Menu = "product" | "resources";
@@ -380,23 +379,6 @@ export function HeaderMenus({ links }: { links: HeaderLinks }) {
                         <span className="pr-a-d">In-depth guides to download</span>
                       </Link>
                       {" "}
-                      {/* No help center exists yet; the FAQ stands in for it. */}
-                      <Link className="pr-a" href="/faq" onClick={closeAll}>
-                        <span className="pr-a-t">
-                          Help center <Arrow size={14} />
-                        </span>
-                        <span className="pr-a-d">Set-up guides, feature by feature</span>
-                      </Link>
-                      {" "}
-                      {/* "Product updates" is in the design but has no page yet,
-                          so it is left out until one exists. */}
-                      <Link className="pr-a" href={links.faqSecurity} onClick={closeAll}>
-                        <span className="pr-a-t">
-                          Security <Arrow size={14} />
-                        </span>
-                        <span className="pr-a-d">How forwarded files are checked</span>
-                      </Link>
-                      {" "}
                     </div>
                     {" "}
                     <div className="st st2">
@@ -511,12 +493,6 @@ export function HeaderMenus({ links }: { links: HeaderLinks }) {
               </Link>
               <Link href="/faq" onClick={closeMobile}>
                 FAQ
-              </Link>
-              <Link href="/faq" onClick={closeMobile}>
-                Help center
-              </Link>
-              <Link href={links.faqSecurity} onClick={closeMobile}>
-                Security
               </Link>
             </div>
             {" "}
