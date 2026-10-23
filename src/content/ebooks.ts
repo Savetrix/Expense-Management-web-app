@@ -6,8 +6,8 @@
 //   2. Fill in `file` (e.g. "/ebooks/ap-automation-guide.pdf") and, if you have
 //      one, `cover`. An entry with no `file` shows a "Coming soon" label instead
 //      of a download link, so nothing on the page ever 404s.
-//   3. Remove the placeholder entries below. The page stays out of search
-//      results (noindex) until at least one entry has a `file`.
+//   3. The page stays out of search results (noindex) until at least one entry
+//      has a `file`.
 export interface Ebook {
   /** Unique, URL-safe. Used as the React key and the download filename. */
   slug: string;
@@ -23,23 +23,13 @@ export interface Ebook {
 }
 
 export const EBOOKS: readonly Ebook[] = [
-  // PLACEHOLDERS: replace with the real e-books.
   {
-    slug: "ebook-one",
-    title: "E-book title one",
-    description: "A short description of what the reader will learn from this e-book.",
-    meta: "Guide",
-  },
-  {
-    slug: "ebook-two",
-    title: "E-book title two",
-    description: "A short description of what the reader will learn from this e-book.",
-    meta: "Guide",
-  },
-  {
-    slug: "ebook-three",
-    title: "E-book title three",
-    description: "A short description of what the reader will learn from this e-book.",
-    meta: "Guide",
+    slug: "ai-invoice-processing-for-accountants",
+    title: "AI Invoice Processing for Accountants",
+    description:
+      "How to automate accounts payable in QuickBooks Online and Xero without giving up control of the books: confidence scores, approvals, a 10-question buying checklist and a 30-day rollout plan.",
+    meta: "Guide · 14 pages",
+    file: "/ebooks/ai-invoice-processing-for-accountants.pdf",
+    cover: "/ebooks/covers/ai-invoice-processing-for-accountants.jpg",
   },
 ];
