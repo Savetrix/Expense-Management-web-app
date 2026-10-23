@@ -373,6 +373,13 @@ export function HeaderMenus({ links }: { links: HeaderLinks }) {
                         <span className="pr-a-d">Guides on bills, AP and month-end</span>
                       </Link>
                       {" "}
+                      <Link className="pr-a" href="/#ebooks" onClick={closeAll}>
+                        <span className="pr-a-t">
+                          E-books <Arrow size={14} />
+                        </span>
+                        <span className="pr-a-d">In-depth guides to download</span>
+                      </Link>
+                      {" "}
                       {/* No help center exists yet; the FAQ stands in for it. */}
                       <Link className="pr-a" href="/faq" onClick={closeAll}>
                         <span className="pr-a-t">
@@ -498,6 +505,9 @@ export function HeaderMenus({ links }: { links: HeaderLinks }) {
             <div className="ms-sub st st5">
               <Link href="/blog" onClick={closeMobile}>
                 Blog
+              </Link>
+              <Link href="/#ebooks" onClick={closeMobile}>
+                E-books
               </Link>
               <Link href="/faq" onClick={closeMobile}>
                 FAQ
