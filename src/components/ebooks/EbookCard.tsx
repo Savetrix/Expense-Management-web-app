@@ -13,15 +13,16 @@ import type { Ebook } from "@/content/ebooks";
 export function EbookCard({ book }: { book: Ebook }) {
   const readable = Boolean(book.body);
 
-  // A wide banner: the cover fills the card's full width at a short height, so
-  // it shows the top of the (portrait) cover, anchored to its top edge.
+  // A wide 8:3 banner that fills the card's width. SVGs skip the image optimizer
+  // (they're already vector, and it refuses them by default).
   const cover = book.cover ? (
     <Image
       src={book.cover}
       alt={`Cover of ${book.title}`}
       fill
       sizes="(min-width: 1024px) 380px, (min-width: 768px) 50vw, 100vw"
-      className="object-cover object-top"
+      unoptimized={book.cover.endsWith(".svg")}
+      className="object-cover"
     />
   ) : (
     // Generated banner, used until a real cover image is supplied.
@@ -56,7 +57,7 @@ export function EbookCard({ book }: { book: Ebook }) {
 
   const content = (
     <>
-      <div className="relative h-56 overflow-hidden rounded-xl bg-[color:var(--lp-navy-950)]">{cover}</div>
+      <div className="relative aspect-[8/3] overflow-hidden rounded-xl bg-[color:var(--lp-navy-950)]">{cover}</div>
       <span className="mt-5 w-fit rounded-pill bg-[color:var(--lp-teal-050)] px-2.5 py-1 text-[12px] font-semibold text-[color:var(--lp-teal-700)]">
         {book.meta}
       </span>

@@ -3,7 +3,7 @@
 //
 // To publish an e-book:
 //   1. Put the PDF in public/ebooks/ and, optionally, a cover image in
-//      public/ebooks/covers/ (portrait, roughly 3:4).
+//      public/ebooks/covers/ (a wide 8:3 banner, e.g. 1600x600; SVG works).
 //   2. Fill in `file` (e.g. "/ebooks/ap-automation-guide.pdf") and, if you have
 //      one, `cover`. An entry with no `file` shows a "Coming soon" label instead
 //      of a download link, so nothing on the page ever 404s.
@@ -26,7 +26,7 @@ export interface Ebook {
   meta: string;
   /** Public path to the PDF. Omit while the e-book isn't ready. */
   file?: string;
-  /** Public path to a portrait cover image. Omit to use the generated cover. */
+  /** Public path to a wide banner image (8:3, e.g. 1600x600; SVG or a raster). Omit to use the generated cover. */
   cover?: string;
   /** Markdown text for the in-site reading page. No H1; chapters start at "##". */
   body?: string;
@@ -42,7 +42,7 @@ export const EBOOKS: readonly Ebook[] = [
       "How to automate accounts payable in QuickBooks Online and Xero without giving up control of the books: confidence scores, approvals, a 10-question buying checklist and a 30-day rollout plan.",
     meta: "Guide · 14 pages",
     file: "/ebooks/ai-invoice-processing-for-accountants.pdf",
-    cover: "/ebooks/covers/ai-invoice-processing-for-accountants.jpg",
+    cover: "/ebooks/covers/ai-invoice-processing-for-accountants.svg",
     body: aiInvoiceProcessingBody,
     publishedLabel: "October 2026",
   },
@@ -53,7 +53,7 @@ export const EBOOKS: readonly Ebook[] = [
       "How duplicate invoices happen, what they cost, and how to stop them before they reach the books: ten common causes, an audit method and a five-layer prevention system for QuickBooks Online and Xero.",
     meta: "Guide · 21 pages",
     file: "/ebooks/duplicate-invoices-guide.pdf",
-    cover: "/ebooks/covers/duplicate-invoices-guide.jpg",
+    cover: "/ebooks/covers/duplicate-invoices-guide.svg",
     body: duplicateInvoicesBody,
     publishedLabel: "October 2026",
   },

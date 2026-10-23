@@ -111,7 +111,7 @@ export default async function EbookPage({ params }: Props) {
               </ol>
             </nav>
 
-            <div className="mt-8 grid items-center gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14">
+            <div className="mt-8 grid items-center gap-8 lg:grid-cols-[minmax(0,1fr)_27rem] lg:gap-14">
               <div className="max-w-3xl">
                 <span className="w-fit rounded-pill bg-[color:var(--lp-teal-050)] px-2.5 py-1 text-[12px] font-semibold text-[color:var(--lp-teal-700)]">
                   {book.meta}
@@ -142,14 +142,15 @@ export default async function EbookPage({ params }: Props) {
                 </div>
               </div>
               {book.cover && (
-                <div className="relative hidden h-56 overflow-hidden rounded-2xl border border-border bg-[color:var(--lp-navy-950)] shadow-sm lg:block">
+                <div className="relative hidden aspect-[8/3] overflow-hidden rounded-2xl border border-border bg-[color:var(--lp-navy-950)] shadow-sm lg:block">
                   <Image
                     src={book.cover}
                     alt={`Cover of ${book.title}`}
                     fill
                     priority
-                    sizes="352px"
-                    className="object-cover object-top"
+                    sizes="432px"
+                    unoptimized={book.cover.endsWith(".svg")}
+                    className="object-cover"
                   />
                 </div>
               )}
