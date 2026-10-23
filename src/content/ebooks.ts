@@ -14,6 +14,7 @@
 //   4. The /ebooks page stays out of search results (noindex) until at least
 //      one entry has a `file`.
 import { body as aiInvoiceProcessingBody } from "./ebooks-text/ai-invoice-processing-for-accountants";
+import { body as duplicateInvoicesBody } from "./ebooks-text/duplicate-invoices-guide";
 
 export interface Ebook {
   /** Unique, URL-safe. Used as the React key and the download filename. */
@@ -43,6 +44,17 @@ export const EBOOKS: readonly Ebook[] = [
     file: "/ebooks/ai-invoice-processing-for-accountants.pdf",
     cover: "/ebooks/covers/ai-invoice-processing-for-accountants.jpg",
     body: aiInvoiceProcessingBody,
+    publishedLabel: "October 2026",
+  },
+  {
+    slug: "duplicate-invoices-guide",
+    title: "Duplicate Invoices",
+    description:
+      "How duplicate invoices happen, what they cost, and how to stop them before they reach the books: ten common causes, an audit method and a five-layer prevention system for QuickBooks Online and Xero.",
+    meta: "Guide · 21 pages",
+    file: "/ebooks/duplicate-invoices-guide.pdf",
+    cover: "/ebooks/covers/duplicate-invoices-guide.jpg",
+    body: duplicateInvoicesBody,
     publishedLabel: "October 2026",
   },
 ];
