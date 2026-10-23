@@ -33,6 +33,7 @@ export function SiteFooter() {
             </a>
             <Link href="/#pricing">Pricing</Link>
             <Link href="/blog">Blog</Link>
+            <Link href="/ebooks">E-books</Link>
             <Link href="/faq">FAQ</Link>
             <Link href="/faq">Help center</Link>
             <Link href={faqHref("security")}>Security</Link>
