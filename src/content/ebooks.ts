@@ -1,0 +1,45 @@
+// The homepage E-books section (src/components/landing/Ebooks.tsx) reads this list.
+//
+// To publish an e-book:
+//   1. Put the PDF in public/ebooks/ and, optionally, a cover image in
+//      public/ebooks/covers/ (portrait, roughly 3:4).
+//   2. Fill in `file` (e.g. "/ebooks/ap-automation-guide.pdf") and, if you have
+//      one, `cover`. An entry with no `file` shows a "Coming soon" label instead
+//      of a download link, so nothing on the page ever 404s.
+//   3. Remove the placeholder entries below. The section hides itself when this
+//      list is empty.
+export interface Ebook {
+  /** Unique, URL-safe. Used as the React key and the download filename. */
+  slug: string;
+  title: string;
+  /** One or two sentences. */
+  description: string;
+  /** Short label shown above the title, e.g. "Guide · 24 pages". */
+  meta: string;
+  /** Public path to the PDF. Omit while the e-book isn't ready. */
+  file?: string;
+  /** Public path to a portrait cover image. Omit to use the generated cover. */
+  cover?: string;
+}
+
+export const EBOOKS: readonly Ebook[] = [
+  // PLACEHOLDERS: replace with the real e-books.
+  {
+    slug: "ebook-one",
+    title: "E-book title one",
+    description: "A short description of what the reader will learn from this e-book.",
+    meta: "Guide",
+  },
+  {
+    slug: "ebook-two",
+    title: "E-book title two",
+    description: "A short description of what the reader will learn from this e-book.",
+    meta: "Guide",
+  },
+  {
+    slug: "ebook-three",
+    title: "E-book title three",
+    description: "A short description of what the reader will learn from this e-book.",
+    meta: "Guide",
+  },
+];
