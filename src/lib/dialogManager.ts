@@ -21,6 +21,8 @@ export interface ConfirmRequest {
    *  confirm contract. */
   altLabel?: string;
   tone: DialogTone;
+  /** "wide" for a long message (a price breakdown, an explanation) — most confirms stay compact. */
+  size: "default" | "wide";
   resolve: (value: boolean | "alt") => void;
 }
 
@@ -59,6 +61,7 @@ interface ConfirmDialogOptions {
   cancelLabel?: string;
   altLabel?: string;
   tone?: DialogTone;
+  size?: "default" | "wide";
 }
 
 // Overloaded on purpose. Adding the third button widened the result to
@@ -80,6 +83,7 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<ConfirmRes
       cancelLabel: options.cancelLabel ?? "Cancel",
       altLabel: options.altLabel,
       tone: options.tone ?? "default",
+      size: options.size ?? "default",
       resolve,
     };
     dialogEmitter.emit(CONFIRM_REQUEST, request);

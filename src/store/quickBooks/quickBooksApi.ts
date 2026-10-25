@@ -764,6 +764,8 @@ interface InviteQBMemberPayload {
   qbId: string;
   email: string;
   role: QBMemberRole;
+  /** Whether invoices they upload may auto-post. Left out (e.g. a resend), the backend keeps what's stored, or the role default. */
+  autoPostAllowed?: boolean;
 }
 
 export const inviteQBMember = createAsyncThunk(
@@ -777,7 +779,11 @@ export const inviteQBMember = createAsyncThunk(
       });
       const response = await api.post(
         `/qb-connections/${data.qbId}/members`,
-        { email: data.email, role: data.role },
+        {
+          email: data.email,
+          role: data.role,
+          ...(data.autoPostAllowed !== undefined && { autoPostAllowed: data.autoPostAllowed }),
+        },
         {
           headers: {
             Authorization: `Bearer ${data.accessToken}`,
@@ -829,6 +835,38 @@ export const fetchQBMembers = createAsyncThunk(
         error?.response?.data?.error ||
         error?.message ||
         "Failed to fetch team members";
+      return thunkAPI.rejectWithValue({
+        message,
+        statusCode: error?.response?.status,
+      });
+    }
+  },
+);
+
+// ================================
+// TEAM — UPDATE MEMBER (whether their uploads may auto-post)
+// ================================
+interface UpdateQBMemberPayload {
+  qbId: string;
+  memberId: string;
+  autoPostAllowed: boolean;
+}
+
+export const updateQBMember = createAsyncThunk(
+  "quickbooks/updateMember",
+  async (data: UpdateQBMemberPayload, thunkAPI) => {
+    try {
+      const response = await api.patch(
+        `/qb-connections/${data.qbId}/members/${data.memberId}`,
+        { autoPostAllowed: data.autoPostAllowed },
+        { headers: { "X-QB-Id": data.qbId } },
+      );
+      return response.data;
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to update team member";
       return thunkAPI.rejectWithValue({
         message,
         statusCode: error?.response?.status,

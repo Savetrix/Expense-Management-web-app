@@ -265,7 +265,9 @@ export async function ensureServiceMembership(
     const invited = await call(
       `/qb-connections/${encodeURIComponent(qbConnectionId)}/members`,
       ownerAccessToken,
-      { method: "POST", qbId: qbConnectionId, body: { email: serviceEmail, role: "contributor" } },
+      // autoPostAllowed: forwarded invoices follow the company's auto-post
+      // setting only, so the account itself is never the one holding them back.
+      { method: "POST", qbId: qbConnectionId, body: { email: serviceEmail, role: "contributor", autoPostAllowed: true } },
     );
     if (!invited) return { ok: false, reason: "invite-unreachable" };
     if (invited.status >= 400) return { ok: false, reason: `invite-${invited.status}` };

@@ -196,6 +196,7 @@ export function PlansContentV2() {
           : []),
       ].join("\n"),
       confirmLabel: p.amountDueNow > 0 ? `Pay ${money(p.amountDueNow)}` : "Upgrade",
+      size: "wide",
     });
     if (!confirmed) return;
 
