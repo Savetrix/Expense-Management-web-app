@@ -71,11 +71,16 @@ describe("blog content", () => {
 
   it("every internal link resolves to a real page or homepage section", () => {
     const slugs = new Set(getAllPosts().map((post) => post.slug));
-    // Section ids read from the homepage source, so renaming a section there
-    // fails this test instead of silently breaking links in old posts.
-    const landing = readFileSync(join(process.cwd(), "src/components/landing/LandingPage.tsx"), "utf8");
-    const sections = new Set([...landing.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]));
-    const pages = new Set(["/", "/blog", "/register", "/login"]);
+    // Anchor ids read from the homepage's section components, so renaming one
+    // there fails this test instead of silently breaking links in old posts.
+    // Any element counts, not only <section>: /#email is How-it-works step 1.
+    const landingDir = join(process.cwd(), "src/components/landing");
+    const landing = readdirSync(landingDir)
+      .filter((file) => file.endsWith(".tsx"))
+      .map((file) => readFileSync(join(landingDir, file), "utf8"))
+      .join("\n");
+    const sections = new Set([...landing.matchAll(/<[a-z]+ [^>]*\bid="([a-z-]+)"/g)].map((m) => m[1]));
+    const pages = new Set(["/", "/blog", "/faq", "/register", "/login"]);
 
     for (const post of getAllPosts()) {
       for (const [, href] of post.html.matchAll(/href="([^"]+)"/g)) {

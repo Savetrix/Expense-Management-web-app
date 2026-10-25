@@ -16,6 +16,7 @@ import {
 import { ReactNode, useState } from "react";
 
 import { confirmDialog } from "@/lib/dialogManager";
+import { PRIVACY_URL, SUPPORT_EMAIL, TERMS_URL } from "@/lib/legal";
 import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
 import { useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
@@ -26,10 +27,8 @@ import { PreferencesDialogV2 } from "@/components/v2/preferences/PreferencesDial
 
 // Ported from Scantrix_v2 src/screens/profile/ProfileOptionsScreen.tsx (and
 // the v1 web port at src/components/profile/ProfileContent.tsx). Same
-// TERMS_URL / PRIVACY_URL S3-hosted PDFs mobile links to.
-const TERMS_URL = "https://scantrix-uploads.s3.ap-south-1.amazonaws.com/invoices/6a00877a03676409687bac34_1781529818953.pdf";
-const PRIVACY_URL = "https://scantrix-uploads.s3.ap-south-1.amazonaws.com/invoices/6a00877a03676409687bac34_1781529819012.pdf";
-const SUPPORT_EMAIL = "support@scantrix.ai";
+// TERMS_URL / PRIVACY_URL S3-hosted PDFs mobile links to (@/lib/legal, shared
+// with the public site footer).
 
 interface SettingsRowProps {
   href?: string;
