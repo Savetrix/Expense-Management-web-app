@@ -2,14 +2,20 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight, Download, List } from "lucide-react";
+import { ChevronRight, Download, List, Lock } from "lucide-react";
 
 import { BlogCta } from "@/components/blog/BlogCta";
+import { EbookGateProvider, GateButton } from "@/components/ebooks/EbookGate";
 import { EBOOKS, type Ebook } from "@/content/ebooks";
+import { hasEbookAccess } from "@/lib/ebookLeads/access";
 import { renderMarkdown } from "@/lib/blog";
 import { breadcrumbJsonLd, jsonLdScriptProps } from "@/lib/seo";
 
 // Only e-books with in-site text get a page; any other slug is a real 404.
+//
+// The page reads the access cookie, so it renders per request rather than at
+// build time. The text is put on the page ONLY for visitors who have given their
+// details; everyone else gets the title, summary and chapter list.
 export const dynamicParams = false;
 
 const readable = () => EBOOKS.filter((book): book is Ebook & { body: string } => Boolean(book.body));
@@ -19,6 +25,7 @@ export function generateStaticParams() {
 }
 
 type Props = { params: Promise<{ slug: string }> };
+type PageProps = Props & { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 const findBook = (slug: string) => readable().find((book) => book.slug === slug) ?? null;
 
@@ -43,14 +50,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 function DownloadButton({ book, className = "" }: { book: Ebook; className?: string }) {
   if (!book.file) return null;
   return (
-    <a
-      href={book.file}
-      download={`${book.slug}.pdf`}
+    <GateButton
+      intent="download"
       className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[color:var(--lp-navy)] px-6 text-[15px] font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 ${className}`}
     >
       <Download size={17} strokeWidth={2.25} aria-hidden />
       Download PDF
-    </a>
+    </GateButton>
   );
 }
 
@@ -71,10 +77,14 @@ function TableOfContents({ headings, idPrefix }: { headings: { id: string; text:
   );
 }
 
-export default async function EbookPage({ params }: Props) {
+export default async function EbookPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const book = findBook(slug);
   if (!book) notFound();
+
+  const unlocked = await hasEbookAccess();
+  const gateParam = (await searchParams).gate;
+  const autoOpen = gateParam === "download" || gateParam === "read" ? gateParam : null;
 
   const { html, headings } = renderMarkdown(book.body);
   const minutes = readingMinutes(book.body);
@@ -92,6 +102,7 @@ export default async function EbookPage({ params }: Props) {
         )}
       />
 
+      <EbookGateProvider slug={book.slug} title={book.title} unlocked={unlocked} autoOpen={autoOpen}>
       <article>
         <header className="border-b border-border bg-[color:var(--lp-soft)]">
           <div className="mx-auto max-w-6xl px-5 pb-12 pt-10 sm:px-8 sm:pb-14 sm:pt-12">
@@ -132,12 +143,12 @@ export default async function EbookPage({ params }: Props) {
                   <span>{minutes} min read</span>
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-3">
-                  <a
-                    href="#content"
+                  <GateButton
+                    intent="read"
                     className="inline-flex h-12 items-center justify-center rounded-xl border border-border bg-surface px-6 text-[15px] font-semibold text-trust-navy transition-colors hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
                   >
                     Start reading
-                  </a>
+                  </GateButton>
                   <DownloadButton book={book} />
                 </div>
               </div>
@@ -176,9 +187,48 @@ export default async function EbookPage({ params }: Props) {
               </details>
             )}
 
-            <div className="lp-prose" dangerouslySetInnerHTML={{ __html: html }} />
+            {unlocked ? (
+              <div className="lp-prose" dangerouslySetInnerHTML={{ __html: html }} />
+            ) : (
+              // Locked: the chapter list is the teaser. The text itself is never
+              // rendered for this visitor, so it is not in the page source either.
+              <div className="rounded-2xl border border-border bg-[color:var(--lp-soft)] p-6 sm:p-8">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--lp-teal-050)] text-[color:var(--lp-teal-700)]">
+                  <Lock size={20} strokeWidth={2.25} aria-hidden />
+                </span>
+                <h2 className="mt-4 text-[22px] font-bold tracking-[-0.01em] text-trust-navy">Unlock this guide</h2>
+                <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-text-secondary">
+                  Enter a few details to read it here on the site or download the PDF. It takes about
+                  ten seconds.
+                </p>
+                {headings.length > 0 && (
+                  <>
+                    <p className="mt-6 text-[12px] font-semibold uppercase tracking-[0.16em] text-text-secondary">
+                      What&apos;s inside
+                    </p>
+                    <ul className="mt-3 grid gap-x-8 gap-y-2 text-[14.5px] text-trust-navy sm:grid-cols-2">
+                      {headings.map((heading) => (
+                        <li key={heading.id} className="flex gap-2.5 leading-snug">
+                          <span className="mt-[8px] h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--lp-teal)]" aria-hidden />
+                          {heading.text}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <div className="mt-7 flex flex-wrap items-center gap-3">
+                  <GateButton
+                    intent="read"
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-border bg-surface px-6 text-[15px] font-semibold text-trust-navy transition-colors hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
+                  >
+                    Start reading
+                  </GateButton>
+                  <DownloadButton book={book} />
+                </div>
+              </div>
+            )}
 
-            {book.file && (
+            {unlocked && book.file && (
               <div className="mt-12 flex flex-col items-start gap-4 rounded-2xl border border-border bg-[color:var(--lp-soft)] p-6 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-[16px] font-bold text-trust-navy">Prefer to read offline?</p>
@@ -208,6 +258,7 @@ export default async function EbookPage({ params }: Props) {
           </aside>
         </div>
       </article>
+      </EbookGateProvider>
     </>
   );
 }

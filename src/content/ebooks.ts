@@ -2,16 +2,22 @@
 // (src/app/ebooks/[slug]/page.tsx) read this list.
 //
 // To publish an e-book:
-//   1. Put the PDF in public/ebooks/ and, optionally, a cover image in
-//      public/ebooks/covers/ (a wide 8:3 banner, e.g. 1600x600; SVG works).
-//   2. Fill in `file` (e.g. "/ebooks/ap-automation-guide.pdf") and, if you have
-//      one, `cover`. An entry with no `file` shows a "Coming soon" label instead
-//      of a download link, so nothing on the page ever 404s.
+//   1. Put the PDF in private/ebooks/ (NOT public/: files in public/ are
+//      downloadable by anyone, which would bypass the sign-up form) and, if you
+//      have one, a wide 8:3 banner in public/ebooks/covers/ (e.g. 1600x600; SVG
+//      works).
+//   2. Set `file` to the PDF's filename (e.g. "ap-automation-guide.pdf") and
+//      `cover` to the banner's public path. An entry with no `file` shows a
+//      "Coming soon" label instead of a download, so nothing ever 404s.
 //   3. To make it readable on the site, put the text as Markdown in
 //      src/content/ebooks-text/<slug>.ts (export `body`) and set `body` here.
-//      With a `body` the card opens a reading page at /ebooks/<slug>, with the
-//      PDF as a separate download button; without one it just downloads.
-//   4. The /ebooks page stays out of search results (noindex) until at least
+//      With a `body` the card opens a reading page at /ebooks/<slug>.
+//   4. Reading and downloading are both gated: the visitor fills in a short form
+//      first (src/components/ebooks/EbookGateModal.tsx), which emails the lead to
+//      the support inbox and sets an access cookie. The PDF is served by
+//      src/app/ebooks/[slug]/download/route.ts, and the web text is only put on
+//      the page for visitors who have that cookie.
+//   5. The /ebooks page stays out of search results (noindex) until at least
 //      one entry has a `file`.
 import { body as aiInvoiceProcessingBody } from "./ebooks-text/ai-invoice-processing-for-accountants";
 import { body as duplicateInvoicesBody } from "./ebooks-text/duplicate-invoices-guide";
@@ -24,7 +30,7 @@ export interface Ebook {
   description: string;
   /** Short label shown above the title, e.g. "Guide · 24 pages". */
   meta: string;
-  /** Public path to the PDF. Omit while the e-book isn't ready. */
+  /** Filename of the PDF inside private/ebooks/. Omit while the e-book isn't ready. */
   file?: string;
   /** Public path to a wide banner image (8:3, e.g. 1600x600; SVG or a raster). Omit to use the generated cover. */
   cover?: string;
@@ -41,7 +47,7 @@ export const EBOOKS: readonly Ebook[] = [
     description:
       "How to automate accounts payable in QuickBooks Online and Xero without giving up control of the books: confidence scores, approvals, a 10-question buying checklist and a 30-day rollout plan.",
     meta: "Guide · 14 pages",
-    file: "/ebooks/ai-invoice-processing-for-accountants.pdf",
+    file: "ai-invoice-processing-for-accountants.pdf",
     cover: "/ebooks/covers/ai-invoice-processing-for-accountants.svg",
     body: aiInvoiceProcessingBody,
     publishedLabel: "October 2026",
@@ -52,7 +58,7 @@ export const EBOOKS: readonly Ebook[] = [
     description:
       "How duplicate invoices happen, what they cost, and how to stop them before they reach the books: ten common causes, an audit method and a five-layer prevention system for QuickBooks Online and Xero.",
     meta: "Guide · 21 pages",
-    file: "/ebooks/duplicate-invoices-guide.pdf",
+    file: "duplicate-invoices-guide.pdf",
     cover: "/ebooks/covers/duplicate-invoices-guide.svg",
     body: duplicateInvoicesBody,
     publishedLabel: "October 2026",

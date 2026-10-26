@@ -80,9 +80,10 @@ export function EbookCard({ book }: { book: Ebook }) {
             <ArrowRight size={16} strokeWidth={2.25} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
           </span>
           {book.file && (
+            // Goes through the gate: served straight away for visitors who have
+            // given their details, otherwise the sign-up form opens first.
             <a
-              href={book.file}
-              download={`${book.slug}.pdf`}
+              href={`/ebooks/${book.slug}/download`}
               aria-label={`Download ${book.title} as a PDF`}
               className="relative z-10 inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[13px] font-semibold text-trust-navy transition-colors hover:border-[color:var(--lp-teal)] hover:bg-[color:var(--lp-teal-050)]"
             >
@@ -98,8 +99,7 @@ export function EbookCard({ book }: { book: Ebook }) {
   if (book.file) {
     return (
       <a
-        href={book.file}
-        download={`${book.slug}.pdf`}
+        href={`/ebooks/${book.slug}/download`}
         className={`${base} ${hover} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)]`}
       >
         {content}
