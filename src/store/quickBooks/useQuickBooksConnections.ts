@@ -28,6 +28,8 @@ export interface QBConnection {
   status?: "active" | "disconnected" | "reconnect_required";
   /** Which accounting software — absent on older cached data, treat as QuickBooks (see providerIdOf). */
   provider?: ConnectionProvider;
+  /** The company's own auto-post toggle — absent on older cached data (unknown). */
+  autoPostEnabled?: boolean;
 }
 
 // Shared between QuickBooksConnectContent (the dedicated /quickbooks page)

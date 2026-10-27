@@ -30,8 +30,10 @@ import {
   fetchQBMembers,
   inviteQBMember,
   removeQBMember,
+  updateQBMember,
   type QBMemberRole,
 } from "@/store/quickBooks/quickBooksApi";
+import { Switch } from "@/components/ui/Switch";
 import { fetchInboundOverview } from "@/store/inboundEmail/inboundEmailApi";
 
 interface QBMember {
@@ -39,6 +41,10 @@ interface QBMember {
   invitedEmail: string;
   role: string;
   inviteStatus?: string;
+  /** Whether invoices they upload may auto-post (on top of the company setting). */
+  autoPostAllowed?: boolean;
+  /** The email-forwarding account: its invoices follow the company setting only. */
+  isForwardingService?: boolean;
   createdAt?: string;
   userId?: {
     firstName: string;
@@ -83,6 +89,14 @@ const ROLE_META: Record<string, { label: string; className: string }> = {
 const ROLE_FALLBACK = {
   label: "Member",
   className: "bg-background-alt text-text-secondary",
+};
+
+// New invites start from these; matches the backend's role defaults
+// (Scantrix_API services/team_auto_post.service.js).
+const ROLE_DEFAULT_AUTO_POST: Record<QBMemberRole, boolean> = {
+  admin: true,
+  accountant: true,
+  contributor: false,
 };
 
 const INVITABLE_ROLES: {
@@ -135,6 +149,11 @@ export function TeamMembersContentV2() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteEmailError, setInviteEmailError] = useState("");
   const [inviteRole, setInviteRole] = useState<QBMemberRole>("accountant");
+  const [inviteAutoPost, setInviteAutoPost] = useState(ROLE_DEFAULT_AUTO_POST.accountant);
+  // Members whose auto-post save is in flight — one each, so finishing one
+  // doesn't unlock another's switch mid-request.
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
+
   const [sending, setSending] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
 
@@ -157,6 +176,10 @@ export function TeamMembersContentV2() {
     if (currentRole === "admin") return memberRole !== "admin";
     return false;
   };
+
+  // Same who-can rule as removing (the backend enforces it too). The self
+  // row and the forwarding account are handled where the row is drawn.
+  const canEditAutoPost = (member: QBMember) => canRemoveRole(member.role);
 
   const currentUserEmail = authUser?.email?.toLowerCase();
   const isSelf = (member: QBMember) =>
@@ -254,6 +277,11 @@ export function TeamMembersContentV2() {
     else setMembers([]);
   }, [activeConnection?._id, fetchMembers]);
 
+  // The company's own auto-post toggle (from the connections list AppShell
+  // keeps loaded): off, nobody's uploads auto-post, whatever their switch
+  // says. null when not known.
+  const companyAutoPost = activeConnection?.autoPostEnabled ?? null;
+
   const handleRemoveMember = async (member: QBMember) => {
     if (!activeConnection) return;
     const confirmed = await confirmDialog({
@@ -310,13 +338,77 @@ export function TeamMembersContentV2() {
     }
   };
 
+  const chooseInviteRole = (role: QBMemberRole) => {
+    setInviteRole(role);
+    setInviteAutoPost(ROLE_DEFAULT_AUTO_POST[role]);
+  };
+
   const openInviteSheet = () => {
     setInviteEmail("");
     setInviteEmailError("");
-    setInviteRole(
+    chooseInviteRole(
       availableRoles[availableRoles.length - 1]?.key || "contributor",
     );
     setSheetVisible(true);
+  };
+
+  const handleToggleAutoPost = async (member: QBMember, allowed: boolean) => {
+    if (!activeConnection) return;
+    const name = memberDisplayName(member);
+    const confirmed = await confirmDialog(
+      allowed
+        ? {
+            title: `Allow auto-post for ${name}?`,
+            message: [
+              `Invoices ${name} uploads will be posted to ${activeConnection.name} automatically when they pass every check: an exact vendor match, no missing fields and high confidence. Anything else still goes to review.`,
+              ...(companyAutoPost === false
+                ? ["", `Auto-post is turned off for ${activeConnection.name} right now, so this applies once it's turned back on.`]
+                : []),
+            ].join("\n"),
+            confirmLabel: "Allow auto-post",
+            size: "wide",
+          }
+        : {
+            title: `Turn off auto-post for ${name}?`,
+            message: `Invoices ${name} uploads will always wait for review before they're posted. Invoices already posted aren't affected.`,
+            confirmLabel: "Turn off",
+            tone: "destructive",
+            size: "wide",
+          },
+    );
+    if (!confirmed) return;
+    const previous = member.autoPostAllowed;
+    const setRow = (value: boolean | undefined) =>
+      setMembers((prev) => prev.map((m) => (m._id === member._id ? { ...m, autoPostAllowed: value } : m)));
+    setTogglingIds((prev) => new Set(prev).add(member._id));
+    // Show it straight away; put the earlier value back if the save fails.
+    setRow(allowed);
+    try {
+      const result = await dispatch(
+        updateQBMember({ qbId: activeConnection._id, memberId: member._id, autoPostAllowed: allowed }),
+      );
+      if (updateQBMember.fulfilled.match(result)) {
+        // What the server stored is what the row shows.
+        const saved = result.payload?.data?.member?.autoPostAllowed;
+        if (typeof saved === "boolean") setRow(saved);
+        showToast(
+          allowed
+            ? `Invoices ${memberDisplayName(member)} uploads can now auto-post.`
+            : `Invoices ${memberDisplayName(member)} uploads will now wait for review.`,
+          "success",
+        );
+      } else {
+        setRow(previous);
+        const payload = result.payload as { message?: string } | undefined;
+        showToast(payload?.message || "Could not update auto-post. Please try again.", "error");
+      }
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(member._id);
+        return next;
+      });
+    }
   };
 
   const handleSendInvite = async () => {
@@ -335,6 +427,9 @@ export function TeamMembersContentV2() {
           qbId: activeConnection._id,
           email: trimmedEmail.toLowerCase(),
           role: inviteRole,
+          // Only a change from the role default is stored; otherwise the
+          // member keeps following the role default.
+          ...(inviteAutoPost !== ROLE_DEFAULT_AUTO_POST[inviteRole] && { autoPostAllowed: inviteAutoPost }),
         }),
       );
       if (inviteQBMember.fulfilled.match(result)) {
@@ -423,6 +518,12 @@ export function TeamMembersContentV2() {
             </div>
           ) : (
             <div className="flex flex-col gap-[var(--space-sm)]">
+              {companyAutoPost === false && (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-text-secondary">
+                  Auto-post is turned off for <strong className="font-semibold text-text-primary">{activeConnection?.name}</strong>,
+                  so no invoices auto-post right now. The switches below apply once it&apos;s turned back on in Preferences.
+                </div>
+              )}
               {displayMembers.map((member) => {
                 const meta = ROLE_META[member.role] || ROLE_FALLBACK;
                 const self = isSelf(member);
@@ -434,12 +535,17 @@ export function TeamMembersContentV2() {
                 const isRemoving = removingId === member._id;
                 const isResending = resendingId === member._id;
                 const joinedDate = formatMemberDate(member.createdAt);
+                // The owner's own row (added here, not a member) has no setting.
+                const hasAutoPostRow = member._id !== "__self__";
+                const autoPostOn =
+                  member.autoPostAllowed ?? ROLE_DEFAULT_AUTO_POST[member.role as QBMemberRole] ?? false;
                 return (
                   <div
                     key={member._id}
-                    className="flex items-center justify-between gap-[var(--space-sm)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm"
+                    className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm"
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-[var(--space-sm)]">
+                    {/* Who: avatar, name, email, status — and what can be done to them. */}
+                    <div className="flex items-center gap-[var(--space-sm)] p-[var(--space-md)]">
                       <Avatar
                         name={memberDisplayName(member)}
                         photoURL={member.userId?.icon}
@@ -450,7 +556,7 @@ export function TeamMembersContentV2() {
                         <p className="truncate font-semibold text-text-primary">
                           {memberDisplayName(member)}
                           {self && (
-                            <span className="text-text-secondary"> (You)</span>
+                            <span className="font-normal text-text-secondary"> (You)</span>
                           )}
                         </p>
                         {member.userId && (
@@ -458,57 +564,89 @@ export function TeamMembersContentV2() {
                             {member.userId.email}
                           </p>
                         )}
-                        {pending && (
-                          <p className="text-caption font-semibold text-warning">
-                            Invite pending
-                          </p>
+                        {(pending || joinedDate) && (
+                          <div className="mt-[2px] flex flex-wrap items-center gap-x-[var(--space-sm)] gap-y-[2px] text-caption text-text-secondary">
+                            {pending && (
+                              <span className="rounded-pill bg-warning/10 px-[var(--space-xs)] py-[1px] font-semibold text-warning">
+                                Invite pending
+                              </span>
+                            )}
+                            {joinedDate && <span>Added {joinedDate}</span>}
+                          </div>
                         )}
-                        {joinedDate && (
-                          <p className="truncate text-caption text-text-secondary">
-                            Added {joinedDate}
-                          </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
+                        <span
+                          className={`rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${meta.className}`}
+                        >
+                          {meta.label}
+                        </span>
+                        {pending && canInvite && (
+                          <button
+                            type="button"
+                            onClick={() => handleResendInvite(member)}
+                            disabled={isResending}
+                            aria-label={`Resend invite to ${member.invitedEmail}`}
+                            title="Resend invite"
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60 lg:h-8 lg:w-8"
+                          >
+                            <RefreshCw
+                              size={16}
+                              strokeWidth={2.25}
+                              className={isResending ? "animate-spin" : ""}
+                            />
+                          </button>
+                        )}
+                        {removable && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMember(member)}
+                            disabled={isRemoving}
+                            title="Remove member"
+                            className="flex h-10 w-10 items-center justify-center rounded-md bg-error/10 text-error disabled:opacity-60 lg:h-8 lg:w-8"
+                            aria-label={`Remove ${memberDisplayName(member)}`}
+                          >
+                            {isRemoving ? (
+                              "…"
+                            ) : (
+                              <UserX size={16} strokeWidth={2} />
+                            )}
+                          </button>
                         )}
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
-                      <span
-                        className={`rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${meta.className}`}
-                      >
-                        {meta.label}
-                      </span>
-                      {pending && canInvite && (
-                        <button
-                          type="button"
-                          onClick={() => handleResendInvite(member)}
-                          disabled={isResending}
-                          aria-label={`Resend invite to ${member.invitedEmail}`}
-                          title="Resend invite"
-                          className="flex h-10 shrink-0 items-center gap-1 rounded-md px-[var(--space-sm)] text-caption font-bold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60 lg:h-8"
-                        >
-                          <RefreshCw
-                            size={14}
-                            strokeWidth={2.25}
-                            className={isResending ? "animate-spin" : ""}
+
+                    {/* Their setting, kept apart from who they are. */}
+                    {hasAutoPostRow && (
+                      <div className="flex items-center justify-between gap-[var(--space-md)] border-t border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)]">
+                        <div className="min-w-0">
+                          <p className="text-body-sm font-semibold text-text-primary">Auto-post invoices</p>
+                          <p className="text-caption text-text-secondary">
+                            {member.isForwardingService
+                              ? "Forwarded invoices follow the company auto-post setting."
+                              : autoPostOn
+                                ? "Invoices they upload post automatically when every check passes."
+                                : "Invoices they upload always wait for review."}
+                          </p>
+                        </div>
+                        {member.isForwardingService ? null : canEditAutoPost(member) ? (
+                          <Switch
+                            checked={autoPostOn}
+                            onChange={(allowed) => handleToggleAutoPost(member, allowed)}
+                            disabled={togglingIds.has(member._id)}
+                            label={`Auto-post invoices uploaded by ${memberDisplayName(member)}`}
                           />
-                          Resend
-                        </button>
-                      )}
-                      {removable && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMember(member)}
-                          disabled={isRemoving}
-                          className="flex h-10 w-10 items-center justify-center rounded-md bg-error/10 text-error disabled:opacity-60 lg:h-8 lg:w-8"
-                          aria-label={`Remove ${memberDisplayName(member)}`}
-                        >
-                          {isRemoving ? (
-                            "…"
-                          ) : (
-                            <UserX size={16} strokeWidth={2} />
-                          )}
-                        </button>
-                      )}
-                    </div>
+                        ) : (
+                          <span
+                            className={`shrink-0 rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${
+                              autoPostOn ? "bg-success/10 text-success" : "bg-background-alt text-text-secondary"
+                            }`}
+                          >
+                            {autoPostOn ? "On" : "Off"}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -667,7 +805,7 @@ export function TeamMembersContentV2() {
                     key={role.key}
                     type="button"
                     disabled={sending}
-                    onClick={() => setInviteRole(role.key)}
+                    onClick={() => chooseInviteRole(role.key)}
                     className={`flex items-center justify-between rounded-lg border-2 px-[var(--space-md)] py-[var(--space-sm)] text-left ${
                       selected
                         ? "border-primary bg-primary/5"
@@ -694,6 +832,23 @@ export function TeamMembersContentV2() {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="mt-[var(--space-md)] flex items-start justify-between gap-[var(--space-md)] rounded-lg border border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)]">
+              <div>
+                <p className="font-bold text-text-primary">Auto-post their invoices</p>
+                <p className="text-caption text-text-secondary">
+                  On: invoices they upload are posted automatically when they pass every check. Off: they always wait
+                  for review. You can change this later.
+                  {companyAutoPost === false && " Auto-post is off for the whole company right now, so this applies once it's turned back on."}
+                </p>
+              </div>
+              <Switch
+                checked={inviteAutoPost}
+                onChange={setInviteAutoPost}
+                disabled={sending}
+                label="Auto-post their invoices"
+              />
             </div>
 
             <Button

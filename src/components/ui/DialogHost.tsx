@@ -149,7 +149,7 @@ export function DialogHost() {
           onKeyDown={(e) => e.key === "Escape" && settle(false)}
         >
           <div
-            className="w-full max-w-sm cursor-auto rounded-lg bg-surface p-[var(--space-lg)] shadow-xl"
+            className={`w-full ${confirmRequest.size === "wide" ? "max-w-lg" : "max-w-sm"} cursor-auto rounded-lg bg-surface p-[var(--space-lg)] shadow-xl`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-[var(--space-sm)]">
