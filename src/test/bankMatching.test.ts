@@ -51,6 +51,9 @@ describe("findStrongSuggestions", () => {
     const out = findStrongSuggestions([txn(), txn({ id: "t9", status: "matched", matchedInvoiceId: "i1" })], [inv()]);
     assert.equal(out.length, 0);
   });
+  it("never offers a bill to money coming in", () => {
+    assert.equal(findStrongSuggestions([txn({ amount: 120.5 })], [inv()]).length, 0);
+  });
 });
 
 describe("paperworkHref", () => {

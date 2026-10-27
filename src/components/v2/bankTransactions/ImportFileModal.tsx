@@ -41,6 +41,13 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Accounts earlier files were imported into, so a repeat import picks the
+  // same name (duplicates are checked per account) instead of a near-copy.
+  const importedNames = useMemo(() => {
+    const plaid = new Set(bankAccounts.map((a) => accountLabel(a)));
+    return [...new Set(existing.filter((t) => t.source === "csv").map((t) => t.accountName))].filter((n) => n && !plaid.has(n)).sort();
+  }, [bankAccounts, existing]);
+
   const headers = rows[0] ?? [];
   const dataRows = useMemo(() => rows.slice(1), [rows]);
 
@@ -203,10 +210,10 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
             <label className={FIELD_LABEL_CLASS} htmlFor="import-account">
               Account
             </label>
-            {bankAccounts.length > 0 && (
+            {(bankAccounts.length > 0 || importedNames.length > 0) && (
               <SelectDropdown
                 id="import-account"
-                value={bankAccounts.some((a) => accountLabel(a) === accountName) ? accountName : ""}
+                value={bankAccounts.some((a) => accountLabel(a) === accountName) || importedNames.includes(accountName) ? accountName : ""}
                 onChange={(e) => setAccountName(e.target.value)}
                 className="mt-[var(--space-xs)] w-full"
               >
@@ -215,6 +222,11 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
                   <option key={a.id} value={accountLabel(a)}>
                     {a.institutionName} {a.name}
                     {a.mask ? ` ····${a.mask}` : ""}
+                  </option>
+                ))}
+                {importedNames.map((name) => (
+                  <option key={`csv:${name}`} value={name}>
+                    {name} (imported before)
                   </option>
                 ))}
               </SelectDropdown>

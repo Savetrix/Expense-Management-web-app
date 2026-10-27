@@ -53,7 +53,7 @@ export interface StrongSuggestion {
 }
 
 /**
- * For each line still to review, its best-ranked bill when that bill is a
+ * For each money-out line still to review, its best-ranked bill when that bill is a
  * strong match. A bill is offered to one line only, and never when another
  * line is already matched to it.
  */
@@ -62,7 +62,8 @@ export function findStrongSuggestions(txns: BankTransaction[], candidates: Invoi
   const free = candidates.filter((c) => !taken.has(c.id));
   const out: StrongSuggestion[] = [];
   for (const txn of txns) {
-    if (txn.status !== "review") continue;
+    // Only money out pays a bill; a deposit of the same amount is not a match.
+    if (txn.status !== "review" || txn.amount >= 0) continue;
     const best = rankInvoices(txn, free.filter((c) => !taken.has(c.id)))[0];
     if (best && isStrongMatch(txn, best)) {
       taken.add(best.id);

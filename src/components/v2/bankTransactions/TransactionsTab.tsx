@@ -34,7 +34,8 @@ interface TransactionsTabProps {
   txns: BankTransaction[];
   providerName: string;
   onImportFile: () => void;
-  onConnect: () => void;
+  /** Absent for roles that can't connect a bank. */
+  onConnect?: () => void;
   /** Opens the detail dialog; `focus` = which part to show first. */
   onOpen: (id: string, focus?: "match" | "transfer") => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
@@ -129,9 +130,11 @@ export function TransactionsTab({
           <Button variant="outline" size="sm" onClick={onImportFile}>
             Import file
           </Button>
-          <Button variant="outline" size="sm" onClick={onConnect}>
-            Connect a bank with Plaid
-          </Button>
+          {onConnect && (
+            <Button variant="outline" size="sm" onClick={onConnect}>
+              Connect a bank with Plaid
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -367,6 +370,10 @@ export function TransactionsTab({
 
   const anySuggested = rows.some((t) => t.status === "review" && (isSuggestedField(t, "categoryId") || isSuggestedField(t, "vendorId")));
 
+  // The line a vendor or GL account is being added from, as it is shown now.
+  const addingTxn = adding ? txns.find((x) => x.id === adding.txnId) : undefined;
+  const addingCoding = addingTxn ? codingFor(addingTxn) : null;
+
   return (
     <div>
       <div className="flex flex-col gap-[var(--space-sm)] border-b border-border bg-page p-[var(--space-md)]">
@@ -471,10 +478,11 @@ export function TransactionsTab({
         open={adding?.kind === "vendor"}
         onClose={() => setAdding(null)}
         initialName={adding?.kind === "vendor" ? adding.name : ""}
+        initialGlAccountId={adding?.kind === "vendor" ? (addingCoding?.glAccountId ?? "") : ""}
+        initialTaxCodeId={adding?.kind === "vendor" ? (addingCoding?.taxCodeId ?? "") : ""}
         onCreated={(vendor) => {
           if (!adding) return;
-          const t = txns.find((x) => x.id === adding.txnId);
-          const shown = t ? codingFor(t) : null;
+          const shown = addingCoding;
           onUpdate(adding.txnId, {
             vendorId: vendor._id,
             payee: vendor.displayName,

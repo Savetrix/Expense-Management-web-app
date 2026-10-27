@@ -21,6 +21,8 @@ interface ConnectedAccountsTabProps {
   glAccounts: GLAccount[];
   providerName: string;
   onConnect: () => void;
+  /** False for roles that can't connect, re-login or disconnect a bank (accountant). */
+  canConnect?: boolean;
   /** Opens Plaid in update mode for this account's bank login. */
   onRelogin: (account: BankAccount) => void;
   /** Account whose row is busy, from the store. */
@@ -29,7 +31,7 @@ interface ConnectedAccountsTabProps {
   onSynced?: () => void;
 }
 
-export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onConnect, onRelogin, busyAccountId, onSynced }: ConnectedAccountsTabProps) {
+export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onConnect, canConnect = true, onRelogin, busyAccountId, onSynced }: ConnectedAccountsTabProps) {
   const dispatch = useAppDispatch();
   // Bank-type GL accounts when the software labels any; otherwise every account.
   const glOptions = useMemo(() => {
@@ -44,9 +46,13 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
       <EmptyState
         icon={<Landmark size={28} strokeWidth={1.75} />}
         title="No bank connected"
-        description="Connect a bank with Plaid to bring in transactions automatically, or import a CSV file instead."
-        actionLabel="Connect a bank with Plaid"
-        onAction={onConnect}
+        description={
+          canConnect
+            ? "Connect a bank with Plaid to bring in transactions automatically, or import a CSV file instead."
+            : "An owner or admin of this company connects banks. You can import a CSV file instead."
+        }
+        actionLabel={canConnect ? "Connect a bank with Plaid" : undefined}
+        onAction={canConnect ? onConnect : undefined}
       />
     );
   }
@@ -117,10 +123,14 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
             {acct.status === "needs_relogin" && (
               <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)] rounded-md border border-status-warning-border bg-status-warning-bg px-[var(--space-md)] py-[var(--space-sm)]">
                 <p className="text-body-sm text-status-warning-text">{acct.statusDetail ?? "The bank login changed or expired. Sign in again to resume syncing."}</p>
-                <Button size="sm" onClick={() => onRelogin(acct)}>
-                  <KeyRound size={14} strokeWidth={2.25} />
-                  Sign in again
-                </Button>
+                {canConnect ? (
+                  <Button size="sm" onClick={() => onRelogin(acct)}>
+                    <KeyRound size={14} strokeWidth={2.25} />
+                    Sign in again
+                  </Button>
+                ) : (
+                  <p className="text-caption font-semibold text-status-warning-text">Ask an owner or admin to sign in again.</p>
+                )}
               </div>
             )}
 
@@ -153,10 +163,12 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
                 {busy ? <Spinner size="sm" /> : <RefreshCw size={14} strokeWidth={2.25} />}
                 Sync now
               </Button>
-              <Button variant="danger" size="sm" disabled={busy} onClick={() => disconnect(acct)}>
-                <Trash2 size={14} strokeWidth={2.25} />
-                Disconnect
-              </Button>
+              {canConnect && (
+                <Button variant="danger" size="sm" disabled={busy} onClick={() => disconnect(acct)}>
+                  <Trash2 size={14} strokeWidth={2.25} />
+                  Disconnect
+                </Button>
+              )}
             </div>
           </li>
         );

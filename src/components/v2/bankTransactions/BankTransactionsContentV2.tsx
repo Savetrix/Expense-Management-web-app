@@ -37,6 +37,13 @@ export function BankTransactionsContentV2() {
 
   const [tab, setTab] = useState<Tab>("transactions");
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
+  // Mirrors the server's role rules (lib/bankFeeds/door.ts): owners and admins
+  // connect banks; accountants code and post; contributors have no bank access.
+  const connections = useAppSelector((s) => s.quickBooks.connections);
+  const active = connections.length === 1 ? connections[0] : connections.find((c) => c._id === qbConnectionId);
+  const role = active?.role?.toLowerCase();
+  const canConnect = role !== "accountant" && role !== "contributor";
+  const noAccess = role === "contributor";
   const bank = useAppSelector((s) => s.bankFeeds);
   const bankAccounts: BankAccount[] = bank.qbConnectionId === qbConnectionId ? bank.accounts : [];
   const txns: BankTransaction[] = bank.transactionsConnectionId === qbConnectionId ? bank.transactions : [];
@@ -121,18 +128,28 @@ export function BankTransactionsContentV2() {
         title="Bank Transactions"
         subtitle="Import bank activity and match it to your bills."
         action={
-          <>
-            <Button variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
-              <Landmark size={16} strokeWidth={2.25} />
-              Connect a bank
-            </Button>
-            <Button size="sm" onClick={() => setImportOpen(true)}>
-              <FileUp size={16} strokeWidth={2.25} />
-              Import file
-            </Button>
-          </>
+          noAccess ? undefined : (
+            <>
+              {canConnect && (
+                <Button variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
+                  <Landmark size={16} strokeWidth={2.25} />
+                  Connect a bank
+                </Button>
+              )}
+              <Button size="sm" onClick={() => setImportOpen(true)}>
+                <FileUp size={16} strokeWidth={2.25} />
+                Import file
+              </Button>
+            </>
+          )
         }
       />
+
+      {noAccess && (
+        <div role="alert" className="mt-[var(--space-lg)] rounded-md border border-border bg-surface p-[var(--space-lg)] text-body-sm text-content-secondary">
+          Bank transactions are for owners, admins and accountants of {active?.name ?? "this company"}. Ask an owner to change your role if you need them.
+        </div>
+      )}
 
       {bankAccounts
         // One warning per bank login, which may hold several accounts.
@@ -153,13 +170,18 @@ export function BankTransactionsContentV2() {
                 {a.statusDetail ?? "The bank login changed or expired."} New transactions stop until then.
               </span>
             </p>
-            <Button size="sm" onClick={() => setRelogin(a)}>
-              Sign in again
-            </Button>
+            {canConnect ? (
+              <Button size="sm" onClick={() => setRelogin(a)}>
+                Sign in again
+              </Button>
+            ) : (
+              <span className="text-caption font-semibold text-status-warning-text">Ask an owner or admin to sign in again.</span>
+            )}
           </div>
         ))}
 
-      <div className="mt-[var(--space-lg)] overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
+      {!noAccess && (
+        <div className="mt-[var(--space-lg)] overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
         <div className="border-b border-border bg-page p-[var(--space-md)]">
           <Tabs
             items={[
@@ -176,7 +198,7 @@ export function BankTransactionsContentV2() {
             txns={txns}
             providerName={provider.name}
             onImportFile={() => setImportOpen(true)}
-            onConnect={() => setConnectOpen(true)}
+            onConnect={canConnect ? () => setConnectOpen(true) : undefined}
             onOpen={(id, focus) => {
               setOpenFocus(focus);
               setOpenId(id);
@@ -200,12 +222,14 @@ export function BankTransactionsContentV2() {
             glAccounts={glAccounts}
             providerName={provider.name}
             onConnect={() => setConnectOpen(true)}
+            canConnect={canConnect}
             onRelogin={setRelogin}
             busyAccountId={bank.busyAccountId}
             onSynced={() => dispatch(fetchBankTransactions())}
           />
         )}
-      </div>
+        </div>
+      )}
 
       {bank.unavailableReason && (
         <p className="mt-[var(--space-sm)] text-caption text-content-secondary">
