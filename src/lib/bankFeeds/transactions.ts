@@ -38,7 +38,8 @@ export interface BankTransactionView {
   bankCategory?: string;
   suggestion?: unknown;
   postingStatus?: string;
-  posting?: unknown;
+  /** What the screen needs about the entry in QuickBooks/Xero (no keys). */
+  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null };
   decidedAt?: string;
   version: number;
 }
@@ -65,7 +66,16 @@ export function toView(r: TxnDoc): BankTransactionView {
     bankCategory: r.categoryDetailed ?? r.categoryPrimary ?? undefined,
     suggestion: r.suggestion ?? undefined,
     postingStatus: r.postingStatus ?? undefined,
-    posting: r.posting ?? undefined,
+    posting: r.posting
+      ? {
+          kind: r.posting.kind,
+          externalId: r.posting.externalId,
+          url: r.posting.url,
+          error: r.posting.error,
+          postedAt: r.posting.postedAt ? new Date(r.posting.postedAt).toISOString() : null,
+          viaTransactionId: r.posting.viaTransactionId,
+        }
+      : undefined,
     decidedAt: r.decidedAt ? r.decidedAt.toISOString() : undefined,
     version: r.version,
   };
@@ -328,7 +338,8 @@ export async function unsortedCounts(db: Db, qbConnectionId: string, to: string 
   const date = to && ISO_DATE.test(to) ? { date: { $lte: to } } : {};
   const [toReview, readyToPost] = await Promise.all([
     db.txns.countDocuments({ qbConnectionId, removedAt: null, status: "review", ...date }),
-    db.txns.countDocuments({ qbConnectionId, removedAt: null, status: "ready", ...date }),
+    // Decided but not yet in QuickBooks/Xero: the "Clear the bank" step waits for these too.
+    db.txns.countDocuments({ qbConnectionId, removedAt: null, status: { $in: ["ready", "matched", "transfer"] }, postingStatus: { $ne: "posted" }, ...date }),
   ]);
   return { toReview, readyToPost };
 }

@@ -11,7 +11,9 @@ import {
   bulkUpdateBankTransactions,
   fetchBankAccounts,
   fetchBankTransactions,
+  fetchLedgerAccounts,
   importBankCsv,
+  postBankTransactions,
   updateBankTransaction,
   type BankTxnPatch,
 } from "@/store/bankFeeds/bankFeedsApi";
@@ -44,7 +46,15 @@ export function BankTransactionsContentV2() {
   const role = active?.role?.toLowerCase();
   const canConnect = role !== "accountant" && role !== "contributor";
   const noAccess = role === "contributor";
+  // Owners, admins and accountants may post (APPROVE_POST_QBO on the backend).
+  const canPost = !noAccess;
   const bank = useAppSelector((s) => s.bankFeeds);
+  const ledger = {
+    accounts: bank.ledgerAccountsConnectionId === qbConnectionId ? bank.ledgerAccounts : [],
+    reason: bank.ledgerReason,
+    error: bank.ledgerError,
+  };
+  const sendingIds = useMemo(() => new Set(bank.postingIds), [bank.postingIds]);
   const bankAccounts: BankAccount[] = bank.qbConnectionId === qbConnectionId ? bank.accounts : [];
   const txns: BankTransaction[] = bank.transactionsConnectionId === qbConnectionId ? bank.transactions : [];
   const [connectOpen, setConnectOpen] = useState(false);
@@ -77,6 +87,29 @@ export function BankTransactionsContentV2() {
     dispatch(fetchBankAccounts());
     dispatch(fetchBankTransactions());
   }, [dispatch, qbConnectionId]);
+
+  // The chart of accounts in QuickBooks/Xero: bank accounts to map to, income
+  // accounts for money coming in, and whether sending works at all.
+  useEffect(() => {
+    if (qbConnectionId && canPost) dispatch(fetchLedgerAccounts());
+  }, [dispatch, qbConnectionId, canPost]);
+
+  const sendLines = async (ids: string[]) => {
+    const result = await dispatch(postBankTransactions({ ids }));
+    if (!postBankTransactions.fulfilled.match(result)) {
+      showToast(result.payload?.message ?? `Couldn't send to ${provider.name}.`, "error");
+      if (result.payload?.reason) dispatch(fetchLedgerAccounts());
+      return;
+    }
+    const { results } = result.payload;
+    const sent = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length === 0) showToast(sent === 1 ? `Sent to ${provider.name}.` : `${sent} lines sent to ${provider.name}.`, "success");
+    else showToast(`${sent > 0 ? `${sent} sent. ` : ""}${failed.length} not sent: ${failed[0].error ?? "try again"}`, sent > 0 ? "warning" : "error");
+    if (failed.some((r) => r.code === "scope" || r.code === "reconnect" || r.code === "not_configured")) dispatch(fetchLedgerAccounts());
+    // The other side of a transfer may have been marked as sent too.
+    if (results.some((r) => r.transaction?.status === "transfer")) dispatch(fetchBankTransactions());
+  };
 
   // New lines arrive through Plaid's webhook while the page is open; check
   // every 30 seconds (only while the tab is visible) and on coming back to the
@@ -215,6 +248,9 @@ export function BankTransactionsContentV2() {
             }}
             lookups={lookups}
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
+            ledger={ledger}
+            onSend={canPost ? sendLines : undefined}
+            sendingIds={sendingIds}
           />
         ) : (
           <ConnectedAccountsTab
@@ -226,6 +262,8 @@ export function BankTransactionsContentV2() {
             onRelogin={setRelogin}
             busyAccountId={bank.busyAccountId}
             onSynced={() => dispatch(fetchBankTransactions())}
+            ledgerAccounts={ledger.accounts}
+            named={bank.qbConnectionId === qbConnectionId ? bank.named : []}
           />
         )}
         </div>

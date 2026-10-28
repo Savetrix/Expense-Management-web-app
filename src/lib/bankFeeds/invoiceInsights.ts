@@ -9,7 +9,7 @@ import type { Db } from "./db";
 import { findPeriod, isPrepaymentPeriod, type InvoicePeriod } from "./period";
 import { toView, type BankTransactionView } from "./transactions";
 
-interface BackendInvoice {
+export interface BackendInvoice {
   _id: string;
   updatedAt?: string;
   extractedData?: {
@@ -21,6 +21,9 @@ interface BackendInvoice {
     lineItems?: { description?: string | null }[];
   };
   pipelineLog?: { ocrText?: string | null };
+  postedStatus?: string;
+  /** Set once the bill is in QuickBooks/Xero (the field keeps its legacy name for Xero too). */
+  quickbooks?: { billId?: string | null; vendorId?: string | null };
 }
 
 export type InvoiceFetch = { ok: true; invoice: BackendInvoice } | { ok: false; status: 401 | 404 | 503 };

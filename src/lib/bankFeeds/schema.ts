@@ -116,8 +116,8 @@ export interface TxnDoc {
   /** What Scantrix suggested, and why (suggest.ts). */
   suggestion: unknown;
   /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
-  postingStatus: string | null;
-  posting: unknown;
+  postingStatus: "processing" | "posted" | "failed" | null;
+  posting: PostingRecord | null;
 
   version: number;
   createdAt: Date;
@@ -146,6 +146,41 @@ export interface WebhookLogDoc {
   webhookCode: string | null;
   outcome: string;
   receivedAt: Date;
+}
+
+/**
+ * Which bank or credit-card account in QuickBooks/Xero an account NAME posts
+ * to: a CSV-imported account, or the other side of a transfer typed by hand.
+ * (A Plaid account keeps its own mapping on AccountDoc.)
+ * _id = `${qbConnectionId}:${accountLabel lower-cased}`.
+ */
+export interface LedgerMappingDoc {
+  _id: string;
+  qbConnectionId: string;
+  accountLabel: string;
+  ledgerAccountId: string;
+  ledgerAccountName: string;
+  updatedBy: string;
+  updatedAt: Date;
+}
+
+/** What was sent to QuickBooks/Xero for one line (TxnDoc.posting). */
+export interface PostingRecord {
+  provider: string;
+  kind: "expense" | "deposit" | "billPayment" | "transfer";
+  /** Sent as QuickBooks' requestid / Xero's Idempotency-Key; changes only after a definite failure. */
+  idempotencyKey: string;
+  attempt: number;
+  externalId: string | null;
+  url: string | null;
+  /** The line whose post created this entry, when this line is the other side of a transfer. */
+  viaTransactionId: string | null;
+  error: string | null;
+  /** The last failure gave no clear answer: the entry may exist, so the key is kept. */
+  uncertain: boolean;
+  startedAt: Date;
+  postedAt: Date | null;
+  postedBy: string;
 }
 
 /** What Scantrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
@@ -184,5 +219,6 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.events.createIndex({ qbConnectionId: 1, at: -1 }),
     db.events.createIndex({ transactionId: 1 }),
     db.webhooks.createIndex({ receivedAt: -1 }),
+    db.ledgerMappings.createIndex({ qbConnectionId: 1 }),
   ]);
 }

@@ -62,13 +62,21 @@ async function bankFetch<T>(state: RootState, path: string, init?: RequestInit):
 const reject = (e: unknown): BankRequestError =>
   e && typeof e === "object" && "message" in e ? (e as BankRequestError) : { message: "Couldn't reach bank feeds. Please try again.", status: 0 };
 
-export const fetchBankAccounts = createAsyncThunk<{ accounts: BankAccountDto[]; environment: string; qbConnectionId: string }, void, { state: RootState; rejectValue: BankRequestError }>(
+/** An account known only by name: a CSV import, or the other side of a hand-typed transfer. */
+export interface NamedAccountDto {
+  accountLabel: string;
+  lines: number;
+  mappedLedgerAccountId?: string;
+  mappedLedgerAccountName?: string;
+}
+
+export const fetchBankAccounts = createAsyncThunk<{ accounts: BankAccountDto[]; named: NamedAccountDto[]; environment: string; qbConnectionId: string }, void, { state: RootState; rejectValue: BankRequestError }>(
   "bankFeeds/fetchAccounts",
   async (_, { getState, rejectWithValue }) => {
     try {
       const state = getState();
-      const body = await bankFetch<{ accounts: BankAccountDto[]; environment: string }>(state, "/api/bank-accounts");
-      return { ...body, qbConnectionId: state.quickBooks.qbConnectionId as string };
+      const body = await bankFetch<{ accounts: BankAccountDto[]; named?: NamedAccountDto[]; environment: string }>(state, "/api/bank-accounts");
+      return { ...body, named: body.named ?? [], qbConnectionId: state.quickBooks.qbConnectionId as string };
     } catch (e) {
       return rejectWithValue(reject(e));
     }
@@ -166,8 +174,9 @@ export interface BankTransactionDto {
   merchantName?: string;
   bankCategory?: string;
   suggestion?: unknown;
-  postingStatus?: string;
-  posting?: unknown;
+  postingStatus?: "processing" | "posted" | "failed";
+  /** The entry in QuickBooks/Xero once sent (or the last error). */
+  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null };
   decidedAt?: string;
   version: number;
 }
@@ -238,3 +247,65 @@ export const importBankCsv = createAsyncThunk<
     return rejectWithValue(reject(e));
   }
 });
+
+// ---------------------------------------------------------------- accounting software
+
+/** One account in the company's chart of accounts, in QuickBooks'/Xero's own ids. */
+export interface LedgerAccountDto {
+  id: string;
+  name: string;
+  kind: "bank" | "card" | "income" | "expense" | "other";
+  type: string;
+  currency: string | null;
+}
+
+export const fetchLedgerAccounts = createAsyncThunk<{ accounts: LedgerAccountDto[]; qbConnectionId: string }, void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/ledgerAccounts",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const state = getState();
+      const body = await bankFetch<{ accounts: LedgerAccountDto[] }>(state, "/api/ledger/accounts");
+      return { accounts: body.accounts, qbConnectionId: state.quickBooks.qbConnectionId as string };
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export const saveNamedMapping = createAsyncThunk<
+  { named: NamedAccountDto[] },
+  { accountLabel: string; ledgerAccountId: string; ledgerAccountName: string },
+  { state: RootState; rejectValue: BankRequestError }
+>("bankFeeds/namedMapping", async (body, { getState, rejectWithValue }) => {
+  try {
+    return await bankFetch(getState(), "/api/bank-accounts/named-mapping", { method: "PUT", body: JSON.stringify(body) });
+  } catch (e) {
+    return rejectWithValue(reject(e));
+  }
+});
+
+export interface PostResultDto {
+  id: string;
+  ok: boolean;
+  error?: string;
+  code?: string;
+  transaction?: BankTransactionDto;
+}
+
+/** Sends decided lines to QuickBooks/Xero (at most 100 per call). */
+export const postBankTransactions = createAsyncThunk<{ results: PostResultDto[] }, { ids: string[] }, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/post",
+  async ({ ids }, { getState, rejectWithValue }) => {
+    try {
+      const results: PostResultDto[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const body = await bankFetch<{ results: PostResultDto[] }>(getState(), "/api/bank-transactions/post", { method: "POST", body: JSON.stringify({ ids: ids.slice(i, i + 100) }) });
+        results.push(...body.results);
+        if (body.results.some((r) => r.code && ["reconnect", "scope", "permission", "not_configured"].includes(r.code))) break;
+      }
+      return { results };
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);

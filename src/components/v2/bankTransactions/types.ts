@@ -29,7 +29,9 @@ export interface BankTransaction {
   bankCategory?: string;
   currency?: string | null;
   suggestion?: unknown;
-  postingStatus?: string;
+  postingStatus?: "processing" | "posted" | "failed";
+  /** The entry in QuickBooks/Xero once sent, or the last error. */
+  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null };
 }
 
 export interface BankAccount {
