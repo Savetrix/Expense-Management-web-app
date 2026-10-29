@@ -12,11 +12,16 @@ import {
   exchangePublicToken,
   fetchBankAccounts,
   fetchBankTransactions,
+  fetchLedgerAccounts,
   importBankCsv,
+  postBankTransactions,
+  saveNamedMapping,
   updateBankTransaction,
   saveBankMapping,
   syncBankAccount,
   type BankAccountDto,
+  type LedgerAccountDto,
+  type NamedAccountDto,
   type BankTransactionDto,
 } from "./bankFeedsApi";
 import { isSessionBoundary } from "../sessionBoundary";
@@ -40,6 +45,16 @@ interface BankFeedsState {
   transactionsConnectionId: string | null;
   /** Line state before an optimistic change, by request id, to roll back to. */
   rollback: Record<string, BankTransactionDto>;
+  /** Accounts known only by name (CSV imports, hand-typed transfer accounts). */
+  named: NamedAccountDto[];
+  /** The company's chart of accounts in QuickBooks/Xero (bank, card, income...). */
+  ledgerAccounts: LedgerAccountDto[];
+  ledgerAccountsConnectionId: string | null;
+  /** Why the chart couldn't load, e.g. "posting_not_configured", "scope", "reconnect". */
+  ledgerReason: string | null;
+  ledgerError: string | null;
+  /** Lines being sent to QuickBooks/Xero right now. */
+  postingIds: string[];
 }
 
 const initialState: BankFeedsState = {
@@ -57,6 +72,12 @@ const initialState: BankFeedsState = {
   transactionsError: null,
   transactionsConnectionId: null,
   rollback: {},
+  named: [],
+  ledgerAccounts: [],
+  ledgerAccountsConnectionId: null,
+  ledgerReason: null,
+  ledgerError: null,
+  postingIds: [],
 };
 
 function replaceRows(state: BankFeedsState, rows: BankTransactionDto[]) {
@@ -80,6 +101,7 @@ const bankFeedsSlice = createSlice({
         state.loading = false;
         state.loaded = true;
         state.accounts = action.payload.accounts;
+        state.named = action.payload.named;
         state.environment = action.payload.environment;
         state.qbConnectionId = action.payload.qbConnectionId;
         state.unavailableReason = null;
@@ -133,6 +155,32 @@ const bankFeedsSlice = createSlice({
       })
       .addCase(importBankCsv.fulfilled, (state, action) => {
         state.transactions = action.payload.transactions;
+      })
+      .addCase(fetchLedgerAccounts.fulfilled, (state, action) => {
+        state.ledgerAccounts = action.payload.accounts;
+        state.ledgerAccountsConnectionId = action.payload.qbConnectionId;
+        state.ledgerReason = null;
+        state.ledgerError = null;
+      })
+      .addCase(fetchLedgerAccounts.rejected, (state, action) => {
+        state.ledgerAccounts = [];
+        state.ledgerReason = action.payload?.reason ?? "unavailable";
+        state.ledgerError = action.payload?.message ?? null;
+      })
+      .addCase(saveNamedMapping.fulfilled, (state, action) => {
+        state.named = action.payload.named;
+      })
+      .addCase(postBankTransactions.pending, (state, action) => {
+        state.postingIds = [...new Set([...state.postingIds, ...action.meta.arg.ids])];
+      })
+      .addCase(postBankTransactions.fulfilled, (state, action) => {
+        const done = new Set(action.meta.arg.ids);
+        state.postingIds = state.postingIds.filter((id) => !done.has(id));
+        replaceRows(state, action.payload.results.flatMap((r) => (r.transaction ? [r.transaction] : [])));
+      })
+      .addCase(postBankTransactions.rejected, (state, action) => {
+        const done = new Set(action.meta.arg.ids);
+        state.postingIds = state.postingIds.filter((id) => !done.has(id));
       });
     for (const thunk of rowThunks) {
       builder.addCase(thunk.pending, (state, action) => {

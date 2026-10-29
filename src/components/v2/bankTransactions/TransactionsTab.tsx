@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, EyeOff, Landmark, Paperclip, Sparkles, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ExternalLink, EyeOff, Landmark, Paperclip, Send, Sparkles, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -20,6 +20,8 @@ import { formatAmount } from "./format";
 import { findStrongSuggestions } from "./matching";
 import { SuggestedMatches } from "./SuggestedMatches";
 import { STATUS_LABEL } from "./TransactionModal";
+import type { LedgerAccountDto } from "@/store/bankFeeds/bankFeedsApi";
+
 import type { BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
 
 // The bank lines, coded on the row: vendor, GL account and tax code are
@@ -45,6 +47,25 @@ interface TransactionsTabProps {
   lookups: Lookups;
   /** First load from the server still running. */
   loading?: boolean;
+  /** The company's chart in QuickBooks/Xero, or why it isn't available. */
+  ledger: { accounts: LedgerAccountDto[]; reason: string | null; error: string | null };
+  /** Sends decided lines to QuickBooks/Xero. Absent for roles that can't post. */
+  onSend?: (ids: string[]) => void;
+  sendingIds: Set<string>;
+}
+
+/** Decided lines that go to QuickBooks/Xero. */
+const SENDABLE: BankTxnStatus[] = ["ready", "matched", "transfer"];
+export const isUnsent = (t: BankTransaction) => SENDABLE.includes(t.status) && t.postingStatus !== "posted";
+
+/** Why sending isn't possible right now, in the user's words (null = it is). */
+function ledgerBlock(reason: string | null, error: string | null, providerName: string): string | null {
+  if (!reason) return null;
+  if (reason === "posting_not_configured") return `Sending lines to ${providerName} isn't switched on on this server yet. Post still saves each line as ready.`;
+  if (reason === "scope") return `${providerName} hasn't allowed Scantrix to post bank entries yet. Reconnect ${providerName} once (Integrations) to allow it.`;
+  if (reason === "reconnect") return error || `Reconnect ${providerName} (Integrations) to send lines.`;
+  if (reason === "permission") return error || `Your role can't send lines to ${providerName}.`;
+  return error || `Scantrix couldn't reach ${providerName} just now.`;
 }
 
 const DATE_CLASS =
@@ -72,6 +93,9 @@ export function TransactionsTab({
   onBulkItems,
   lookups,
   loading = false,
+  ledger,
+  onSend,
+  sendingIds,
 }: TransactionsTabProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>("review");
@@ -84,6 +108,13 @@ export function TransactionsTab({
 
   const vendorOptions = useMemo(() => lookups.vendors.map((v) => ({ id: v._id, label: v.displayName })), [lookups.vendors]);
   const glOptions = useMemo(() => lookups.glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name })), [lookups.glAccounts]);
+  // Money coming in is coded to an income account; the backend's GL list only
+  // has accounts a bill can post to, so income comes from the chart itself.
+  const incomeOptions = useMemo(() => ledger.accounts.filter((a) => a.kind === "income").map((a) => ({ id: a.id, label: a.name })), [ledger.accounts]);
+  const ledgerNameById = useMemo(() => new Map(ledger.accounts.map((a) => [a.id, a.name])), [ledger.accounts]);
+  const glOptionsFor = (t: BankTransaction) => (t.amount > 0 && incomeOptions.length > 0 ? [...incomeOptions, ...glOptions.filter((o) => !ledgerNameById.has(o.id) || !incomeOptions.some((i) => i.id === o.id))] : glOptions);
+  const glName = (id: string | undefined) => (id ? (lookups.glById.get(id)?.name ?? ledgerNameById.get(id)) : undefined);
+  const blocked = ledgerBlock(ledger.reason, ledger.error, providerName);
   const taxOptions = useMemo(() => lookups.taxCodes.map((t) => ({ id: taxCodeId(t), label: taxCodeLabel(t) })), [lookups.taxCodes]);
   const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
 
@@ -154,6 +185,8 @@ export function TransactionsTab({
   const selectedIds = Array.from(selected).filter((id) => rows.some((r) => r.id === id));
   const selectedRows = rows.filter((r) => selectedIds.includes(r.id));
   const postable = selectedRows.filter((r) => r.status === "review").map((r) => ({ r, patch: postPatch(r, lookups) }));
+  const sendableSelected = selectedRows.filter(isUnsent);
+  const unsentInTab = rows.filter(isUnsent);
   const postSelected = () => {
     const ready = postable.filter((p) => p.patch);
     const missing = postable.length - ready.length;
@@ -243,14 +276,14 @@ export function TransactionsTab({
           const matched = t.matchedInvoiceId ? invoiceById.get(t.matchedInvoiceId) : undefined;
           return (
             <span className="block truncate text-content-secondary">
-              {t.status === "matched" ? `Bill: ${matched ? `${matched.vendor}${matched.number ? ` #${matched.number}` : ""}` : "matched"}` : t.status === "transfer" ? `Transfer · ${t.transferAccount ?? ""}` : (c.glAccountId && lookups.glById.get(c.glAccountId)?.name) || "—"}
+              {t.status === "matched" ? `Bill: ${matched ? `${matched.vendor}${matched.number ? ` #${matched.number}` : ""}` : "matched"}` : t.status === "transfer" ? `Transfer · ${t.transferAccount ?? ""}` : glName(c.glAccountId) || "—"}
             </span>
           );
         }
         return (
           <CreatableCombobox
             floating
-            options={glOptions}
+            options={glOptionsFor(t)}
             noun="GL account"
             ariaLabel={`GL account for ${t.description}`}
             value={c.glAccountId ?? ""}
@@ -312,13 +345,40 @@ export function TransactionsTab({
       width: "236px",
       align: "right",
       render: (t) => {
+        if (t.postingStatus === "posted") {
+          // In the books: locked here; a change is made in QuickBooks/Xero itself.
+          const label = `In ${providerName}`;
+          return t.posting?.url ? (
+            <a href={t.posting.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-caption font-semibold text-status-success-text hover:underline" title={`Open in ${providerName}`}>
+              {label}
+              <ExternalLink size={12} strokeWidth={2.25} />
+            </a>
+          ) : (
+            <Badge variant="success">{label}</Badge>
+          );
+        }
         if (t.status !== "review") {
           const undo: Partial<BankTransaction> =
             t.status === "transfer" ? { status: "review", transferAccount: undefined } : t.status === "matched" ? { status: "review", matchedInvoiceId: undefined } : { status: "review" };
+          const sending = sendingIds.has(t.id) || t.postingStatus === "processing";
+          const failed = t.postingStatus === "failed" ? (t.posting?.error ?? "Couldn't send.") : null;
           return (
             <span className="inline-flex items-center gap-[var(--space-xs)]">
-              <Badge variant={t.status === "matched" || t.status === "ready" ? "success" : "neutral"}>{STATUS_LABEL[t.status]}</Badge>
-              <button type="button" className={ROW_BTN} onClick={() => onUpdate(t.id, undo)} title={t.status === "excluded" ? "Restore" : "Undo"}>
+              {failed ? (
+                <span title={failed} className="inline-flex max-w-[96px] items-center gap-0.5 truncate text-caption font-semibold text-status-danger-text">
+                  <AlertTriangle size={13} strokeWidth={2.25} className="shrink-0" />
+                  Not sent
+                </span>
+              ) : (
+                <Badge variant={t.status === "matched" || t.status === "ready" ? "success" : "neutral"}>{STATUS_LABEL[t.status]}</Badge>
+              )}
+              {onSend && SENDABLE.includes(t.status) && (
+                <Button size="sm" disabled={sending || Boolean(blocked)} title={blocked ?? (failed ? `${failed} Fix it and try again.` : `Send to ${providerName}`)} onClick={() => onSend([t.id])}>
+                  {sending ? <Spinner size="sm" /> : <Send size={13} strokeWidth={2.25} />}
+                  {failed ? "Retry" : "Send"}
+                </Button>
+              )}
+              <button type="button" className={ROW_BTN} disabled={sending} onClick={() => onUpdate(t.id, undo)} title={t.status === "excluded" ? "Restore" : "Undo"}>
                 <Undo2 size={13} strokeWidth={2.25} />
                 {t.status === "excluded" ? "Restore" : "Undo"}
               </button>
@@ -386,11 +446,22 @@ export function TransactionsTab({
             <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={DATE_CLASS} />
           </div>
         </div>
-        {(status === "review" || status === "ready") && (
+        {status === "review" && (
           <RoleInfoBanner>
-            Post saves a line as ready, with its vendor, GL account and tax code. Sending ready lines to {providerName}{" "}
-            isn&apos;t switched on yet (BE).
+            Post saves a line as ready, with its vendor, GL account and tax code. Then send it to {providerName} from Ready to post.
           </RoleInfoBanner>
+        )}
+        {SENDABLE.includes(status as BankTxnStatus) && blocked && <RoleInfoBanner>{blocked}</RoleInfoBanner>}
+        {SENDABLE.includes(status as BankTxnStatus) && !blocked && onSend && unsentInTab.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
+            <p className="text-caption text-content-secondary">
+              {unsentInTab.length} {unsentInTab.length === 1 ? "line isn't" : "lines aren't"} in {providerName} yet. Each line is sent once; a sent line can only be changed in {providerName}.
+            </p>
+            <Button size="sm" disabled={unsentInTab.every((t) => sendingIds.has(t.id))} onClick={() => onSend(unsentInTab.map((t) => t.id))}>
+              <Send size={13} strokeWidth={2.25} />
+              Send {unsentInTab.length} to {providerName}
+            </Button>
+          </div>
         )}
         {status === "review" && anySuggested && (
           <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-secondary">
@@ -406,6 +477,17 @@ export function TransactionsTab({
           {postable.length > 0 && (
             <Button size="sm" onClick={postSelected}>
               Post {postable.length} selected
+            </Button>
+          )}
+          {onSend && !blocked && sendableSelected.length > 0 && (
+            <Button
+              size="sm"
+              onClick={() => {
+                onSend(sendableSelected.map((t) => t.id));
+                setSelected(new Set());
+              }}
+            >
+              Send {sendableSelected.length} to {providerName}
             </Button>
           )}
           <Button

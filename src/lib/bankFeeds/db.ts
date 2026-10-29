@@ -15,7 +15,7 @@
 // before the first read or write.
 import { MongoClient, MongoError, type Collection, type Db as MongoDatabase } from "mongodb";
 
-import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, TxnDoc, WebhookLogDoc } from "./schema";
+import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, TxnDoc, WebhookLogDoc } from "./schema";
 import { ensureIndexes } from "./schema";
 
 export interface Db {
@@ -26,6 +26,7 @@ export interface Db {
   events: Collection<EventDoc>;
   webhooks: Collection<WebhookLogDoc>;
   insights: Collection<InsightDoc>;
+  ledgerMappings: Collection<LedgerMappingDoc>;
 }
 
 /** Thrown when the database can't be reached; routes map it to 503. */
@@ -73,6 +74,7 @@ export function openDb(uri: string, dbName: string): Db {
     events: database.collection<EventDoc>("bank_events"),
     webhooks: database.collection<WebhookLogDoc>("bank_webhook_log"),
     insights: database.collection<InsightDoc>("invoice_insights"),
+    ledgerMappings: database.collection<LedgerMappingDoc>("bank_ledger_mappings"),
   };
 }
 

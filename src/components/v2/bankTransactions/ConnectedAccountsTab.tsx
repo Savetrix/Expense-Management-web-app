@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { SelectDropdown } from "@/components/v2/ui";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
-import { disconnectBankAccount, saveBankMapping, syncBankAccount } from "@/store/bankFeeds/bankFeedsApi";
+import { disconnectBankAccount, saveBankMapping, saveNamedMapping, syncBankAccount, type LedgerAccountDto, type NamedAccountDto } from "@/store/bankFeeds/bankFeedsApi";
 import { useAppDispatch } from "@/store/hooks";
 import type { GLAccount } from "@/store/quickBooks/quickBooksSlice";
 
@@ -29,19 +29,74 @@ interface ConnectedAccountsTabProps {
   busyAccountId: string | null;
   /** Called after a sync brought new lines, so the transactions list reloads. */
   onSynced?: () => void;
+  /** The company's chart in QuickBooks/Xero (empty until it loads, or if sending is off). */
+  ledgerAccounts: LedgerAccountDto[];
+  /** Imported (CSV) accounts and hand-typed transfer accounts, mapped by name. */
+  named: NamedAccountDto[];
 }
 
-export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onConnect, canConnect = true, onRelogin, busyAccountId, onSynced }: ConnectedAccountsTabProps) {
+export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onConnect, canConnect = true, onRelogin, busyAccountId, onSynced, ledgerAccounts, named }: ConnectedAccountsTabProps) {
   const dispatch = useAppDispatch();
-  // Bank-type GL accounts when the software labels any; otherwise every account.
-  const glOptions = useMemo(() => {
+  // The real bank and card accounts from QuickBooks/Xero when the chart has
+  // loaded; otherwise the bank-type GL accounts the backend lists, if any.
+  const glOptions = useMemo((): { id: string; name: string }[] => {
+    const fromLedger = ledgerAccounts.filter((a) => a.kind === "bank" || a.kind === "card");
+    if (fromLedger.length > 0) return fromLedger.map((a) => ({ id: a.id, name: a.kind === "card" ? `${a.name} (card)` : a.name }));
     const live = glAccounts.filter((a) => !a.isDeleted);
     const banks = live.filter((a) => a.accountType?.toLowerCase().includes("bank"));
-    return banks.length > 0 ? banks : live;
-  }, [glAccounts]);
+    return (banks.length > 0 ? banks : live).map((a) => ({ id: a._id, name: a.name }));
+  }, [glAccounts, ledgerAccounts]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
+  const [namedDrafts, setNamedDrafts] = useState<Record<string, string>>({});
+  const saveNamed = async (row: NamedAccountDto, ledgerId: string) => {
+    const ledger = glOptions.find((g) => g.id === ledgerId);
+    const result = await dispatch(saveNamedMapping({ accountLabel: row.accountLabel, ledgerAccountId: ledgerId, ledgerAccountName: ledger?.name ?? ledgerId }));
+    if (saveNamedMapping.fulfilled.match(result)) showToast("Mapping saved.", "success");
+    else showToast(result.payload?.message ?? "Couldn't save the mapping.", "error");
+  };
+  const namedSection =
+    named.length > 0 ? (
+      <section className="border-t border-border p-[var(--space-md)]">
+        <h3 className="text-body-sm font-bold text-content-primary">Imported and other accounts</h3>
+        <p className="mt-0.5 text-caption text-content-secondary">
+          Accounts from imported files, and accounts named on a transfer. Map each to its bank or card account in {providerName} so its lines can be sent.
+        </p>
+        <ul className="mt-[var(--space-sm)] divide-y divide-border">
+          {named.map((row) => {
+            const value = namedDrafts[row.accountLabel] ?? row.mappedLedgerAccountId ?? "";
+            const id = `named-${row.accountLabel.replace(/[^a-z0-9]+/gi, "-")}`;
+            return (
+              <li key={row.accountLabel} className="flex flex-col gap-[var(--space-sm)] py-[var(--space-sm)] sm:flex-row sm:items-end">
+                <div className="min-w-0 sm:w-64">
+                  <p className="truncate text-body-sm font-semibold text-content-primary">{row.accountLabel}</p>
+                  <p className="text-caption text-content-muted">{row.lines > 0 ? `${row.lines} line${row.lines === 1 ? "" : "s"} imported` : "Named on a transfer"}</p>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <label className={FIELD_LABEL_CLASS} htmlFor={id}>
+                    Post to bank account in {providerName}
+                  </label>
+                  <SelectDropdown id={id} value={value} onChange={(e) => setNamedDrafts((d) => ({ ...d, [row.accountLabel]: e.target.value }))} className="mt-[var(--space-xs)] w-full">
+                    <option value="">Select an account</option>
+                    {glOptions.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </SelectDropdown>
+                </div>
+                <Button variant="outline" disabled={!value || value === row.mappedLedgerAccountId} onClick={() => saveNamed(row, value)}>
+                  Save mapping
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    ) : null;
+
   if (accounts.length === 0) {
+    if (namedSection) return namedSection;
     return (
       <EmptyState
         icon={<Landmark size={28} strokeWidth={1.75} />}
@@ -87,13 +142,14 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
   };
 
   const saveMapping = async (acct: BankAccount, ledgerId: string) => {
-    const ledger = glOptions.find((g) => g._id === ledgerId);
+    const ledger = glOptions.find((g) => g.id === ledgerId);
     const result = await dispatch(saveBankMapping({ accountId: acct.id, ledgerAccountId: ledgerId, ledgerAccountName: ledger?.name ?? ledgerId }));
     if (saveBankMapping.fulfilled.match(result)) showToast("Mapping saved.", "success");
     else showToast(result.payload?.message ?? "Couldn't save the mapping.", "error");
   };
 
   return (
+    <>
     <ul className="divide-y divide-border">
       {accounts.map((acct) => {
         const selected = drafts[acct.id] ?? acct.mappedGlAccountId ?? "";
@@ -147,7 +203,7 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
                 >
                   <option value="">Select an account</option>
                   {glOptions.map((g) => (
-                    <option key={g._id} value={g._id}>
+                    <option key={g.id} value={g.id}>
                       {g.name}
                     </option>
                   ))}
@@ -174,5 +230,7 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
         );
       })}
     </ul>
+    {namedSection}
+    </>
   );
 }
