@@ -14,8 +14,10 @@ import { post as clearMonthEndAccountsPayableBacklog } from "./clear-month-end-a
 import { post as documentCaptureIsChanging } from "./document-capture-is-changing-what-modern-teams-should-expect-next";
 import { post as enterBillsIntoQuickBooksOnlineFaster } from "./enter-bills-into-quickbooks-online-faster";
 import { post as forwardSupplierInvoicesToQuickBooksByEmail } from "./forward-supplier-invoices-to-quickbooks-by-email";
+import { post as reduceManualDataEntryPlaybook } from "./reduce-manual-data-entry-playbook";
 
 export const POST_SOURCES: readonly BlogPostSource[] = [
+  reduceManualDataEntryPlaybook,
   documentCaptureIsChanging,
   stateOfDocumentCapture2026,
   enterBillsIntoQuickBooksOnlineFaster,
