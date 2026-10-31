@@ -57,6 +57,39 @@ describe("bank door", () => {
     assert.equal(await authorizeBank(req(tokenFor("u1"), "qb-1"), "view").then((r) => !r.ok && r.status), 401);
     stubBackend(502);
     assert.equal(await authorizeBank(req(tokenFor("u1"), "qb-1"), "view").then((r) => !r.ok && r.status), 503);
+    assert.equal(calls, 2, "a backend error is asked once more before giving up");
+  });
+
+  it("asks once more when the backend is busy, after the pause it asks for", async () => {
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n += 1;
+      return n === 1
+        ? new Response("{}", { status: 429, headers: { "RateLimit-Reset": "1" } })
+        : new Response(JSON.stringify({ data: { connections: COMPANIES } }), { status: 200 });
+    }) as typeof fetch;
+    const started = Date.now();
+    assert.ok((await authorizeBank(req(tokenFor("u5"), "qb-1"), "connect")).ok);
+    assert.equal(n, 2);
+    assert.ok(Date.now() - started >= 900, "waited for the limit to reset");
+  });
+
+  it("asks once more when the backend can't be reached", async () => {
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n += 1;
+      if (n === 1) throw new TypeError("fetch failed");
+      return new Response(JSON.stringify({ data: { connections: COMPANIES } }), { status: 200 });
+    }) as typeof fetch;
+    assert.ok((await authorizeBank(req(tokenFor("u6"), "qb-1"), "view")).ok);
+    assert.equal(n, 2);
+  });
+
+  it("requests that arrive together share one backend call", async () => {
+    stubBackend(200, COMPANIES);
+    const results = await Promise.all(Array.from({ length: 8 }, () => authorizeBank(req(tokenFor("u7"), "qb-1"), "view")));
+    assert.ok(results.every((r) => r.ok));
+    assert.equal(calls, 1);
   });
 
   it("only lets a caller into companies in their own list", async () => {

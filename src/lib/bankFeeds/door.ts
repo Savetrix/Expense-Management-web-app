@@ -10,6 +10,9 @@
 // The company id is never taken on trust: it must be in the caller's own list.
 // Results are cached for 60 s per instance by sha256(token); an "unavailable"
 // answer is never cached, so a backend blip does not lock anyone out for a minute.
+// Requests that arrive together share one backend call, and a busy or slow
+// backend is asked once more: the backend limits each address to 20 calls per
+// 5 s, and every call from this server comes from the same address.
 import { createHash } from "node:crypto";
 
 import { SAVETRIX_API_BASE_URL } from "./config";
@@ -57,6 +60,8 @@ export type DoorResult =
 const TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 60_000;
 const CACHE_MAX = 500;
+const RETRY_PAUSE_MS = 1_000;
+const MAX_RETRY_PAUSE_MS = 5_000;
 
 interface CacheEntry {
   caller: Caller;
@@ -64,6 +69,7 @@ interface CacheEntry {
 }
 const g = globalThis as { __bankDoorCache?: Map<string, CacheEntry> };
 const cache = (g.__bankDoorCache ??= new Map());
+const inflight = new Map<string, Promise<VouchResult>>();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -116,24 +122,52 @@ function userIdFromToken(token: string): string | null {
   return null;
 }
 
-async function vouch(token: string): Promise<{ ok: true; caller: Caller } | { ok: false; reason: "unauthenticated" | "unavailable" }> {
-  const key = createHash("sha256").update(token).digest("hex");
-  const hit = cache.get(key);
-  if (hit && hit.expiresAt > Date.now()) return { ok: true, caller: hit.caller };
+type VouchResult = { ok: true; caller: Caller } | { ok: false; reason: "unauthenticated" | "unavailable" };
 
-  let response: Response;
+type Attempt = { kind: "answer"; response: Response } | { kind: "retry"; detail: string; pauseMs: number };
+
+/** How long the backend asks us to wait (Retry-After or RateLimit-Reset, in seconds), capped. */
+function pauseFor(response: Response): number {
+  const seconds = Number(response.headers.get("retry-after") ?? response.headers.get("ratelimit-reset"));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, MAX_RETRY_PAUSE_MS) : RETRY_PAUSE_MS;
+}
+
+async function askBackend(token: string): Promise<Attempt> {
   try {
-    response = await fetch(`${SAVETRIX_API_BASE_URL}/qb-connections`, {
+    const response = await fetch(`${SAVETRIX_API_BASE_URL}/qb-connections`, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       signal: AbortSignal.timeout(TIMEOUT_MS),
       cache: "no-store",
     });
-  } catch {
+    if (response.status === 429 || response.status >= 500) {
+      return { kind: "retry", detail: `status ${response.status}`, pauseMs: pauseFor(response) };
+    }
+    return { kind: "answer", response };
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "Error";
+    return { kind: "retry", detail: name === "TimeoutError" ? `no answer in ${TIMEOUT_MS / 1000} s` : `network error (${name})`, pauseMs: RETRY_PAUSE_MS };
+  }
+}
+
+async function vouchUncached(token: string, key: string): Promise<VouchResult> {
+  let attempt = await askBackend(token);
+  if (attempt.kind === "retry") {
+    const first = attempt;
+    await new Promise((resolve) => setTimeout(resolve, first.pauseMs));
+    attempt = await askBackend(token);
+    if (attempt.kind === "retry") {
+      // Only the reason, never the token: the server log is where "Scantrix could not confirm your account" gets explained.
+      console.warn(`[bank door] ${SAVETRIX_API_BASE_URL}/qb-connections failed twice: ${first.detail}; then ${attempt.detail}`);
+      return { ok: false, reason: "unavailable" };
+    }
+  }
+  const response = attempt.response;
+  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthenticated" };
+  if (!response.ok) {
+    console.warn(`[bank door] ${SAVETRIX_API_BASE_URL}/qb-connections answered status ${response.status}`);
     return { ok: false, reason: "unavailable" };
   }
-  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthenticated" };
-  if (!response.ok) return { ok: false, reason: "unavailable" };
 
   const userId = userIdFromToken(token);
   if (!userId) return { ok: false, reason: "unauthenticated" };
@@ -142,6 +176,18 @@ async function vouch(token: string): Promise<{ ok: true; caller: Caller } | { ok
   if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
   cache.set(key, { caller, expiresAt: Date.now() + CACHE_TTL_MS });
   return { ok: true, caller };
+}
+
+async function vouch(token: string): Promise<VouchResult> {
+  const key = createHash("sha256").update(token).digest("hex");
+  const hit = cache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return { ok: true, caller: hit.caller };
+
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const call = vouchUncached(token, key).finally(() => inflight.delete(key));
+  inflight.set(key, call);
+  return call;
 }
 
 /**
@@ -185,4 +231,5 @@ export async function authorizeBank(
 /** Tests only. */
 export function __resetBankDoorForTests(): void {
   cache.clear();
+  inflight.clear();
 }
