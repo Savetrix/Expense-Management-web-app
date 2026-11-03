@@ -25,6 +25,7 @@ import subscriptionReducer from "./subscription/subscriptionSlice";
 import chatReducer from "./chat/chatSlice";
 import inboundEmailReducer from "./inboundEmail/inboundEmailSlice";
 import bankFeedsReducer from "./bankFeeds/bankFeedsSlice";
+import expenseClaimsReducer from "./expenseClaims/expenseClaimsSlice";
 
 // Only persist the QB fields we need across restarts.
 // auth/invoice/vendor are untouched — auth already uses its own
@@ -47,6 +48,8 @@ const rootReducer = combineReducers({
   inboundEmail: inboundEmailReducer,
   // Not persisted: server-owned, and scoped to one company (bankFeedsSlice.ts).
   bankFeeds: bankFeedsReducer,
+  // Not persisted: server-owned and scoped to one company (expenseClaimsSlice.ts).
+  expenseClaims: expenseClaimsReducer,
 });
 
 export const store = configureStore({
