@@ -1060,9 +1060,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     return errors;
   };
 
-  // A receipt on an expense claim is billed by the claim — the backend refuses
-  // posting or rejecting it on its own (RECEIPT_ON_CLAIM).
-  const onExpenseClaim = Boolean(invoiceObject?.expenseClaimId);
+  // An expense claim receipt is billed by its claim — the backend refuses
+  // posting or rejecting it on its own (CLAIM_RECEIPT / RECEIPT_ON_CLAIM).
+  const onExpenseClaim = Boolean(invoiceObject?.expenseClaimId || invoiceObject?.claimReceipt);
   const isPostDisabled = posting || rejecting || onExpenseClaim || (vendorResolutionRequired && !vendorIsResolved);
   const isRejectDisabled = posting || rejecting || onExpenseClaim;
   const isSaveDisabled = updatingExtractedData || posting || rejecting;
@@ -1460,7 +1460,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {onExpenseClaim && (
             <div className="rounded-md border border-status-info-border bg-status-info-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-info-text">
-              This receipt is on an expense claim, so it&apos;s published with the claim as one bill payable to the claimant — not on its own.{" "}
+              This is an expense claim receipt. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved —
+              not on its own. You can still fix its details here while the claim is awaiting review.{" "}
               <Link href="/expense-claims" className="font-bold underline">
                 View expense claims
               </Link>

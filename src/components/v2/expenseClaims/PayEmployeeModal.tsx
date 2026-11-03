@@ -6,48 +6,59 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Modal, ModalDefinitionRow, SelectDropdown, TextInput } from "@/components/v2/ui";
 import { showToast } from "@/lib/dialogManager";
-import { fetchBankAccounts, payExpenseClaim, type BankAccountDto, type ExpenseClaimDto } from "@/store/expenseClaims/expenseClaimsApi";
+import { fetchBankAccounts, type BankAccountDto } from "@/store/expenseClaims/expenseClaimsApi";
 import { useAppDispatch } from "@/store/hooks";
 
 import { errorMessage, money, todayIso } from "./shared";
 
-interface PayClaimModalProps {
-  /** The claim to pay; null = closed. */
-  claim: ExpenseClaimDto | null;
+/** An approved claim or mileage trip whose bill is being paid. */
+export interface PayTarget {
+  id: string;
+  noun: "claim" | "trip";
+  payee: string;
+  amount: number;
+  currency: string | null;
+}
+
+interface PayEmployeeModalProps {
+  /** What to pay; null = closed. */
+  target: PayTarget | null;
   providerName: string;
+  /** Records the payment (the claim's or the trip's thunk); ok=false keeps the modal open. */
+  onPay: (target: PayTarget, bankAccountId: string, date: string) => Promise<{ ok: boolean; payload?: unknown }>;
   onClose: () => void;
 }
 
-// "Pay employee": records the payment of the claim's bill in QuickBooks/Xero
-// from one of the company's bank accounts and marks the claim paid. Scantrix
-// doesn't send the money — the payment is made as usual, this books it.
-export function PayClaimModal({ claim, providerName, onClose }: PayClaimModalProps) {
+// "Pay employee": records the payment of a claim's or trip's bill in
+// QuickBooks/Xero from one of the company's bank accounts and marks it paid.
+// Scantrix doesn't send the money — the payment is made as usual, this books it.
+export function PayEmployeeModal({ target, providerName, onPay, onClose }: PayEmployeeModalProps) {
   const dispatch = useAppDispatch();
-  const [accounts, setAccounts] = useState<{ forClaim: string; list: BankAccountDto[]; error: string } | null>(null);
+  const [accounts, setAccounts] = useState<{ forId: string; list: BankAccountDto[]; error: string } | null>(null);
   const [accountId, setAccountId] = useState("");
   const [date, setDate] = useState(todayIso());
   const [paying, setPaying] = useState(false);
 
-  const claimId = claim?.id ?? "";
+  const targetId = target?.id ?? "";
   useEffect(() => {
-    if (!claimId) return;
+    if (!targetId) return;
     let cancelled = false;
     dispatch(fetchBankAccounts()).then((result) => {
       if (cancelled) return;
       if (fetchBankAccounts.fulfilled.match(result)) {
-        setAccounts({ forClaim: claimId, list: result.payload, error: "" });
+        setAccounts({ forId: targetId, list: result.payload, error: "" });
         setAccountId((current) => current || result.payload[0]?.externalId || "");
       } else {
-        setAccounts({ forClaim: claimId, list: [], error: errorMessage(result.payload, "Couldn't load bank accounts.") });
+        setAccounts({ forId: targetId, list: [], error: errorMessage(result.payload, "Couldn't load bank accounts.") });
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [claimId, dispatch]);
+  }, [targetId, dispatch]);
 
-  if (!claim) return null;
-  const loaded = accounts?.forClaim === claim.id ? accounts : null;
+  if (!target) return null;
+  const loaded = accounts?.forId === target.id ? accounts : null;
 
   const close = () => {
     if (paying) return;
@@ -60,10 +71,10 @@ export function PayClaimModal({ claim, providerName, onClose }: PayClaimModalPro
   const handlePay = async () => {
     if (!accountId) return;
     setPaying(true);
-    const result = await dispatch(payExpenseClaim({ id: claim.id, bankAccountId: accountId, date }));
+    const result = await onPay(target, accountId, date);
     setPaying(false);
-    if (payExpenseClaim.fulfilled.match(result)) {
-      showToast(`Payment to ${claim.claimant.name} recorded in ${providerName}.`, "success");
+    if (result.ok) {
+      showToast(`Payment to ${target.payee} recorded in ${providerName}.`, "success");
       close();
     } else {
       showToast(errorMessage(result.payload, "Couldn't record the payment."), "error");
@@ -74,7 +85,7 @@ export function PayClaimModal({ claim, providerName, onClose }: PayClaimModalPro
     <Modal
       open
       onClose={close}
-      title={`Pay ${claim.claimant.name}`}
+      title={`Pay ${target.payee}`}
       widthClassName="max-w-lg"
       footer={
         <div className="flex w-full items-center justify-between gap-[var(--space-sm)]">
@@ -89,8 +100,8 @@ export function PayClaimModal({ claim, providerName, onClose }: PayClaimModalPro
     >
       <div className="flex flex-col gap-[var(--space-md)]">
         <div>
-          <ModalDefinitionRow label="Claimant">{claim.claimant.name}</ModalDefinitionRow>
-          <ModalDefinitionRow label="Claim total">{money(claim.total, claim.currency)}</ModalDefinitionRow>
+          <ModalDefinitionRow label="Pay to">{target.payee}</ModalDefinitionRow>
+          <ModalDefinitionRow label={target.noun === "claim" ? "Claim total" : "Trip amount"}>{money(target.amount, target.currency)}</ModalDefinitionRow>
         </div>
 
         {!loaded ? (
@@ -115,8 +126,8 @@ export function PayClaimModal({ claim, providerName, onClose }: PayClaimModalPro
         <TextInput label="Payment date *" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
 
         <p className="text-caption text-content-secondary">
-          This records a payment of the claim&apos;s bill in {providerName} for whatever is still open on it, and marks the claim paid. Scantrix
-          doesn&apos;t send the money — pay {claim.claimant.name} as you usually do.
+          This records a payment of the {target.noun}&apos;s bill in {providerName} for whatever is still open on it, and marks the {target.noun}{" "}
+          paid. Scantrix doesn&apos;t send the money — pay {target.payee} as you usually do.
         </p>
       </div>
     </Modal>

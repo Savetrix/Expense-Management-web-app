@@ -136,6 +136,8 @@ export interface InvoiceRecord {
   normalizedInvoiceNumber?: string;
   /** Set while this receipt is on an expense claim — the claim bills it, so it can't be posted or rejected alone. */
   expenseClaimId?: string | null;
+  /** Uploaded from the expense claims page: billed only through a claim, listed here once its claim is approved. */
+  claimReceipt?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

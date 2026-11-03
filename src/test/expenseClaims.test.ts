@@ -12,14 +12,15 @@ import { logoutUser } from "../store/auth/authApi";
 import {
   approveExpenseClaim,
   createExpenseClaim,
+  deleteExpenseClaim,
   deleteJourney,
   fetchExpenseClaims,
   fetchExpenseSettings,
   fetchJourneys,
-  publishExpenseClaim,
+  rejectExpenseClaim,
   removeClaimReceipt,
-  reopenExpenseClaim,
   saveExpenseSettings,
+  uploadClaimReceipts,
   type ExpenseClaimDto,
   type ExpenseSettingsDto,
   type JourneyDto,
@@ -30,6 +31,7 @@ import invoiceReducer, { type InvoiceRecord } from "../store/invoice/invoiceSlic
 const claim = (id: string, over: Partial<ExpenseClaimDto> = {}): ExpenseClaimDto => ({
   id,
   claimant: { userId: null, name: `Person ${id}` },
+  approver: { userId: "u2", name: "Andy Approver" },
   month: "2026-10",
   currency: "CAD",
   status: "awaiting_review",
@@ -43,19 +45,15 @@ const claim = (id: string, over: Partial<ExpenseClaimDto> = {}): ExpenseClaimDto
   publishedAt: null,
   paidAt: null,
   paidVia: null,
+  rejectedAt: null,
+  rejectionReason: null,
   billUrl: null,
   ...over,
 });
 
 const settings = (over: Partial<ExpenseSettingsDto> = {}): ExpenseSettingsDto => ({
   allowSelfApproval: false,
-  vehicles: [],
-  rates: {
-    Car: { Petrol: 0.5, Diesel: null, Electric: null, Hybrid: null },
-    Van: { Petrol: null, Diesel: null, Electric: null, Hybrid: null },
-    Motorcycle: { Petrol: null, Diesel: null, Electric: null, Hybrid: null },
-  },
-  passengerRate: null,
+  mileageRate: 0.5,
   mileageGlAccountId: null,
   ...over,
 });
@@ -97,14 +95,20 @@ describe("expenseClaims slice", () => {
 
   it("puts a new or changed claim in place, and drops one whose last receipt was removed", () => {
     let s = ec(loadClaims([claim("a"), claim("b")], "co"));
-    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"] }, inCo("co")));
+    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"], approverId: "u2" }, inCo("co")));
     assert.deepEqual(s.claims.map((c) => c.id), ["c", "a", "b"]);
 
     s = expenseClaimsReducer(s, approveExpenseClaim.fulfilled(claim("a", { status: "awaiting_reimbursement" }), "r", { id: "a" }, inCo("co")));
     assert.equal(s.claims.find((c) => c.id === "a")?.status, "awaiting_reimbursement");
-    s = expenseClaimsReducer(s, reopenExpenseClaim.fulfilled(claim("a", { status: "awaiting_review" }), "r", "a", inCo("co")));
-    assert.equal(s.claims.find((c) => c.id === "a")?.status, "awaiting_review");
+    s = expenseClaimsReducer(
+      s,
+      rejectExpenseClaim.fulfilled(claim("b", { status: "rejected", rejectionReason: "Personal" }), "r", { id: "b", reason: "Personal" }, inCo("co")),
+    );
+    assert.equal(s.claims.find((c) => c.id === "b")?.rejectionReason, "Personal");
     assert.equal(s.claims.length, 3);
+    s = expenseClaimsReducer(s, deleteExpenseClaim.fulfilled("c", "r", "c", inCo("co")));
+    assert.deepEqual(s.claims.map((c) => c.id), ["a", "b"]);
+    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"], approverId: "u2" }, inCo("co")));
 
     s = expenseClaimsReducer(
       s,
@@ -164,7 +168,7 @@ describe("invoice slice follows receipts onto and off claims", () => {
       createExpenseClaim.fulfilled(
         claim("c1", { receipts: [receipt("r1"), receipt("r2")] }),
         "r",
-        { claimant: { name: "A" }, receiptIds: ["r1", "r2"] },
+        { claimant: { name: "A" }, receiptIds: ["r1", "r2"], approverId: "u2" },
         inCo("co"),
       ),
     );
@@ -204,18 +208,41 @@ describe("thunk errors carry the backend's code", () => {
         response: { status: 400, data: { message: "Pick a GL account for these receipts first: Cafe", data: { code: "MISSING_GL_ACCOUNT", receipts: ["Cafe"] } } },
       };
     }) as typeof api.post;
-    const publish = await store.dispatch(publishExpenseClaim("c1"));
-    assert.ok(publishExpenseClaim.rejected.match(publish));
-    assert.equal(publish.payload?.code, "MISSING_GL_ACCOUNT");
-    assert.match(publish.payload?.message ?? "", /Cafe/);
+    const uncoded = await store.dispatch(approveExpenseClaim({ id: "c1" }));
+    assert.ok(approveExpenseClaim.rejected.match(uncoded));
+    assert.equal(uncoded.payload?.code, "MISSING_GL_ACCOUNT");
+    assert.match(uncoded.payload?.message ?? "", /Cafe/);
   });
 
   it("a successful change is tagged with the company it was made in", async () => {
     const store = storeWithCompany();
-    api.post = (async () => ({ data: { data: { claim: claim("c1", { status: "awaiting_review" }) } } })) as unknown as typeof api.post;
-    const res = await store.dispatch(reopenExpenseClaim("c1"));
-    assert.ok(reopenExpenseClaim.fulfilled.match(res));
+    let sent: unknown;
+    api.post = (async (_url: string, body: unknown) => {
+      sent = body;
+      return { data: { data: { claim: claim("c1", { status: "rejected" }) } } };
+    }) as unknown as typeof api.post;
+    const res = await store.dispatch(rejectExpenseClaim({ id: "c1", reason: "Personal" }));
+    assert.ok(rejectExpenseClaim.fulfilled.match(res));
     assert.equal(res.meta.qbConnectionId, "co");
+    assert.deepEqual(sent, { reason: "Personal" });
+  });
+
+  it("claims-page receipts upload through the scanner flagged as claim receipts", async () => {
+    const store = storeWithCompany();
+    let url = "";
+    let form: FormData | undefined;
+    api.post = (async (u: string, body: FormData) => {
+      url = u;
+      form = body;
+      return { data: { data: { invoices: [{ _id: "i1" }, { _id: "i2" }], failed: [{ fileName: "blurry.jpg" }] } } };
+    }) as unknown as typeof api.post;
+    const files = [new File(["a"], "lunch.jpg", { type: "image/jpeg" }), new File(["b"], "taxi.pdf", { type: "application/pdf" })];
+    const res = await store.dispatch(uploadClaimReceipts(files));
+    assert.ok(uploadClaimReceipts.fulfilled.match(res));
+    assert.deepEqual(res.payload, { ids: ["i1", "i2"], failed: ["blurry.jpg"] });
+    assert.equal(url, "/invoices");
+    assert.equal(form?.get("claimReceipt"), "true");
+    assert.deepEqual(form?.getAll("files").map((f) => (f as File).name), ["lunch.jpg", "taxi.pdf"]);
   });
 
   it("a network failure without a response still gives a readable message", async () => {
@@ -230,7 +257,7 @@ describe("thunk errors carry the backend's code", () => {
   });
 });
 
-describe("contacts, notes, paying and distance", () => {
+describe("contacts, notes and paying", () => {
   it("contacts land only for the company they were loaded for, and reset on logout", async () => {
     const { fetchClaimContacts } = await import("../store/expenseClaims/expenseClaimsApi");
     let s = ec([fetchClaimContacts.pending("c-A"), fetchClaimContacts.pending("c-B")]);
@@ -257,25 +284,56 @@ describe("contacts, notes, paying and distance", () => {
     assert.equal(s.claims[0].status, "paid");
     assert.equal(s.claims[0].paidVia, "accounting");
   });
+});
 
-  it("distance lookup passes the backend's 'not set up' code through, so the form can fall back to typed km", async () => {
-    const { lookupDistance } = await import("../store/expenseClaims/expenseClaimsApi");
-    const originalGet = api.get;
+describe("claims waiting on you (sidebar count)", () => {
+  it("keeps the latest count with the company it was read for, and resets on logout", async () => {
+    const { fetchClaimSummary } = await import("../store/expenseClaims/expenseClaimsApi");
+    let s = ec([fetchClaimSummary.pending("s-A"), fetchClaimSummary.pending("s-B")]);
+    // The older request for company A answers last — ignored.
+    s = expenseClaimsReducer(s, fetchClaimSummary.fulfilled({ assignedToMe: 3, qbConnectionId: "B" }, "s-B"));
+    s = expenseClaimsReducer(s, fetchClaimSummary.fulfilled({ assignedToMe: 9, qbConnectionId: "A" }, "s-A"));
+    assert.equal(s.assignedToMe, 3);
+    assert.equal(s.summaryConnectionId, "B");
+    s = expenseClaimsReducer(s, logoutUser.fulfilled(undefined, "r", undefined as never));
+    assert.equal(s.assignedToMe, 0);
+    assert.equal(s.summaryConnectionId, null);
+  });
+});
+
+describe("mileage trips go through approval like claims", () => {
+  const trip = (id: string, over: Partial<JourneyDto> = {}) => ({ id, status: "awaiting_review", ...over }) as JourneyDto;
+
+  it("approve, reject, mark-paid and pay land in the trips list for the company they were made in", async () => {
+    const { approveJourney, rejectJourney, markJourneyPaid, payJourney } = await import("../store/expenseClaims/expenseClaimsApi");
+    let s = ec([fetchJourneys.pending("j"), fetchJourneys.fulfilled({ journeys: [trip("a"), trip("b")], qbConnectionId: "co" }, "j")]);
+    s = expenseClaimsReducer(s, approveJourney.fulfilled(trip("a", { status: "awaiting_reimbursement" }), "r", { id: "a" }, inCo("other")));
+    assert.equal(s.journeys[0].status, "awaiting_review");
+    s = expenseClaimsReducer(s, approveJourney.fulfilled(trip("a", { status: "awaiting_reimbursement" }), "r", { id: "a" }, inCo("co")));
+    s = expenseClaimsReducer(s, rejectJourney.fulfilled(trip("b", { status: "rejected", rejectionReason: "Personal" }), "r", { id: "b", reason: "Personal" }, inCo("co")));
+    assert.deepEqual(s.journeys.map((j) => [j.id, j.status]), [["a", "awaiting_reimbursement"], ["b", "rejected"]]);
+    s = expenseClaimsReducer(s, markJourneyPaid.fulfilled(trip("a", { status: "paid", paidVia: "manual" }), "r", "a", inCo("co")));
+    assert.equal(s.journeys[0].paidVia, "manual");
+    s = expenseClaimsReducer(s, payJourney.fulfilled(trip("a", { status: "paid", paidVia: "accounting" }), "r", { id: "a", bankAccountId: "35", date: "2026-11-03" }, inCo("co")));
+    assert.equal(s.journeys[0].paidVia, "accounting");
+  });
+
+  it("a trip is sent with its approver, and approve-and-pay asks for ?pay=true", async () => {
+    const { createJourney, approveJourney } = await import("../store/expenseClaims/expenseClaimsApi");
+    const store = configureStore({ reducer: { expenseClaims: expenseClaimsReducer, quickBooks: () => ({ qbConnectionId: "co" }) } });
+    const originalPost = api.post;
+    const calls: Array<[string, unknown]> = [];
     try {
-      api.get = (async () => {
-        throw { response: { status: 503, data: { message: "Distance lookup isn't set up", data: { code: "DISTANCE_NOT_CONFIGURED" } } } };
-      }) as typeof api.get;
-      const store = configureStore({ reducer: { quickBooks: () => ({ qbConnectionId: "co" }) } });
-      const res = await store.dispatch(lookupDistance({ from: "A", to: "B" }));
-      assert.ok(lookupDistance.rejected.match(res));
-      assert.equal(res.payload?.code, "DISTANCE_NOT_CONFIGURED");
-
-      api.get = (async () => ({ data: { data: { km: 27.3, from: "Toronto", to: "Mississauga" } } })) as unknown as typeof api.get;
-      const ok = await store.dispatch(lookupDistance({ from: "A", to: "B" }));
-      assert.ok(lookupDistance.fulfilled.match(ok));
-      assert.equal(ok.payload.km, 27.3);
+      api.post = (async (url: string, body: unknown) => {
+        calls.push([url, body]);
+        return { data: { data: { journey: trip("t1") } } };
+      }) as unknown as typeof api.post;
+      await store.dispatch(createJourney({ driver: { userId: "u1" }, date: "2026-11-01", km: 42, purpose: "Client", approverId: "u2" }));
+      await store.dispatch(approveJourney({ id: "t1", pay: true }));
     } finally {
-      api.get = originalGet;
+      api.post = originalPost;
     }
+    assert.deepEqual(calls[0], ["/mileage/journeys", { driver: { userId: "u1" }, date: "2026-11-01", km: 42, purpose: "Client", approverId: "u2" }]);
+    assert.equal(calls[1][0], "/mileage/journeys/t1/approve?pay=true");
   });
 });

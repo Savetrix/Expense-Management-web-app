@@ -260,43 +260,10 @@ export const createQuickBooksVendor = createAsyncThunk(
       return response.data;
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || "";
-
-      // QBO error code 6000: companies without Multi-Currency enabled reject
-      // any CurrencyRef on the vendor payload, regardless of which currency
-      // was picked. Retry once without `currency` — the vendor then just
-      // gets the company's home currency instead of hard-failing.
-      if (message.includes("Multi Currency should be enabled")) {
-        try {
-          console.log(
-            "========== RETRYING CREATE VENDOR WITHOUT CURRENCY ==========",
-          );
-          const retryResponse = await api.post(
-            "/quickbooks/vendors",
-            {
-              displayName: data.displayName,
-              glAccountId,
-              taxCodeId,
-              ...(data.email ? { email: data.email } : {}),
-              ...(data.phone ? { phone: data.phone } : {}),
-              ...(data.address ? { address: data.address } : {}),
-            },
-            { headers },
-          );
-          console.log("========== CREATE VENDOR SUCCESS (no currency) ==========");
-          console.log(JSON.stringify(retryResponse.data, null, 2));
-          return retryResponse.data;
-        } catch (retryError: any) {
-          console.log("========== CREATE VENDOR RETRY ERROR ==========");
-          return thunkAPI.rejectWithValue({
-            message:
-              retryError?.response?.data?.message ||
-              retryError?.message ||
-              "Failed to create vendor",
-            statusCode: retryError?.response?.data?.statusCode,
-          });
-        }
-      }
-
+      // No retry without `currency` here: with QuickBooks Multicurrency off,
+      // that silently created the vendor in the home currency (a picked CAD
+      // came out USD). The backend now retries only when the picked currency
+      // IS the home currency, and otherwise explains why it can't be used.
       console.log("========== CREATE VENDOR ERROR ==========");
       return thunkAPI.rejectWithValue({
         message: message || "Failed to create vendor",
