@@ -258,6 +258,11 @@ export function InvoiceListContentV2() {
                   Email
                 </span>
               )}
+              {invoice.expenseClaimId && (
+                <span className="mt-[2px] inline-flex w-fit items-center rounded-pill bg-status-info-bg px-[var(--space-xs)] py-[1px] text-tiny font-bold text-status-info-text">
+                  Expense claim
+                </span>
+              )}
             </div>
           </div>
         );

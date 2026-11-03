@@ -1,6 +1,7 @@
 import { createSlice } from "@reduxjs/toolkit";
 
 import { isSessionBoundary } from "../sessionBoundary";
+import { createExpenseClaim, removeClaimReceipt } from "../expenseClaims/expenseClaimsApi";
 
 import {
   scanInvoice,
@@ -133,6 +134,8 @@ export interface InvoiceRecord {
   processedBy?: string;
   extractedByModel?: string;
   normalizedInvoiceNumber?: string;
+  /** Set while this receipt is on an expense claim — the claim bills it, so it can't be posted or rejected alone. */
+  expenseClaimId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -439,6 +442,29 @@ const invoiceSlice = createSlice({
     builder.addCase(deleteInvoice.rejected, (state, action) => {
       state.deleting = false;
       state.deletingError = action.payload;
+    });
+
+    // ======================================
+    // EXPENSE CLAIMS
+    // ======================================
+    // A receipt put on (or taken off) a claim changes its expenseClaimId on
+    // the server; mirror it here so the claim wizard and the invoice pages
+    // see it without a full getInvoices() refetch.
+    const setClaimId = (state: InvoiceState, ids: Set<string>, claimId: string | null) => {
+      const apply = (list: InvoiceRecord[]) =>
+        list.map((inv) => (ids.has(inv._id) ? { ...inv, expenseClaimId: claimId } : inv));
+      state.invoices = apply(state.invoices);
+      state.pendingInvoices = apply(state.pendingInvoices);
+      if (state.selectedInvoice && ids.has(state.selectedInvoice._id)) state.selectedInvoice.expenseClaimId = claimId;
+      if (state.invoiceDetails && ids.has(state.invoiceDetails._id)) state.invoiceDetails.expenseClaimId = claimId;
+    };
+
+    builder.addCase(createExpenseClaim.fulfilled, (state, action) => {
+      setClaimId(state, new Set(action.payload.receipts.map((r) => r.id)), action.payload.id);
+    });
+
+    builder.addCase(removeClaimReceipt.fulfilled, (state, action) => {
+      setClaimId(state, new Set([action.payload.receiptId]), null);
     });
 
     // ======================================

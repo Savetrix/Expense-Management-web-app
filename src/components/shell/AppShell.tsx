@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Banknote,
+  Car,
   Check,
   ChevronDown,
   ChevronsLeft,
@@ -57,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
+  { href: "/expense-claims", label: "Expense Claims", icon: Car },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },
   { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
