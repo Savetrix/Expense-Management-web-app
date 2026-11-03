@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Banknote,
   Car,
@@ -33,16 +33,17 @@ import { GlobalSearchBar } from "@/components/shell/GlobalSearchBar";
 import { NotificationBell } from "@/components/shell/NotificationBell";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { PendingConnectionPicker } from "@/components/v2/accounting/PendingConnectionPicker";
-import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
+import { Avatar, Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
 import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
 import { onOpenAddAccountModal } from "@/lib/addAccountModal";
 import { showToast } from "@/lib/dialogManager";
 import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
-import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
+import { capitalizeWords, normalizePhotoURL, personInitials } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
 import { connectQuickBooks, getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
 import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
+import { fetchClaimSummary } from "@/store/expenseClaims/expenseClaimsApi";
 import type { QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
 
 // QuickBooks connection management now lives entirely under Integrations
@@ -54,11 +55,14 @@ interface NavItem {
   icon: LucideIcon;
 }
 
+// The link to the claims page counts claims waiting on your approval.
+const CLAIMS_HREF = "/expense-claims";
+
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
-  { href: "/expense-claims", label: "Expense Claims", icon: Car },
+  { href: CLAIMS_HREF, label: "Expense Claims", icon: Car },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },
   { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
@@ -85,10 +89,13 @@ function NavLink({
   item,
   pathname,
   collapsed,
+  badge = 0,
 }: {
   item: NavItem;
   pathname: string;
   collapsed: boolean;
+  /** A count shown on the link (e.g. claims waiting on you); hidden at 0. */
+  badge?: number;
 }) {
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
   const Icon = item.icon;
@@ -108,7 +115,17 @@ function NavLink({
       >
         {item.label}
       </span>
-      {collapsed && <span className={TOOLTIP_CLASS}>{item.label}</span>}
+      {badge > 0 && (
+        <span
+          aria-label={`${badge} waiting on you`}
+          className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-error px-[5px] text-tiny font-bold text-white ${
+            collapsed ? "absolute right-1 top-1 h-4 min-w-4 px-[3px]" : "ml-auto"
+          }`}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+      {collapsed && <span className={TOOLTIP_CLASS}>{badge > 0 ? `${item.label} (${badge} waiting on you)` : item.label}</span>}
     </Link>
   );
 }
@@ -138,6 +155,7 @@ function greetingFor(name: string, rotationIndex: number): string {
 export function AppShell({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
   const pathname = usePathname();
+  const router = useRouter();
   const logout = useLogout();
 
   const user = useAppSelector((state) => state.auth.user);
@@ -278,10 +296,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   // switcher instead of leaving it looking like any other idle control.
   const needsEntitySelection = connectedAccounts.length > 1 && !activeConnection;
 
+  // Claims sent to you for approval — refreshed on company change and as you
+  // move around, so the count doesn't go stale while you work elsewhere.
+  const activeConnectionId = activeConnection?._id ?? "";
+  const claimsSummary = useAppSelector((state) => state.expenseClaims);
+  const claimsWaiting = claimsSummary.summaryConnectionId === activeConnectionId ? claimsSummary.assignedToMe : 0;
+  useEffect(() => {
+    if (activeConnectionId) dispatch(fetchClaimSummary());
+  }, [activeConnectionId, pathname, dispatch]);
+
   const handleSwitch = async (connection: QBConnection) => {
     setSwitcherOpen(false);
     if (!accessToken || connection._id === qbConnectionId) return;
-    await dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: connection._id }));
+    const result = await dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: connection._id }));
+    // Whatever page you were on belonged to the old company (an invoice, a
+    // vendor, a claim) — start the new one from its dashboard. Only once the
+    // switch went through, so the dashboard loads the new company's data.
+    if (getQuickBooksStatus.fulfilled.match(result) && pathname !== "/dashboard") router.push("/dashboard");
   };
 
   // subscription is only null before fetchMySubscription resolves — don't
@@ -344,6 +375,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const name = capitalizeWords(user?.data?.user?.firstName || user?.data?.user?.email?.split("@")[0] || "Account");
   const photoURL = normalizePhotoURL(user?.data?.user?.icon);
+  const avatarInitials = personInitials(user?.data?.user?.firstName, user?.data?.user?.lastName, user?.data?.user?.email);
 
   return (
     <div className="flex h-dvh bg-page">
@@ -436,7 +468,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <nav className={`flex flex-1 mt-4 flex-col gap-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)] overflow-y-auto"}`}>
           {navItems.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} />
+            <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} badge={item.href === CLAIMS_HREF ? claimsWaiting : 0} />
           ))}
         </nav>
 
@@ -452,14 +484,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 : `text-nav-text hover:bg-nav-hover hover:text-nav-text-active ${collapsed ? "" : ""}`
             }`}
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-caption font-bold text-accent-ink">
-              {photoURL ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={photoURL} alt={name} className="h-full w-full object-cover" />
-              ) : (
-                name.charAt(0).toUpperCase()
-              )}
-            </span>
+            <Avatar name={name} photoURL={photoURL} initials={avatarInitials} size="base" toneClassName="bg-accent text-accent-ink" />
             <span
               className={`truncate transition-[max-width,opacity] duration-300 ease-in-out ${
                 collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
@@ -659,7 +684,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
             <nav className="flex flex-1 flex-col gap-[var(--space-xs)] overflow-y-auto px-[var(--space-sm)]">
               {navItems.map((item) => (
-                <NavLink key={item.href} item={item} pathname={pathname} collapsed={false} />
+                <NavLink key={item.href} item={item} pathname={pathname} collapsed={false} badge={item.href === CLAIMS_HREF ? claimsWaiting : 0} />
               ))}
             </nav>
 
@@ -673,14 +698,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     : "border-nav-hover text-nav-text hover:bg-nav-hover hover:text-nav-text-active"
                 }`}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent text-caption font-bold text-accent-ink">
-                  {photoURL ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoURL} alt={name} className="h-full w-full object-cover" />
-                  ) : (
-                    name.charAt(0).toUpperCase()
-                  )}
-                </span>
+                <Avatar name={name} photoURL={photoURL} initials={avatarInitials} size="base" toneClassName="bg-accent text-accent-ink" />
                 {name}
               </Link>
               <button

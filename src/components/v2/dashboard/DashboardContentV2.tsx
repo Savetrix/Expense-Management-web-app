@@ -290,10 +290,18 @@ function RecentInvoiceRowV2({
             {failureReason}
           </p>
         ) : reference ? (
-          <p className="max-w-[180px] truncate text-caption text-text-secondary">
-            {reference}
-          </p>
+          <div className="flex max-w-[260px] items-center gap-[var(--space-xs)]">
+            <p className="truncate text-caption text-text-secondary">
+              {reference}
+            </p>
+            {invoice.claimReceipt && <ExpenseClaimTag />}
+          </div>
         ) : null}
+        {invoice.claimReceipt && (failureReason || !reference) && (
+          <div className="mt-[2px]">
+            <ExpenseClaimTag />
+          </div>
+        )}
       </td>
       <td className="whitespace-nowrap px-[var(--space-sm)] py-[var(--space-sm)] text-caption text-text-secondary align-middle">
         {receivedLabel(invoice.createdAt)}
@@ -1045,5 +1053,13 @@ export function DashboardContentV2() {
       </div>
 
     </div>
+  );
+}
+
+function ExpenseClaimTag() {
+  return (
+    <span className="inline-flex w-fit shrink-0 items-center rounded-pill bg-status-info-bg px-[var(--space-xs)] py-[1px] text-tiny font-bold text-status-info-text">
+      Expense claim
+    </span>
   );
 }

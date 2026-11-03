@@ -6,7 +6,7 @@ import { ChangeEvent, useMemo, useRef, useState } from "react";
 
 import { auth, db } from "@/lib/firebase/config";
 import { showToast } from "@/lib/dialogManager";
-import { normalizePhotoURL } from "@/lib/textFormat";
+import { normalizePhotoURL, personInitials } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { updateProfileIcon, updateUserProfile } from "@/store/auth/authApi";
 
@@ -32,10 +32,7 @@ export function useEditProfileForm(onSaved: () => void) {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
 
-  const initials = useMemo(
-    () => (firstName.trim() || email.trim() || "U").charAt(0).toUpperCase(),
-    [firstName, email],
-  );
+  const initials = useMemo(() => personInitials(firstName, lastName, email || "U"), [firstName, lastName, email]);
   const hasPhoto = !!normalizePhotoURL(photoURL) && !imageLoadFailed;
   const canSave = !isSaving && !isUploadingPhoto && firstName.trim().length > 0;
 

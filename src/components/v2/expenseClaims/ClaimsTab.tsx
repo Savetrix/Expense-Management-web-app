@@ -13,10 +13,12 @@ import { CompactListRow, Modal, ModalDefinitionRow, RoleInfoBanner, SearchInput,
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import {
   approveExpenseClaim,
+  deleteExpenseClaim,
+  fetchExpenseClaims,
   markExpenseClaimPaid,
-  publishExpenseClaim,
+  payExpenseClaim,
+  rejectExpenseClaim,
   removeClaimReceipt,
-  reopenExpenseClaim,
   updateReceiptNote,
   type ClaimReceiptDto,
   type ClaimStatus,
@@ -25,7 +27,7 @@ import {
 import { useAppDispatch } from "@/store/hooks";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import { PayClaimModal } from "./PayClaimModal";
+import { PayEmployeeModal } from "./PayEmployeeModal";
 import { CARD_CLASS, CLAIM_STATUS_META, TOOLBAR_CLASS, errorMessage, isApprover, money, monthLabel, shortDate, type CompanyRole } from "./shared";
 
 interface ClaimsTabProps {
@@ -39,45 +41,59 @@ interface ClaimsTabProps {
   onNewClaim: () => void;
 }
 
-const STATUS_ORDER: ClaimStatus[] = ["awaiting_review", "awaiting_reimbursement", "paid"];
+const STATUS_ORDER: ClaimStatus[] = ["awaiting_review", "awaiting_reimbursement", "paid", "rejected"];
+// Approvers also get the claims in review that were sent to them.
+type View = ClaimStatus | "assigned";
 
 export const claimTitle = (claim: Pick<ExpenseClaimDto, "claimant" | "month">) => `${claim.claimant.name} — ${monthLabel(claim.month)}`;
 
-type BusyAction = "approve" | "approvePay" | "publish" | "markPaid" | "removeReceipt" | "reopen" | "note";
+type BusyAction = "approve" | "approvePay" | "reject" | "markPaid" | "removeReceipt" | "deleteClaim" | "note";
 
 export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allowSelfApproval, onNewClaim }: ClaimsTabProps) {
   const dispatch = useAppDispatch();
   const provider = useActiveProvider();
   const approver = isApprover(role);
-  const [status, setStatus] = useState<ClaimStatus>("awaiting_review");
+  const [status, setStatus] = useState<View>(approver ? "assigned" : "awaiting_review");
   const [search, setSearch] = useState("");
   const [openClaimId, setOpenClaimId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [payClaimId, setPayClaimId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<{ receiptId: string; text: string } | null>(null);
+  const [rejectDraft, setRejectDraft] = useState<{ claimId: string; reason: string } | null>(null);
+
+  const isAssignedToMe = (claim: ExpenseClaimDto) => claim.status === "awaiting_review" && claim.approver?.userId === selfId;
 
   const counts = useMemo(() => {
-    const c: Record<ClaimStatus, number> = { awaiting_review: 0, awaiting_reimbursement: 0, paid: 0 };
-    claims.forEach((cl) => (c[cl.status] += 1));
+    const c: Record<View, number> = { assigned: 0, awaiting_review: 0, awaiting_reimbursement: 0, paid: 0, rejected: 0 };
+    claims.forEach((cl) => {
+      c[cl.status] += 1;
+      if (cl.status === "awaiting_review" && cl.approver?.userId === selfId) c.assigned += 1;
+    });
     return c;
-  }, [claims]);
+  }, [claims, selfId]);
 
   const visible = useMemo(() => {
     const lower = search.trim().toLowerCase();
     return claims
-      .filter((c) => c.status === status)
+      .filter((c) => (status === "assigned" ? c.status === "awaiting_review" && c.approver?.userId === selfId : c.status === status))
       .filter((c) => !lower || claimTitle(c).toLowerCase().includes(lower))
       .sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : a.claimant.name.localeCompare(b.claimant.name)));
-  }, [claims, status, search]);
+  }, [claims, status, search, selfId]);
 
   const openClaim = claims.find((c) => c.id === openClaimId) ?? null;
+  const payingClaim = claims.find((c) => c.id === payClaimId);
+  const payTarget = payingClaim
+    ? { id: payingClaim.id, noun: "claim" as const, payee: payingClaim.claimant.name, amount: payingClaim.total, currency: payingClaim.currency }
+    : null;
 
   // Nobody approves a claim they created or that's theirs, unless the company
   // allows it (Settings). The backend enforces the same rule.
   const isOwnClaim = (claim: ExpenseClaimDto) => claim.createdBy === selfId || claim.claimant.userId === selfId;
   const selfApprovalBlocked = (claim: ExpenseClaimDto) => isOwnClaim(claim) && !allowSelfApproval;
-  // Publishing needs a GL account on every receipt, and receipts are frozen
-  // once approved — so the backend refuses approval until they're coded.
+  // The approver it was sent to acts on it, or an owner/admin as backup.
+  const canAct = (claim: ExpenseClaimDto) => !claim.approver || claim.approver.userId === selfId || role === "owner" || role === "admin";
+  // Approving posts the bill, which needs a GL account on every receipt — the
+  // backend refuses approval until they're coded.
   const uncoded = (claim: ExpenseClaimDto) => claim.receipts.filter((r) => !r.glAccountId);
 
   const run = async <T,>(key: BusyAction, action: () => Promise<{ ok: boolean; payload: T }>, success: string, fallback: string) => {
@@ -89,51 +105,76 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
     return ok;
   };
 
-  const handleApprove = (claim: ExpenseClaimDto) =>
-    run(
+  const handleApprove = async (claim: ExpenseClaimDto) => {
+    const ok = await confirmDialog({
+      title: `Approve and post to ${provider.name}?`,
+      message: `This creates one bill in ${provider.name} payable to ${claim.claimant.name} for ${money(claim.total, claim.currency)}, with every receipt attached (they're added as a vendor there if they aren't one yet). The receipts then show in your invoices, tagged as an expense claim.`,
+      confirmLabel: "Approve & post",
+    });
+    if (!ok) return;
+    await run(
       "approve",
       async () => {
-        const r = await dispatch(approveExpenseClaim({ id: claim.id }));
+        const r = await dispatch(approveExpenseClaim({ id: claim.id, expectedTotal: claim.total }));
+        if (approveExpenseClaim.rejected.match(r) && r.payload?.code === "CLAIM_CHANGED") dispatch(fetchExpenseClaims());
         return { ok: approveExpenseClaim.fulfilled.match(r), payload: r.payload };
       },
-      `${claimTitle(claim)} approved — now awaiting reimbursement.`,
+      `${claimTitle(claim)} approved and posted to ${provider.name} — now awaiting reimbursement.`,
       "Couldn't approve the claim.",
     );
+  };
 
   const handleApproveAndPay = async (claim: ExpenseClaimDto) => {
     const ok = await confirmDialog({
-      title: "Approve and mark as paid?",
-      message: `This approves ${claimTitle(claim)} and records that ${claim.claimant.name} has been paid ${money(claim.total, claim.currency)}. Scantrix doesn't send the money — pay them as you usually do.`,
+      title: "Approve, post and mark as paid?",
+      message: `This posts ${claimTitle(claim)} to ${provider.name} as one bill payable to ${claim.claimant.name}, and records that they've been paid ${money(claim.total, claim.currency)}. Scantrix doesn't send the money — pay them as you usually do.`,
       confirmLabel: "Approve & mark paid",
     });
     if (!ok) return;
     await run(
       "approvePay",
       async () => {
-        const r = await dispatch(approveExpenseClaim({ id: claim.id, pay: true }));
+        const r = await dispatch(approveExpenseClaim({ id: claim.id, pay: true, expectedTotal: claim.total }));
+        if (approveExpenseClaim.rejected.match(r) && r.payload?.code === "CLAIM_CHANGED") dispatch(fetchExpenseClaims());
         return { ok: approveExpenseClaim.fulfilled.match(r), payload: r.payload };
       },
-      `${claimTitle(claim)} approved and marked as paid.`,
+      `${claimTitle(claim)} approved, posted to ${provider.name} and marked as paid.`,
       "Couldn't approve the claim.",
     );
   };
 
-  const handlePublish = async (claim: ExpenseClaimDto) => {
+  const handleReject = async (claim: ExpenseClaimDto) => {
+    if (!rejectDraft) return;
+    const done = await run(
+      "reject",
+      async () => {
+        const r = await dispatch(rejectExpenseClaim({ id: claim.id, reason: rejectDraft.reason.trim() }));
+        return { ok: rejectExpenseClaim.fulfilled.match(r), payload: r.payload };
+      },
+      `${claimTitle(claim)} rejected. Nothing was sent to ${provider.name}.`,
+      "Couldn't reject the claim.",
+    );
+    if (done) setRejectDraft(null);
+  };
+
+  const handleDeleteClaim = async (claim: ExpenseClaimDto) => {
     const ok = await confirmDialog({
-      title: `Publish to ${provider.name}?`,
-      message: `This creates one bill in ${provider.name} payable to ${claim.claimant.name} for ${money(claim.total, claim.currency)}, with every receipt attached. If ${claim.claimant.name} isn't a vendor there yet, they're added as one.`,
-      confirmLabel: "Publish",
+      title: "Delete this claim?",
+      message: `${claimTitle(claim)} is deleted and its receipts go back to your receipts, ready for a new claim.`,
+      confirmLabel: "Delete claim",
+      tone: "destructive",
     });
     if (!ok) return;
-    await run(
-      "publish",
+    const done = await run(
+      "deleteClaim",
       async () => {
-        const r = await dispatch(publishExpenseClaim(claim.id));
-        return { ok: publishExpenseClaim.fulfilled.match(r), payload: r.payload };
+        const r = await dispatch(deleteExpenseClaim(claim.id));
+        return { ok: deleteExpenseClaim.fulfilled.match(r), payload: r.payload };
       },
-      `${claimTitle(claim)} published to ${provider.name} as a bill payable to ${claim.claimant.name}.`,
-      "Couldn't publish the claim.",
+      "Claim deleted.",
+      "Couldn't delete the claim.",
     );
+    if (done) setOpenClaimId(null);
   };
 
   const handleMarkPaid = async (claim: ExpenseClaimDto) => {
@@ -152,25 +193,6 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
       `${claimTitle(claim)} marked as paid.`,
       "Couldn't mark the claim as paid.",
     );
-  };
-
-  const handleReopen = async (claim: ExpenseClaimDto) => {
-    const ok = await confirmDialog({
-      title: "Send back to review?",
-      message: `${claimTitle(claim)} goes back to Awaiting review so its receipts can be fixed or removed. It has to be approved again before it's published.`,
-      confirmLabel: "Send back to review",
-    });
-    if (!ok) return;
-    await run(
-      "reopen",
-      async () => {
-        const r = await dispatch(reopenExpenseClaim(claim.id));
-        return { ok: reopenExpenseClaim.fulfilled.match(r), payload: r.payload };
-      },
-      `${claimTitle(claim)} is back in Awaiting review.`,
-      "Couldn't send the claim back to review.",
-    );
-    setStatus("awaiting_review");
   };
 
   const handleSaveNote = async (claim: ExpenseClaimDto) => {
@@ -192,8 +214,8 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
     const ok = await confirmDialog({
       title: "Remove receipt?",
       message: isLast
-        ? `${receipt.vendor} is the only receipt on this claim, so removing it also deletes the claim. The receipt goes back to your pending invoices.`
-        : `${receipt.vendor} (${money(receipt.amount, receipt.currency)}) will be taken off this claim and go back to your pending invoices.`,
+        ? `${receipt.vendor} is the only receipt on this claim, so removing it also deletes the claim. The receipt goes back to your receipts, ready for a new claim.`
+        : `${receipt.vendor} (${money(receipt.amount, receipt.currency)}) will be taken off this claim and go back to your receipts, ready for a new claim.`,
       confirmLabel: "Remove receipt",
       tone: "destructive",
     });
@@ -210,27 +232,35 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
     if (done && isLast) setOpenClaimId(null);
   };
 
-  const emptyCopy: Record<ClaimStatus, { title: string; description: string }> = {
+  const emptyCopy: Record<View, { title: string; description: string }> = {
+    assigned: {
+      title: "Nothing waiting on you",
+      description: "Claims your team sends you for approval show up here.",
+    },
     awaiting_review: {
       title: "No claims to review",
-      description: "Group an employee's out-of-pocket receipts into a claim — it waits here for review before anything is published.",
+      description: "Upload an employee's out-of-pocket receipts as a claim — it waits here, and nothing reaches your accounting software until it's approved.",
     },
     awaiting_reimbursement: {
       title: "Nothing awaiting reimbursement",
       description: "Approved claims wait here until the employee has been paid back.",
     },
     paid: { title: "No paid claims yet", description: "Claims you've reimbursed are kept here for reference." },
+    rejected: { title: "No rejected claims", description: "Rejected claims stay here with the reason. Their receipts never reach your accounting software." },
   };
 
-  const canEditReceipts = (claim: ExpenseClaimDto) => claim.status === "awaiting_review" && (approver || claim.createdBy === selfId);
+  // Whoever made the claim, or an approver who may act on it (the backend's canChangeClaim).
+  const mayChange = (claim: ExpenseClaimDto) => claim.createdBy === selfId || (approver && canAct(claim));
+  const canEditReceipts = (claim: ExpenseClaimDto) => claim.status === "awaiting_review" && mayChange(claim);
+  const canDeleteClaim = (claim: ExpenseClaimDto) => (claim.status === "awaiting_review" || claim.status === "rejected") && mayChange(claim);
 
   return (
     <>
       <div className="mt-[var(--space-md)]">
         <RoleInfoBanner>
           {approver
-            ? "Expense claims are never published automatically — every claim waits here for someone to review it first."
-            : "You see the claims you created or that are yours. Someone with approval rights reviews, publishes and reimburses them."}
+            ? `Expense claims never post on their own — approving a claim posts it to ${provider.name} as one bill payable to the employee; rejecting keeps it out.`
+            : "You see the claims you created or that are yours. Someone with approval rights approves or rejects them, and reimburses you."}
         </RoleInfoBanner>
       </div>
 
@@ -238,9 +268,12 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
         <div className={TOOLBAR_CLASS}>
           <div className="max-w-full overflow-x-auto">
             <Tabs
-              items={STATUS_ORDER.map((s) => ({ value: s, label: CLAIM_STATUS_META[s].label, count: counts[s] }))}
+              items={[
+                ...(approver ? [{ value: "assigned", label: "Assigned to me", count: counts.assigned }] : []),
+                ...STATUS_ORDER.map((s) => ({ value: s, label: CLAIM_STATUS_META[s].label, count: counts[s] })),
+              ]}
               value={status}
-              onChange={(v) => setStatus(v as ClaimStatus)}
+              onChange={(v) => setStatus(v as View)}
             />
           </div>
           {claims.length > 0 && (
@@ -267,8 +300,8 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
               icon={<Receipt size={28} strokeWidth={1.75} />}
               title={emptyCopy[status].title}
               description={emptyCopy[status].description}
-              actionLabel={status === "awaiting_review" ? "New expense claim" : undefined}
-              onAction={status === "awaiting_review" ? onNewClaim : undefined}
+              actionLabel={status === "awaiting_review" && !approver ? "New expense claim" : undefined}
+              onAction={status === "awaiting_review" && !approver ? onNewClaim : undefined}
             />
           )
         ) : (
@@ -278,8 +311,14 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
                 key={claim.id}
                 title={claimTitle(claim)}
                 meta={`${claim.receipts.length} receipt${claim.receipts.length === 1 ? "" : "s"}${
-                  claim.status === "paid" ? ` · Paid ${shortDate(claim.paidAt)}` : ` · Created ${shortDate(claim.createdAt)}`
-                }${claim.publishedAt ? " · Published" : ""}`}
+                  claim.status === "paid"
+                    ? ` · Paid ${shortDate(claim.paidAt)}`
+                    : claim.status === "rejected"
+                      ? ` · Rejected ${shortDate(claim.rejectedAt)}`
+                      : ` · Created ${shortDate(claim.createdAt)}`
+                }${claim.status === "awaiting_review" && claim.approver ? ` · Sent to ${isAssignedToMe(claim) ? "you" : claim.approver.name}` : ""}${
+                  claim.publishedAt ? ` · In ${provider.name}` : ""
+                }`}
                 onClick={() => setOpenClaimId(claim.id)}
                 trailing={
                   <span className="flex shrink-0 items-center gap-[var(--space-sm)]">
@@ -299,6 +338,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
           if (busyAction) return;
           setOpenClaimId(null);
           setNoteDraft(null);
+          setRejectDraft(null);
         }}
         title={openClaim ? claimTitle(openClaim) : ""}
         widthClassName="max-w-2xl"
@@ -309,13 +349,18 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
               providerName={provider.name}
               approver={approver}
               selfApprovalBlocked={selfApprovalBlocked(openClaim)}
+              canAct={canAct(openClaim)}
               uncodedCount={uncoded(openClaim).length}
+              canDelete={canDeleteClaim(openClaim)}
+              rejecting={rejectDraft?.claimId === openClaim.id}
               busyAction={busyAction}
               onApprove={() => handleApprove(openClaim)}
               onApproveAndPay={() => handleApproveAndPay(openClaim)}
-              onPublish={() => handlePublish(openClaim)}
+              onStartReject={() => setRejectDraft({ claimId: openClaim.id, reason: "" })}
+              onCancelReject={() => setRejectDraft(null)}
+              onConfirmReject={() => handleReject(openClaim)}
+              onDelete={() => handleDeleteClaim(openClaim)}
               onMarkPaid={() => handleMarkPaid(openClaim)}
-              onReopen={() => handleReopen(openClaim)}
               onPay={() => setPayClaimId(openClaim.id)}
               onClose={() => setOpenClaimId(null)}
             />
@@ -326,6 +371,9 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
           <div className="flex flex-col gap-[var(--space-md)]">
             <div>
               <ModalDefinitionRow label="Claimant">{openClaim.claimant.name}</ModalDefinitionRow>
+              {openClaim.approver && (
+                <ModalDefinitionRow label="Sent to">{openClaim.approver.userId === selfId ? "You" : openClaim.approver.name}</ModalDefinitionRow>
+              )}
               <ModalDefinitionRow label="Month">{monthLabel(openClaim.month)}</ModalDefinitionRow>
               <ModalDefinitionRow label="Status">
                 <Badge variant={CLAIM_STATUS_META[openClaim.status].variant}>{CLAIM_STATUS_META[openClaim.status].label}</Badge>
@@ -339,17 +387,18 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-[var(--space-xs)] font-semibold text-accent hover:underline"
                     >
-                      Published {shortDate(openClaim.publishedAt)}
+                      Posted {shortDate(openClaim.publishedAt)}
                       <ExternalLink size={14} strokeWidth={2.25} />
                     </a>
                   ) : (
-                    <Badge variant="success">Published {shortDate(openClaim.publishedAt)}</Badge>
+                    <Badge variant="success">Posted {shortDate(openClaim.publishedAt)}</Badge>
                   )
                 ) : (
-                  <Badge variant="neutral">Not published</Badge>
+                  <Badge variant="neutral">{openClaim.status === "rejected" ? "Never posted" : "Posted when approved"}</Badge>
                 )}
               </ModalDefinitionRow>
               {openClaim.approvedAt && <ModalDefinitionRow label="Approved">{shortDate(openClaim.approvedAt)}</ModalDefinitionRow>}
+              {openClaim.rejectedAt && <ModalDefinitionRow label="Rejected">{shortDate(openClaim.rejectedAt)}</ModalDefinitionRow>}
               {openClaim.paidAt && (
                 <ModalDefinitionRow label="Paid on">
                   {shortDate(openClaim.paidAt)}
@@ -402,11 +451,12 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
                       </div>
                     )}
                     <div className="mt-[var(--space-xs)] flex flex-wrap items-center gap-[var(--space-sm)]">
+                      {/* An approver fixes GL/tax/amounts on the usual review screen while the claim is in review. */}
                       <Link
-                        href={`/invoices/${receipt.id}`}
+                        href={approver && openClaim.status === "awaiting_review" ? `/invoices/${receipt.id}/review` : `/invoices/${receipt.id}`}
                         className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline"
                       >
-                        Open receipt
+                        {approver && openClaim.status === "awaiting_review" ? "Review" : "Open receipt"}
                       </Link>
                       {canEditReceipts(openClaim) && noteDraft?.receiptId !== receipt.id && (
                         <button
@@ -446,17 +496,43 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
               </div>
             </div>
 
+            {openClaim.status === "rejected" && (
+              <div className="rounded-md border border-status-danger-border bg-status-danger-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-danger-text">
+                <p className="font-semibold">Rejected{openClaim.rejectionReason ? ":" : ""}</p>
+                {openClaim.rejectionReason && <p>{openClaim.rejectionReason}</p>}
+                <p className="mt-[var(--space-xs)] text-caption">
+                  Nothing was sent to {provider.name}. Delete the claim to put its receipts on a new one.
+                </p>
+              </div>
+            )}
+            {rejectDraft?.claimId === openClaim.id && (
+              <div className="flex flex-col gap-[var(--space-xs)]">
+                <label htmlFor="reject-reason" className="text-body-sm font-semibold text-content-primary">
+                  Why is it rejected? <span className="font-normal text-content-secondary">(the claimant sees this)</span>
+                </label>
+                <textarea
+                  id="reject-reason"
+                  autoFocus
+                  rows={3}
+                  maxLength={500}
+                  placeholder="e.g. Personal expense, not a business one"
+                  value={rejectDraft.reason}
+                  onChange={(e) => setRejectDraft({ claimId: openClaim.id, reason: e.target.value })}
+                  className="w-full rounded-md border border-border bg-page px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                />
+              </div>
+            )}
             {approver && openClaim.status === "awaiting_review" && uncoded(openClaim).length > 0 && (
               <p className="text-caption font-semibold text-status-warning-text">
-                Pick a GL account for {uncoded(openClaim).map((r) => r.vendor).join(", ")} before approving — open the receipt to code it.
+                Pick a GL account for {uncoded(openClaim).map((r) => r.vendor).join(", ")} before approving — use Review on the receipt.
               </p>
             )}
-            {approver && openClaim.status === "awaiting_reimbursement" && !openClaim.publishedAt && (
+            {approver && openClaim.status === "awaiting_review" && !canAct(openClaim) && (
               <p className="text-caption text-content-secondary">
-                Publishing refused, or a receipt needs changing? Send the claim back to review to fix or remove receipts.
+                This claim was sent to {openClaim.approver?.name} — only they, an owner or an admin can approve or reject it.
               </p>
             )}
-            {approver && openClaim.status === "awaiting_review" && selfApprovalBlocked(openClaim) && (
+            {approver && openClaim.status === "awaiting_review" && canAct(openClaim) && selfApprovalBlocked(openClaim) && (
               <p className="text-caption text-content-secondary">
                 This claim is yours or you created it, so someone else on the team has to approve it. An owner or admin can allow self-approval in
                 Settings.
@@ -469,7 +545,15 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
         )}
       </Modal>
 
-      <PayClaimModal claim={claims.find((c) => c.id === payClaimId) ?? null} providerName={provider.name} onClose={() => setPayClaimId(null)} />
+      <PayEmployeeModal
+        target={payTarget}
+        providerName={provider.name}
+        onPay={async (target, bankAccountId, date) => {
+          const r = await dispatch(payExpenseClaim({ id: target.id, bankAccountId, date }));
+          return { ok: payExpenseClaim.fulfilled.match(r), payload: r.payload };
+        }}
+        onClose={() => setPayClaimId(null)}
+      />
     </>
   );
 }
@@ -479,13 +563,20 @@ interface ClaimFooterProps {
   providerName: string;
   approver: boolean;
   selfApprovalBlocked: boolean;
+  /** The claim was sent to this user, or they're an owner/admin. */
+  canAct: boolean;
   uncodedCount: number;
+  canDelete: boolean;
+  /** The reject reason box is open. */
+  rejecting: boolean;
   busyAction: BusyAction | null;
   onApprove: () => void;
   onApproveAndPay: () => void;
-  onPublish: () => void;
+  onStartReject: () => void;
+  onCancelReject: () => void;
+  onConfirmReject: () => void;
+  onDelete: () => void;
   onMarkPaid: () => void;
-  onReopen: () => void;
   onPay: () => void;
   onClose: () => void;
 }
@@ -495,49 +586,67 @@ function ClaimFooter({
   providerName,
   approver,
   selfApprovalBlocked,
+  canAct,
   uncodedCount,
+  canDelete,
+  rejecting,
   busyAction,
   onApprove,
   onApproveAndPay,
-  onPublish,
+  onStartReject,
+  onCancelReject,
+  onConfirmReject,
+  onDelete,
   onMarkPaid,
-  onReopen,
   onPay,
   onClose,
 }: ClaimFooterProps) {
   const disabled = !!busyAction;
+  const row = "flex w-full flex-wrap justify-end gap-[var(--space-sm)]";
   const closeButton = (
     <Button variant="outline" size="sm" onClick={onClose} disabled={disabled}>
       Close
     </Button>
   );
-  if (!approver) return closeButton;
-
-  const publishButton = !claim.publishedAt && (
-    <Button variant="outline" size="sm" onClick={onPublish} loading={busyAction === "publish"} disabled={disabled}>
-      Publish to {providerName}
+  const deleteButton = canDelete && (
+    <Button variant="outline" size="sm" onClick={onDelete} loading={busyAction === "deleteClaim"} disabled={disabled}>
+      Delete claim
     </Button>
   );
 
-  if (claim.status === "paid") {
-    return <div className="flex w-full flex-wrap justify-end gap-[var(--space-sm)]">{publishButton || closeButton}</div>;
-  }
-  if (claim.status === "awaiting_reimbursement") {
+  if (rejecting) {
     return (
-      <div className="flex w-full flex-wrap justify-end gap-[var(--space-sm)]">
-        {!claim.publishedAt && (
-          <Button variant="outline" size="sm" onClick={onReopen} loading={busyAction === "reopen"} disabled={disabled}>
-            Send back to review
-          </Button>
-        )}
-        {publishButton}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onPay}
-          disabled={disabled || !claim.publishedAt}
-          title={claim.publishedAt ? undefined : `Publish to ${providerName} first — the payment is recorded against its bill`}
-        >
+      <div className={row}>
+        <Button variant="outline" size="sm" onClick={onCancelReject} disabled={disabled}>
+          Cancel
+        </Button>
+        <Button variant="danger" size="sm" onClick={onConfirmReject} loading={busyAction === "reject"} disabled={disabled}>
+          Reject claim
+        </Button>
+      </div>
+    );
+  }
+  if (claim.status === "awaiting_review" && approver && canAct) {
+    const approveBlocked = disabled || selfApprovalBlocked || uncodedCount > 0;
+    return (
+      <div className={row}>
+        {deleteButton}
+        <Button variant="outline" size="sm" onClick={onStartReject} disabled={disabled}>
+          Reject
+        </Button>
+        <Button variant="outline" size="sm" onClick={onApproveAndPay} loading={busyAction === "approvePay"} disabled={approveBlocked}>
+          Approve & mark paid
+        </Button>
+        <Button size="sm" onClick={onApprove} loading={busyAction === "approve"} disabled={approveBlocked}>
+          Approve & post to {providerName}
+        </Button>
+      </div>
+    );
+  }
+  if (claim.status === "awaiting_reimbursement" && approver) {
+    return (
+      <div className={row}>
+        <Button variant="outline" size="sm" onClick={onPay} disabled={disabled}>
           Pay employee
         </Button>
         <Button size="sm" onClick={onMarkPaid} loading={busyAction === "markPaid"} disabled={disabled}>
@@ -547,13 +656,9 @@ function ClaimFooter({
     );
   }
   return (
-    <div className="flex w-full flex-wrap justify-end gap-[var(--space-sm)]">
-      <Button variant="outline" size="sm" onClick={onApproveAndPay} loading={busyAction === "approvePay"} disabled={disabled || selfApprovalBlocked || uncodedCount > 0}>
-        Approve & mark paid
-      </Button>
-      <Button size="sm" onClick={onApprove} loading={busyAction === "approve"} disabled={disabled || selfApprovalBlocked || uncodedCount > 0}>
-        Approve
-      </Button>
+    <div className={row}>
+      {deleteButton}
+      {closeButton}
     </div>
   );
 }

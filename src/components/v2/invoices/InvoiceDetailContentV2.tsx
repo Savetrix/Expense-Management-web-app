@@ -341,7 +341,8 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
               QuickBooks bill but keeps the invoice under its current status —
               reuses the same review/edit screen a pending invoice posts
               through (InvoiceReviewContentV2), same as v1. */}
-          {(type === "auto" || type === "manual") && (
+          {/* A claim receipt's bill is the whole claim's — never edited from one receipt. */}
+          {(type === "auto" || type === "manual") && !invoiceObject?.claimReceipt && (
             <button
               type="button"
               onClick={() => router.push(`/invoices/${invoiceId}/review`)}

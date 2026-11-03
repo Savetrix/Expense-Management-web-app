@@ -8,14 +8,9 @@ import api from "../../lib/api";
 // Type-only: the slice imports this file and store/index imports the slice.
 import type { RootState } from "..";
 
-export type ClaimStatus = "awaiting_review" | "awaiting_reimbursement" | "paid";
-export type FuelType = "Petrol" | "Diesel" | "Electric" | "Hybrid";
-export type VehicleType = "Car" | "Van" | "Motorcycle";
-export type VehicleOwnership = "company" | "personal";
-export type JourneyStatus = "draft" | "published";
-
-export const FUEL_TYPES: FuelType[] = ["Petrol", "Diesel", "Electric", "Hybrid"];
-export const VEHICLE_TYPES: VehicleType[] = ["Car", "Van", "Motorcycle"];
+export type ClaimStatus = "awaiting_review" | "awaiting_reimbursement" | "paid" | "rejected";
+/** Trips go through the same approval as claims. */
+export type JourneyStatus = ClaimStatus;
 
 /** A claimant or driver: a user on the company, a saved contact of the company, or a name. */
 export interface PersonDto {
@@ -58,6 +53,8 @@ export interface ClaimReceiptDto {
 export interface ExpenseClaimDto {
   id: string;
   claimant: PersonDto;
+  /** Who it was sent to for approval (they, or an owner/admin as backup, act on it). null on claims from before approvers were assigned. */
+  approver: { userId: string; name: string } | null;
   month: string; // YYYY-MM
   currency: string | null;
   status: ClaimStatus;
@@ -72,46 +69,46 @@ export interface ExpenseClaimDto {
   paidAt: string | null;
   /** "manual" = marked paid in Scantrix; "accounting" = a bill payment was recorded in QuickBooks/Xero. */
   paidVia: "manual" | "accounting" | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
   billUrl: string | null;
 }
 
-export interface VehicleDto {
-  id: string;
-  name: string;
-  vehicleType: VehicleType;
-  fuelType: FuelType;
-  ownership: VehicleOwnership;
+/** A receipt uploaded from the claims page that isn't on a claim yet. Only "pending" ones can be claimed. */
+export interface ClaimableReceiptDto extends ClaimReceiptDto {
+  status: "processing" | "pending" | "failed";
+  /** Why a scan failed (a duplicate, an unreadable file). */
+  reason: string | null;
+  uploadedBy: { id: string; name: string } | null;
+  uploadedAt: string;
 }
-
-export type MileageRates = Record<VehicleType, Record<FuelType, number | null>>;
 
 export interface ExpenseSettingsDto {
   allowSelfApproval: boolean;
-  vehicles: VehicleDto[];
-  /** Per km, per vehicle type and fuel type. null = not set yet; there is no default rate. */
-  rates: MileageRates;
-  passengerRate: number | null;
+  /** What the company pays per km, one rate for every trip. null = not set yet: no trip can be logged. */
+  mileageRate: number | null;
   mileageGlAccountId: string | null;
 }
 
+/** A business trip: total km × the rate it was logged with, sent to an approver like a claim. */
 export interface JourneyDto {
   id: string;
   date: string;
   driver: PersonDto;
-  vehicle: { vehicleId: string | null; name: string; vehicleType: VehicleType; fuelType: FuelType; ownership: VehicleOwnership };
-  start: string;
-  end: string;
-  returnTrip: boolean;
+  approver: { userId: string; name: string } | null;
   km: number;
   rate: number;
-  passenger: boolean;
-  passengerRate: number;
   amount: number;
   purpose: string;
   status: JourneyStatus;
   createdBy: string;
   createdAt: string;
+  approvedAt: string | null;
   publishedAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string | null;
+  paidAt: string | null;
+  paidVia: "manual" | "accounting" | null;
   billUrl: string | null;
 }
 
@@ -160,11 +157,29 @@ export const fetchExpenseClaims = createAsyncThunk<
   }
 });
 
+/** Claims and mileage trips waiting on the signed-in user's approval — the sidebar count. */
+export const fetchClaimSummary = createAsyncThunk<
+  /** assignedToMe = claims + trips in review sent to you. */
+  { assignedToMe: number; qbConnectionId: string | null },
+  void,
+  { rejectValue: ExpenseRequestError }
+>("expenseClaims/fetchSummary", async (_, { getState, rejectWithValue }) => {
+  const qbConnectionId = companyOf(getState);
+  try {
+    const { data } = await api.get("/expense-claims/summary");
+    return { assignedToMe: data?.data?.assignedToMe ?? 0, qbConnectionId };
+  } catch (error) {
+    return rejectWithValue(toError(error, "Couldn't load the claims summary."));
+  }
+});
+
 export interface CreateClaimInput {
   claimant: { userId?: string | null; contactId?: string | null; name?: string; email?: string | null };
   receiptIds: string[];
   /** receiptId → the claimant's note on that receipt. */
   notes?: Record<string, string>;
+  /** The owner, admin or accountant the claim is sent to. */
+  approverId: string;
 }
 
 export const createExpenseClaim = createAsyncThunk<ExpenseClaimDto, CreateClaimInput, Config>(
@@ -180,12 +195,19 @@ export const createExpenseClaim = createAsyncThunk<ExpenseClaimDto, CreateClaimI
   },
 );
 
-export const approveExpenseClaim = createAsyncThunk<ExpenseClaimDto, { id: string; pay?: boolean }, Config>(
+/** Approving posts the claim to QuickBooks/Xero as one bill payable to the claimant. */
+export const approveExpenseClaim = createAsyncThunk<
+  ExpenseClaimDto,
+  /** expectedTotal: the total the approver saw — the backend refuses (CLAIM_CHANGED) if the receipts changed since. */
+  { id: string; pay?: boolean; expectedTotal?: number },
+  Config
+>(
   "expenseClaims/approveClaim",
-  async ({ id, pay }, { getState, rejectWithValue, fulfillWithValue }) => {
+  async ({ id, pay, expectedTotal }, { getState, rejectWithValue, fulfillWithValue }) => {
     const meta = { qbConnectionId: companyOf(getState) };
     try {
-      const { data } = await api.post(`/expense-claims/${id}/approve${pay ? "?pay=true" : ""}`);
+      // Creating the bill, the payee and one attachment per receipt can take a while.
+      const { data } = await api.post(`/expense-claims/${id}/approve${pay ? "?pay=true" : ""}`, { expectedTotal }, { timeout: 90_000 });
       return fulfillWithValue(data.data.claim, meta);
     } catch (error) {
       return rejectWithValue(toError(error, "Couldn't approve the claim."));
@@ -193,16 +215,15 @@ export const approveExpenseClaim = createAsyncThunk<ExpenseClaimDto, { id: strin
   },
 );
 
-export const publishExpenseClaim = createAsyncThunk<ExpenseClaimDto, string, Config>(
-  "expenseClaims/publishClaim",
-  async (id, { getState, rejectWithValue, fulfillWithValue }) => {
+export const rejectExpenseClaim = createAsyncThunk<ExpenseClaimDto, { id: string; reason: string }, Config>(
+  "expenseClaims/rejectClaim",
+  async ({ id, reason }, { getState, rejectWithValue, fulfillWithValue }) => {
     const meta = { qbConnectionId: companyOf(getState) };
     try {
-      // Creating the bill, the payee and one attachment per receipt can take a while.
-      const { data } = await api.post(`/expense-claims/${id}/publish`, undefined, { timeout: 90_000 });
+      const { data } = await api.post(`/expense-claims/${id}/reject`, { reason });
       return fulfillWithValue(data.data.claim, meta);
     } catch (error) {
-      return rejectWithValue(toError(error, "Couldn't publish the claim."));
+      return rejectWithValue(toError(error, "Couldn't reject the claim."));
     }
   },
 );
@@ -220,16 +241,63 @@ export const markExpenseClaimPaid = createAsyncThunk<ExpenseClaimDto, string, Co
   },
 );
 
-/** Back to review: an approved, unpaid claim that isn't in the accounting software yet. */
-export const reopenExpenseClaim = createAsyncThunk<ExpenseClaimDto, string, Config>(
-  "expenseClaims/reopen",
+/** A claim in review, or a rejected one — its receipts are freed for a new claim. */
+export const deleteExpenseClaim = createAsyncThunk<string, string, Config>(
+  "expenseClaims/deleteClaim",
   async (id, { getState, rejectWithValue, fulfillWithValue }) => {
     const meta = { qbConnectionId: companyOf(getState) };
     try {
-      const { data } = await api.post(`/expense-claims/${id}/reopen`);
-      return fulfillWithValue(data.data.claim, meta);
+      await api.delete(`/expense-claims/${id}`);
+      return fulfillWithValue(id, meta);
     } catch (error) {
-      return rejectWithValue(toError(error, "Couldn't send the claim back to review."));
+      return rejectWithValue(toError(error, "Couldn't delete the claim."));
+    }
+  },
+);
+
+// ─── Receipts uploaded from the claims page ─────────────────────────────────
+// Kept out of the store: only the new-claim wizard shows them, and it polls
+// while they scan.
+
+export const fetchClaimReceipts = createAsyncThunk<ClaimableReceiptDto[], void, { rejectValue: ExpenseRequestError }>(
+  "expenseClaims/fetchReceipts",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await api.get("/expense-claims/receipts");
+      return data?.data?.receipts ?? [];
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't load your receipts."));
+    }
+  },
+);
+
+/** Same scanner as the dashboard, flagged as claim receipts: never auto-posted, kept out of the invoice list. */
+export const uploadClaimReceipts = createAsyncThunk<{ ids: string[]; failed: string[] }, File[], { rejectValue: ExpenseRequestError }>(
+  "expenseClaims/uploadReceipts",
+  async (files, { rejectWithValue }) => {
+    try {
+      const formData = new FormData();
+      formData.append("claimReceipt", "true");
+      files.forEach((file) => formData.append("files", file, file.name));
+      // No Content-Type: the browser sets the multipart boundary itself.
+      const { data } = await api.post("/invoices", formData, { timeout: 120_000 });
+      const uploaded: Array<{ _id: string }> = data?.data?.invoices ?? [];
+      const failed: Array<{ fileName?: string }> = data?.data?.failed ?? [];
+      return { ids: uploaded.map((i) => i._id), failed: failed.map((f) => f.fileName ?? "file") };
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't upload the receipts."));
+    }
+  },
+);
+
+export const deleteClaimReceipt = createAsyncThunk<string, string, { rejectValue: ExpenseRequestError }>(
+  "expenseClaims/deleteReceipt",
+  async (id, { rejectWithValue }) => {
+    try {
+      await api.delete(`/expense-claims/receipts/${id}`);
+      return id;
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't delete the receipt."));
     }
   },
 );
@@ -265,12 +333,10 @@ export const fetchExpenseSettings = createAsyncThunk<
   }
 });
 
+/** Owner/admin only. */
 export type SettingsPatch = Partial<{
   allowSelfApproval: boolean;
-  vehicles: Array<Pick<VehicleDto, "name" | "vehicleType" | "fuelType" | "ownership"> & { id?: string }>;
-  /** Only the pairs sent change, e.g. { Van: { Diesel: 0.8 } }. */
-  rates: Partial<Record<VehicleType, Partial<Record<FuelType, number | null>>>>;
-  passengerRate: number | null;
+  mileageRate: number | null;
   mileageGlAccountId: string | null;
 }>;
 
@@ -286,20 +352,6 @@ export const saveExpenseSettings = createAsyncThunk<ExpenseSettingsDto, Settings
     }
   },
 );
-
-export const addMileageVehicle = createAsyncThunk<
-  VehicleDto,
-  Pick<VehicleDto, "name" | "vehicleType" | "fuelType" | "ownership">,
-  Config
->("expenseClaims/addVehicle", async (vehicle, { getState, rejectWithValue, fulfillWithValue }) => {
-  const meta = { qbConnectionId: companyOf(getState) };
-  try {
-    const { data } = await api.post("/mileage/vehicles", vehicle);
-    return fulfillWithValue(data.data.vehicle, meta);
-  } catch (error) {
-    return rejectWithValue(toError(error, "Couldn't add the vehicle."));
-  }
-});
 
 // ─── Mileage journeys ────────────────────────────────────────────────────────
 
@@ -319,14 +371,12 @@ export const fetchJourneys = createAsyncThunk<
 
 export interface CreateJourneyInput {
   driver: { userId?: string | null; name?: string };
-  vehicleId: string;
   date: string;
-  start: string;
-  end: string;
-  returnTrip: boolean;
-  oneWayKm: number;
-  passenger: boolean;
+  /** The whole trip. */
+  km: number;
   purpose: string;
+  /** The owner, admin or accountant the trip is sent to. */
+  approverId: string;
 }
 
 export const createJourney = createAsyncThunk<JourneyDto, CreateJourneyInput, Config>(
@@ -342,15 +392,56 @@ export const createJourney = createAsyncThunk<JourneyDto, CreateJourneyInput, Co
   },
 );
 
-export const publishJourney = createAsyncThunk<JourneyDto, string, Config>(
-  "expenseClaims/publishJourney",
+/** Approving posts the trip to QuickBooks/Xero as a bill payable to the driver. */
+export const approveJourney = createAsyncThunk<JourneyDto, { id: string; pay?: boolean }, Config>(
+  "expenseClaims/approveJourney",
+  async ({ id, pay }, { getState, rejectWithValue, fulfillWithValue }) => {
+    const meta = { qbConnectionId: companyOf(getState) };
+    try {
+      const { data } = await api.post(`/mileage/journeys/${id}/approve${pay ? "?pay=true" : ""}`, undefined, { timeout: 60_000 });
+      return fulfillWithValue(data.data.journey, meta);
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't approve the trip."));
+    }
+  },
+);
+
+export const rejectJourney = createAsyncThunk<JourneyDto, { id: string; reason: string }, Config>(
+  "expenseClaims/rejectJourney",
+  async ({ id, reason }, { getState, rejectWithValue, fulfillWithValue }) => {
+    const meta = { qbConnectionId: companyOf(getState) };
+    try {
+      const { data } = await api.post(`/mileage/journeys/${id}/reject`, { reason });
+      return fulfillWithValue(data.data.journey, meta);
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't reject the trip."));
+    }
+  },
+);
+
+export const markJourneyPaid = createAsyncThunk<JourneyDto, string, Config>(
+  "expenseClaims/markJourneyPaid",
   async (id, { getState, rejectWithValue, fulfillWithValue }) => {
     const meta = { qbConnectionId: companyOf(getState) };
     try {
-      const { data } = await api.post(`/mileage/journeys/${id}/publish`, undefined, { timeout: 60_000 });
+      const { data } = await api.post(`/mileage/journeys/${id}/mark-paid`);
       return fulfillWithValue(data.data.journey, meta);
     } catch (error) {
-      return rejectWithValue(toError(error, "Couldn't publish the journey."));
+      return rejectWithValue(toError(error, "Couldn't mark the trip as paid."));
+    }
+  },
+);
+
+/** Records the payment of the trip's bill in QuickBooks/Xero and marks it paid. */
+export const payJourney = createAsyncThunk<JourneyDto, { id: string; bankAccountId: string; date: string }, Config>(
+  "expenseClaims/payJourney",
+  async ({ id, bankAccountId, date }, { getState, rejectWithValue, fulfillWithValue }) => {
+    const meta = { qbConnectionId: companyOf(getState) };
+    try {
+      const { data } = await api.post(`/mileage/journeys/${id}/pay`, { bankAccountId, date }, { timeout: 60_000 });
+      return fulfillWithValue(data.data.journey, meta);
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't record the payment."));
     }
   },
 );
@@ -368,7 +459,7 @@ export const deleteJourney = createAsyncThunk<string, string, Config>(
   },
 );
 
-// ─── Contacts, notes, paying, distance ───────────────────────────────────────
+// ─── Contacts, notes, paying ─────────────────────────────────────────────────
 
 export const fetchClaimContacts = createAsyncThunk<
   { contacts: ClaimContactDto[]; qbConnectionId: string | null },
@@ -420,25 +511,6 @@ export const payExpenseClaim = createAsyncThunk<ExpenseClaimDto, { id: string; b
       return fulfillWithValue(data.data.claim, meta);
     } catch (error) {
       return rejectWithValue(toError(error, "Couldn't record the payment."));
-    }
-  },
-);
-
-export interface DistanceDto {
-  km: number;
-  /** The addresses Google resolved the two places to. */
-  from: string;
-  to: string;
-}
-
-export const lookupDistance = createAsyncThunk<DistanceDto, { from: string; to: string }, { rejectValue: ExpenseRequestError }>(
-  "expenseClaims/lookupDistance",
-  async ({ from, to }, { rejectWithValue }) => {
-    try {
-      const { data } = await api.get("/mileage/distance", { params: { from, to } });
-      return data.data;
-    } catch (error) {
-      return rejectWithValue(toError(error, "Couldn't calculate the distance."));
     }
   },
 );

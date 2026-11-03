@@ -1,37 +1,22 @@
 "use client";
 
-import { Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner } from "@/components/ui/Spinner";
 import { Switch } from "@/components/ui/Switch";
-import { CreatableCombobox, SelectDropdown, TextInput } from "@/components/v2/ui";
+import { CreatableCombobox, TextInput } from "@/components/v2/ui";
 import { showToast } from "@/lib/dialogManager";
-import {
-  FUEL_TYPES,
-  VEHICLE_TYPES,
-  saveExpenseSettings,
-  type ExpenseSettingsDto,
-  type FuelType,
-  type SettingsPatch,
-  type VehicleDto,
-  type VehicleOwnership,
-  type VehicleType,
-} from "@/store/expenseClaims/expenseClaimsApi";
+import { saveExpenseSettings, type ExpenseSettingsDto, type SettingsPatch } from "@/store/expenseClaims/expenseClaimsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchQuickBooksAccounts } from "@/store/quickBooks/quickBooksApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
-import { CARD_CLASS, canChangeSelfApproval, errorMessage, isApprover, money, type CompanyRole } from "./shared";
-import type { TeamPerson } from "./useTeamMembers";
+import { CARD_CLASS, canEditSettings, errorMessage, money, type CompanyRole } from "./shared";
 
 interface ExpenseSettingsTabProps {
-  members: TeamPerson[];
-  membersLoading: boolean;
-  membersError: string;
   settings: ExpenseSettingsDto | null;
   settingsLoading: boolean;
   settingsError: string | null;
@@ -39,17 +24,9 @@ interface ExpenseSettingsTabProps {
   role: CompanyRole;
 }
 
-type DraftVehicle = Pick<VehicleDto, "name" | "vehicleType" | "fuelType" | "ownership"> & { id?: string; key: string };
-type RateDraft = Record<VehicleType, Record<FuelType, string>>;
-type SavingSection = "vehicles" | "rates" | "account" | "approval";
+type SavingSection = "mileage" | "approval";
 
-let draftKey = 0;
-const toDraft = (v: VehicleDto): DraftVehicle => ({ ...v, key: v.id });
 const rateText = (n: number | null | undefined) => (n == null ? "" : String(n));
-const toRateDraft = (rates: ExpenseSettingsDto["rates"]): RateDraft =>
-  Object.fromEntries(
-    VEHICLE_TYPES.map((t) => [t, Object.fromEntries(FUEL_TYPES.map((f) => [f, rateText(rates?.[t]?.[f])]))]),
-  ) as RateDraft;
 
 function SectionCard({ title, description, children, footer }: { title: string; description: string; children: React.ReactNode; footer?: React.ReactNode }) {
   return (
@@ -64,7 +41,7 @@ function SectionCard({ title, description, children, footer }: { title: string; 
   );
 }
 
-export function ExpenseSettingsTab({ settings, settingsLoading, settingsError, onRetry, ...rest }: ExpenseSettingsTabProps) {
+export function ExpenseSettingsTab({ settings, settingsLoading, settingsError, onRetry, role }: ExpenseSettingsTabProps) {
   if (settingsLoading && !settings) {
     return (
       <div className="mt-[var(--space-md)] flex justify-center p-[var(--space-xl)]">
@@ -79,50 +56,31 @@ export function ExpenseSettingsTab({ settings, settingsLoading, settingsError, o
       </div>
     );
   }
-  return <SettingsEditor settings={settings} {...rest} />;
+  return <SettingsEditor settings={settings} role={role} />;
 }
 
-type SettingsEditorProps = Omit<ExpenseSettingsTabProps, "settings" | "settingsLoading" | "settingsError" | "onRetry"> & {
-  settings: ExpenseSettingsDto;
-};
-
-function SettingsEditor({ members, membersLoading, membersError, settings, role }: SettingsEditorProps) {
+function SettingsEditor({ settings, role }: { settings: ExpenseSettingsDto; role: CompanyRole }) {
   const dispatch = useAppDispatch();
   const provider = useActiveProvider();
-  const canEdit = isApprover(role);
+  const canEdit = canEditSettings(role);
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
   const qbConnectionId = useAppSelector((state) => state.quickBooks.qbConnectionId);
   const { accounts, accountsConnectionId } = useAppSelector((state) => state.quickBooks);
 
   const [saving, setSaving] = useState<SavingSection | null>(null);
-  const [vehicleDraft, setVehicleDraft] = useState<DraftVehicle[]>(() => settings.vehicles.map(toDraft));
-  const [newVehicle, setNewVehicle] = useState<{ name: string; vehicleType: VehicleType; fuelType: FuelType; ownership: VehicleOwnership }>({
-    name: "",
-    vehicleType: "Car",
-    fuelType: "Petrol",
-    ownership: "personal",
-  });
-  const [rates, setRates] = useState<RateDraft>(() => toRateDraft(settings.rates));
-  const [passengerRate, setPassengerRate] = useState(() => rateText(settings.passengerRate));
-  const [rateError, setRateError] = useState("");
+  const [rate, setRate] = useState(() => rateText(settings.mileageRate));
   const [mileageAccount, setMileageAccount] = useState(settings.mileageGlAccountId ?? "");
+  const [rateError, setRateError] = useState("");
 
-  // When a section's saved value changes (its own save, or a reload), only
-  // that section's draft restarts from it — unsaved edits in the other
-  // sections stay. Adjusted during render, React's pattern for state derived
-  // from a changed prop.
-  const savedVehicles = JSON.stringify(settings.vehicles);
-  const savedRates = JSON.stringify([settings.rates, settings.passengerRate]);
-  const savedAccount = settings.mileageGlAccountId ?? "";
-  const [seen, setSeen] = useState({ vehicles: savedVehicles, rates: savedRates, account: savedAccount });
-  if (seen.vehicles !== savedVehicles || seen.rates !== savedRates || seen.account !== savedAccount) {
-    if (seen.vehicles !== savedVehicles) setVehicleDraft(settings.vehicles.map(toDraft));
-    if (seen.rates !== savedRates) {
-      setRates(toRateDraft(settings.rates));
-      setPassengerRate(rateText(settings.passengerRate));
-    }
-    if (seen.account !== savedAccount) setMileageAccount(savedAccount);
-    setSeen({ vehicles: savedVehicles, rates: savedRates, account: savedAccount });
+  // When the saved values change (a save, a reload), the draft restarts from
+  // them. Adjusted during render, React's pattern for state derived from a
+  // changed prop.
+  const saved = JSON.stringify([settings.mileageRate, settings.mileageGlAccountId]);
+  const [seen, setSeen] = useState(saved);
+  if (seen !== saved) {
+    setRate(rateText(settings.mileageRate));
+    setMileageAccount(settings.mileageGlAccountId ?? "");
+    setSeen(saved);
   }
 
   useEffect(() => {
@@ -136,6 +94,7 @@ function SettingsEditor({ members, membersLoading, membersError, settings, role 
     () => (accountsConnectionId === qbConnectionId ? accounts : []).map((a) => ({ id: a.qbAccountId, label: a.name })),
     [accounts, accountsConnectionId, qbConnectionId],
   );
+  const accountName = accountOptions.find((a) => a.id === settings.mileageGlAccountId)?.label;
 
   const save = async (section: SavingSection, patch: SettingsPatch, success: string) => {
     setSaving(section);
@@ -145,269 +104,80 @@ function SettingsEditor({ members, membersLoading, membersError, settings, role 
     else showToast(errorMessage(result.payload, "Couldn't save the settings."), "error");
   };
 
-  const vehiclesDirty =
-    vehicleDraft.length !== settings.vehicles.length || vehicleDraft.some((v, i) => v.id !== settings.vehicles[i]?.id);
+  const parsedRate = rate.trim() === "" ? null : Number(rate);
+  const mileageDirty = parsedRate !== (settings.mileageRate ?? null) || (mileageAccount || null) !== (settings.mileageGlAccountId ?? null);
 
-  const parsedRates = VEHICLE_TYPES.flatMap((t) =>
-    FUEL_TYPES.map((f) => ({ type: t, fuel: f, value: rates[t][f].trim() === "" ? null : Number(rates[t][f]) })),
-  );
-  const parsedPassenger = passengerRate.trim() === "" ? null : Number(passengerRate);
-  const ratesDirty =
-    parsedRates.some(({ type, fuel, value }) => value !== (settings.rates?.[type]?.[fuel] ?? null)) ||
-    parsedPassenger !== (settings.passengerRate ?? null);
-
-  const addVehicle = () => {
-    const name = newVehicle.name.trim();
-    if (!name) return;
-    setVehicleDraft((prev) => [
-      ...prev,
-      { name, vehicleType: newVehicle.vehicleType, fuelType: newVehicle.fuelType, ownership: newVehicle.ownership, key: `new-${++draftKey}` },
-    ]);
-    setNewVehicle({ name: "", vehicleType: "Car", fuelType: "Petrol", ownership: "personal" });
-  };
-
-  const saveVehicles = () =>
-    save(
-      "vehicles",
-      { vehicles: vehicleDraft.map(({ id, name, vehicleType, fuelType, ownership }) => ({ ...(id && { id }), name, vehicleType, fuelType, ownership })) },
-      "Vehicles saved.",
-    );
-
-  const saveRates = () => {
-    const bad = parsedRates.find(({ value }) => value !== null && (Number.isNaN(value) || value <= 0));
-    if (bad) return setRateError(`Enter a ${bad.fuel.toLowerCase()} ${bad.type.toLowerCase()} rate above zero, or leave it blank.`);
-    if (parsedPassenger !== null && (Number.isNaN(parsedPassenger) || parsedPassenger < 0)) {
-      return setRateError("Enter a passenger rate of zero or more, or leave it blank.");
+  const saveMileage = () => {
+    if (parsedRate !== null && (Number.isNaN(parsedRate) || parsedRate <= 0 || parsedRate > 1000)) {
+      return setRateError("Enter a rate above zero per km, or leave it empty.");
     }
     setRateError("");
-    return save(
-      "rates",
-      {
-        rates: Object.fromEntries(
-          VEHICLE_TYPES.map((t) => [t, Object.fromEntries(parsedRates.filter((r) => r.type === t).map((r) => [r.fuel, r.value]))]),
-        ),
-        passengerRate: parsedPassenger,
-      },
-      "Mileage rates saved — new journeys use them from now on.",
-    );
+    return save("mileage", { mileageRate: parsedRate, mileageGlAccountId: mileageAccount || null }, "Mileage settings saved — new trips use this rate.");
   };
-
-  const exampleRate = parsedRates.find(({ value }) => value !== null && value > 0);
 
   return (
     <div className="mt-[var(--space-md)] grid grid-cols-1 gap-[var(--space-md)] lg:grid-cols-2">
-      <SectionCard title="Drivers" description="Your team members can log journeys. Add or remove people on the Team page.">
-        <div className="flex flex-col gap-[var(--space-sm)]">
-          {membersError ? (
-            <p className="text-body-sm text-status-danger-text">{membersError}</p>
-          ) : membersLoading && members.length === 0 ? (
-            <p className="text-body-sm text-content-secondary">Loading team members…</p>
-          ) : members.length === 0 ? (
-            <p className="text-body-sm text-content-secondary">No team members yet. Invite people on the Team page and they appear here.</p>
-          ) : (
-            members.map((m) => (
-              <div
-                key={m.userId}
-                className="flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-body-sm font-semibold text-content-primary">{m.name}</span>
-                  {m.email && m.email !== m.name && <span className="block truncate text-caption text-content-secondary">{m.email}</span>}
-                </span>
-                <Badge variant="neutral">{m.role}</Badge>
-              </div>
-            ))
-          )}
-        </div>
-      </SectionCard>
-
       <SectionCard
-        title="Vehicles"
-        description="Vehicles drivers can claim for. The vehicle type and fuel type decide which rate applies."
+        title="Mileage"
+        description="What the company pays per km of business travel, and where those bills are booked. Trips already logged keep the rate they were logged with."
         footer={
           canEdit ? (
-            <Button size="sm" onClick={saveVehicles} loading={saving === "vehicles"} disabled={!vehiclesDirty || !!saving}>
-              Save
-            </Button>
-          ) : undefined
-        }
-      >
-        <div className="flex flex-col gap-[var(--space-sm)]">
-          {vehicleDraft.length === 0 && <p className="text-body-sm text-content-secondary">No vehicles yet{canEdit ? " — add one below" : ""}.</p>}
-          {vehicleDraft.map((v) => (
-            <div
-              key={v.key}
-              className="flex items-center justify-between gap-[var(--space-sm)] rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]"
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-body-sm font-semibold text-content-primary">{v.name}</span>
-                <span className="mt-[var(--space-xs)] flex flex-wrap gap-[var(--space-xs)]">
-                  <Badge variant="neutral">{v.vehicleType}</Badge>
-                  <Badge variant="neutral">{v.fuelType}</Badge>
-                  <Badge variant="neutral">{v.ownership === "company" ? "Company" : "Personal"}</Badge>
-                </span>
-              </span>
-              {canEdit && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${v.name}`}
-                  onClick={() => setVehicleDraft((prev) => prev.filter((x) => x.key !== v.key))}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-error hover:bg-error/10"
-                >
-                  <Trash2 size={16} strokeWidth={2.25} />
-                </button>
-              )}
-            </div>
-          ))}
-          {canEdit && (
-            <div className="flex flex-col gap-[var(--space-sm)] rounded-md border border-dashed border-border p-[var(--space-sm)]">
-              <TextInput
-                label="Add vehicle"
-                placeholder="e.g. Grey Transit van"
-                value={newVehicle.name}
-                onChange={(e) => setNewVehicle((n) => ({ ...n, name: e.target.value }))}
-              />
-              <div className="grid grid-cols-1 gap-[var(--space-sm)] sm:grid-cols-3">
-                <SelectDropdown
-                  label="Vehicle type"
-                  value={newVehicle.vehicleType}
-                  onChange={(e) => setNewVehicle((n) => ({ ...n, vehicleType: e.target.value as VehicleType }))}
-                >
-                  {VEHICLE_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </SelectDropdown>
-                <SelectDropdown
-                  label="Fuel type"
-                  value={newVehicle.fuelType}
-                  onChange={(e) => setNewVehicle((n) => ({ ...n, fuelType: e.target.value as FuelType }))}
-                >
-                  {FUEL_TYPES.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </SelectDropdown>
-                <SelectDropdown
-                  label="Owned by"
-                  value={newVehicle.ownership}
-                  onChange={(e) => setNewVehicle((n) => ({ ...n, ownership: e.target.value as VehicleOwnership }))}
-                >
-                  <option value="personal">Personal</option>
-                  <option value="company">Company</option>
-                </SelectDropdown>
-              </div>
-              <Button variant="outline" size="sm" onClick={addVehicle} disabled={!newVehicle.name.trim()}>
-                <Plus size={16} strokeWidth={2.5} />
-                Add to list
-              </Button>
-            </div>
-          )}
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        title="Mileage rates"
-        description="Per km, by vehicle type and fuel type. Applied to every new journey; existing journeys keep the rate they were logged with."
-        footer={
-          canEdit ? (
-            <Button size="sm" onClick={saveRates} loading={saving === "rates"} disabled={!ratesDirty || !!saving}>
-              Save rates
-            </Button>
-          ) : undefined
-        }
-      >
-        <div className="flex flex-col gap-[var(--space-md)]">
-          {VEHICLE_TYPES.map((t) => (
-            <div key={t}>
-              <p className="text-body-sm font-semibold text-content-primary">{t}</p>
-              <div className="mt-[var(--space-xs)] grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-4">
-                {FUEL_TYPES.map((f) => (
-                  <TextInput
-                    key={f}
-                    label={f}
-                    inputMode="decimal"
-                    placeholder="Not set"
-                    value={rates[t][f]}
-                    onChange={(e) => setRates((r) => ({ ...r, [t]: { ...r[t], [f]: e.target.value } }))}
-                    disabled={!canEdit}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-[var(--space-md)] grid grid-cols-1 gap-[var(--space-sm)] sm:grid-cols-2">
-          <TextInput
-            label="Passenger per km"
-            inputMode="decimal"
-            placeholder="Not set"
-            value={passengerRate}
-            onChange={(e) => setPassengerRate(e.target.value)}
-            disabled={!canEdit}
-          />
-        </div>
-        {exampleRate && (
-          <p className="mt-[var(--space-sm)] text-caption text-content-secondary">
-            Example: a 50 km journey in a {exampleRate.fuel.toLowerCase()} {exampleRate.type.toLowerCase()} with a passenger pays{" "}
-            {money(50 * ((exampleRate.value ?? 0) + (parsedPassenger && !Number.isNaN(parsedPassenger) ? parsedPassenger : 0)))}.
-          </p>
-        )}
-        {rateError && <p className="mt-[var(--space-xs)] text-caption font-semibold text-status-danger-text">{rateError}</p>}
-      </SectionCard>
-
-      <SectionCard
-        title="Mileage account"
-        description={`The ${provider.name} GL account mileage bills are coded to.`}
-        footer={
-          canEdit ? (
-            <Button
-              size="sm"
-              onClick={() => save("account", { mileageGlAccountId: mileageAccount || null }, "Mileage account saved.")}
-              loading={saving === "account"}
-              disabled={(mileageAccount || null) === settings.mileageGlAccountId || !!saving}
-            >
+            <Button size="sm" onClick={saveMileage} loading={saving === "mileage"} disabled={!mileageDirty || !!saving}>
               Save
             </Button>
           ) : undefined
         }
       >
         {canEdit ? (
-          <CreatableCombobox
-            options={accountOptions}
-            noun="GL account"
-            ariaLabel="Mileage GL account"
-            value={mileageAccount}
-            onSelect={setMileageAccount}
-            clearLabel="No account"
-            placeholder="Search GL accounts"
-            uiSize="md"
-          />
+          <div className="flex flex-col gap-[var(--space-md)]">
+            <div>
+              <TextInput label="Rate per km" inputMode="decimal" placeholder="Not set" value={rate} onChange={(e) => setRate(e.target.value)} />
+              {parsedRate !== null && !Number.isNaN(parsedRate) && parsedRate > 0 && (
+                <p className="mt-[var(--space-xs)] text-caption text-content-secondary">Example: a 50 km trip pays {money(50 * parsedRate)}.</p>
+              )}
+              {rateError && <p className="mt-[var(--space-xs)] text-caption font-semibold text-status-danger-text">{rateError}</p>}
+            </div>
+            <div>
+              <p className="mb-[var(--space-xs)] text-body-sm font-semibold text-content-primary">{provider.name} GL account</p>
+              <CreatableCombobox
+                options={accountOptions}
+                noun="GL account"
+                ariaLabel="Mileage GL account"
+                value={mileageAccount}
+                onSelect={setMileageAccount}
+                clearLabel="No account"
+                placeholder="Search GL accounts"
+                uiSize="md"
+              />
+            </div>
+          </div>
         ) : (
-          <p className="text-body-sm text-content-secondary">
-            {settings.mileageGlAccountId ? "Set by your team." : "Not set yet — someone with approval rights chooses it."}
-          </p>
+          <div className="flex flex-col gap-[var(--space-xs)] text-body-sm text-content-secondary">
+            <p>
+              <span className="font-semibold text-content-primary">Rate per km:</span>{" "}
+              {settings.mileageRate == null ? "not set yet" : money(settings.mileageRate)}
+            </p>
+            <p>
+              <span className="font-semibold text-content-primary">GL account:</span>{" "}
+              {settings.mileageGlAccountId ? accountName ?? "set" : "not set yet"}
+            </p>
+            <p className="text-caption">Only the owner or an admin can change these.</p>
+          </div>
         )}
       </SectionCard>
 
-      <SectionCard
-        title="Approvals"
-        description="Who can approve a claim. Nobody approves a claim they created or that's theirs unless this is on."
-        footer={undefined}
-      >
+      <SectionCard title="Approvals" description="Nobody approves a claim they created or that's theirs unless this is on.">
         <div className="flex items-center justify-between gap-[var(--space-md)]">
           <div>
             <p className="text-body-sm font-semibold text-content-primary">Allow self-approval</p>
             <p className="text-caption text-content-secondary">
-              Turn on for a one-person company, where nobody else could approve. {canChangeSelfApproval(role) ? "" : "Only the owner or an admin can change this."}
+              Turn on for a one-person company, where nobody else could approve. {canEdit ? "" : "Only the owner or an admin can change this."}
             </p>
           </div>
           <Switch
             checked={settings.allowSelfApproval}
             onChange={(v) => save("approval", { allowSelfApproval: v }, v ? "Self-approval allowed." : "Self-approval turned off.")}
-            disabled={!canChangeSelfApproval(role) || !!saving}
+            disabled={!canEdit || !!saving}
             label="Allow self-approval"
           />
         </div>
@@ -418,15 +188,20 @@ function SettingsEditor({ members, membersLoading, membersError, settings, role 
           <div className="flex items-start gap-[var(--space-sm)]">
             <ShieldCheck size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-content-muted" />
             <p>
-              <span className="font-semibold text-content-primary">Contributors</span> create claims and journeys for themselves and see only their
-              own.
+              <span className="font-semibold text-content-primary">Members</span> send their own receipts for approval and log their own trips.
             </p>
           </div>
           <div className="flex items-start gap-[var(--space-sm)]">
             <ShieldCheck size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-content-muted" />
             <p>
-              <span className="font-semibold text-content-primary">Owners, admins and accountants</span> see every claim, approve or remove receipts,
-              publish to {provider.name} and mark claims as paid.
+              <span className="font-semibold text-content-primary">Owners, admins and accountants</span> approve or reject the claims and trips sent to
+              them (approving posts them to {provider.name}) and record them as paid.
+            </p>
+          </div>
+          <div className="flex items-start gap-[var(--space-sm)]">
+            <ShieldCheck size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-content-muted" />
+            <p>
+              <span className="font-semibold text-content-primary">Owners and admins</span> set the mileage rate and these settings.
             </p>
           </div>
         </div>

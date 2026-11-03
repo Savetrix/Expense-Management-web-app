@@ -11,21 +11,24 @@
 import { createSlice } from "@reduxjs/toolkit";
 
 import {
-  addMileageVehicle,
   approveExpenseClaim,
   createExpenseClaim,
+  deleteExpenseClaim,
   createJourney,
   deleteJourney,
   fetchExpenseClaims,
   fetchExpenseSettings,
   fetchJourneys,
   markExpenseClaimPaid,
-  publishExpenseClaim,
-  publishJourney,
+  approveJourney,
+  rejectJourney,
+  markJourneyPaid,
+  payJourney,
+  rejectExpenseClaim,
   removeClaimReceipt,
-  reopenExpenseClaim,
   saveExpenseSettings,
   fetchClaimContacts,
+  fetchClaimSummary,
   updateReceiptNote,
   payExpenseClaim,
   type ClaimContactDto,
@@ -58,6 +61,11 @@ interface ExpenseClaimsState {
   contacts: ClaimContactDto[];
   contactsConnectionId: string | null;
   contactsRequestId: string | null;
+
+  /** Claims in review sent to the signed-in user (sidebar count). */
+  assignedToMe: number;
+  summaryConnectionId: string | null;
+  summaryRequestId: string | null;
 }
 
 const initialState: ExpenseClaimsState = {
@@ -79,6 +87,9 @@ const initialState: ExpenseClaimsState = {
   contacts: [],
   contactsConnectionId: null,
   contactsRequestId: null,
+  assignedToMe: 0,
+  summaryConnectionId: null,
+  summaryRequestId: null,
 };
 
 const upsert = <T extends { id: string }>(list: T[], item: T) =>
@@ -87,9 +98,8 @@ const upsert = <T extends { id: string }>(list: T[], item: T) =>
 const claimChanged = [
   createExpenseClaim,
   approveExpenseClaim,
-  publishExpenseClaim,
+  rejectExpenseClaim,
   markExpenseClaimPaid,
-  reopenExpenseClaim,
   updateReceiptNote,
   payExpenseClaim,
 ] as const;
@@ -125,6 +135,10 @@ const expenseClaimsSlice = createSlice({
         state.claims = upsert(state.claims, action.payload);
       });
     }
+    builder.addCase(deleteExpenseClaim.fulfilled, (state, action) => {
+      if (action.meta.qbConnectionId !== state.claimsConnectionId) return;
+      state.claims = state.claims.filter((c) => c.id !== action.payload);
+    });
     builder.addCase(removeClaimReceipt.fulfilled, (state, action) => {
       if (action.meta.qbConnectionId !== state.claimsConnectionId) return;
       const { claimId, claim } = action.payload;
@@ -150,7 +164,7 @@ const expenseClaimsSlice = createSlice({
       state.journeys = [];
       state.journeysConnectionId = null;
     });
-    for (const thunk of [createJourney, publishJourney] as const) {
+    for (const thunk of [createJourney, approveJourney, rejectJourney, markJourneyPaid, payJourney] as const) {
       builder.addCase(thunk.fulfilled, (state, action) => {
         if (action.meta.qbConnectionId !== state.journeysConnectionId) return;
         state.journeys = upsert(state.journeys, action.payload);
@@ -184,10 +198,6 @@ const expenseClaimsSlice = createSlice({
       if (action.meta.qbConnectionId !== state.settingsConnectionId) return;
       state.settings = action.payload;
     });
-    builder.addCase(addMileageVehicle.fulfilled, (state, action) => {
-      if (action.meta.qbConnectionId !== state.settingsConnectionId || !state.settings) return;
-      state.settings.vehicles.push(action.payload);
-    });
 
     // ─── Contacts ───────────────────────────────────────────────────────────
     builder.addCase(fetchClaimContacts.pending, (state, action) => {
@@ -202,6 +212,16 @@ const expenseClaimsSlice = createSlice({
       if (action.meta.requestId !== state.contactsRequestId) return;
       state.contacts = [];
       state.contactsConnectionId = null;
+    });
+
+    // ─── Summary ────────────────────────────────────────────────────────────
+    builder.addCase(fetchClaimSummary.pending, (state, action) => {
+      state.summaryRequestId = action.meta.requestId;
+    });
+    builder.addCase(fetchClaimSummary.fulfilled, (state, action) => {
+      if (action.meta.requestId !== state.summaryRequestId) return;
+      state.assignedToMe = action.payload.assignedToMe;
+      state.summaryConnectionId = action.payload.qbConnectionId;
     });
 
     builder.addMatcher(isSessionBoundary, () => initialState);

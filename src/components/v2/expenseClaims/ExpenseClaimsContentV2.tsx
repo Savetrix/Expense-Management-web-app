@@ -1,28 +1,36 @@
 "use client";
 
 import { Plus, Receipt } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader, Tabs } from "@/components/v2/ui";
-import { fetchClaimContacts, fetchExpenseClaims, fetchExpenseSettings, fetchJourneys } from "@/store/expenseClaims/expenseClaimsApi";
+import {
+  fetchClaimContacts,
+  fetchClaimSummary,
+  fetchExpenseClaims,
+  fetchExpenseSettings,
+  fetchJourneys,
+} from "@/store/expenseClaims/expenseClaimsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { getInvoices } from "@/store/invoice/invoiceApi";
 
 import { ClaimsTab } from "./ClaimsTab";
 import { ExpenseSettingsTab } from "./ExpenseSettingsTab";
 import { MileageTab } from "./MileageTab";
-import { NewClaimWizard, type WizardReceipt } from "./NewClaimWizard";
+import { NewClaimWizard } from "./NewClaimWizard";
 import { useTeamMembers } from "./useTeamMembers";
 
 type TopTab = "claims" | "mileage" | "settings";
+
+// The tab counts show what still needs something done — paid and rejected
+// ones are finished.
+const isOpen = ({ status }: { status: string }) => status === "awaiting_review" || status === "awaiting_reimbursement";
 
 export function ExpenseClaimsContentV2() {
   const dispatch = useAppDispatch();
   const team = useTeamMembers();
   const { activeId } = team;
-  const { invoices, pendingInvoices, loading: invoicesLoading } = useAppSelector((state) => state.invoice);
   const ec = useAppSelector((state) => state.expenseClaims);
 
   const [tab, setTab] = useState<TopTab>("claims");
@@ -34,11 +42,13 @@ export function ExpenseClaimsContentV2() {
     dispatch(fetchJourneys());
     dispatch(fetchExpenseSettings());
     dispatch(fetchClaimContacts());
-    // Receipts come from the invoice list; it's usually loaded already.
-    if (invoices.length === 0 && !invoicesLoading) dispatch(getInvoices());
-    // Mount / company change only — re-running on the list would loop on an empty account.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+  }, [activeId, dispatch]);
+
+  // Keep the sidebar's "assigned to me" count (claims + trips) in step with
+  // approvals, rejections and new claims or trips made here.
+  useEffect(() => {
+    if (activeId && ec.claimsConnectionId === activeId) dispatch(fetchClaimSummary());
+  }, [activeId, ec.claimsConnectionId, ec.claims, ec.journeys, dispatch]);
 
   // A list loaded for another company is treated as not loaded.
   const claims = ec.claimsConnectionId === activeId ? ec.claims : [];
@@ -46,26 +56,10 @@ export function ExpenseClaimsContentV2() {
   const settings = ec.settingsConnectionId === activeId ? ec.settings : null;
   const contacts = ec.contactsConnectionId === activeId ? ec.contacts : [];
 
-  // Pending receipts not already on a claim. Contributors only ever get their
-  // own uploads from the invoice list, so they only see their own here.
-  const receipts = useMemo<WizardReceipt[]>(
-    () =>
-      pendingInvoices
-        .filter((inv) => !inv.expenseClaimId)
-        .map((inv) => ({
-          id: inv._id,
-          vendor: inv.extractedData?.vendorName || "Unknown vendor",
-          date: inv.extractedData?.invoiceDate?.slice(0, 10) || "",
-          amount: inv.extractedData?.totalAmount ?? 0,
-          currency: inv.extractedData?.currency ?? null,
-        })),
-    [pendingInvoices],
-  );
-
   if (!team.hasCompany) {
     return (
       <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
-        <PageHeader title="Expense Claims" subtitle="Reimburse employees for out-of-pocket receipts and business mileage." />
+        <PageHeader title="Expense Claims" subtitle="Reimburse employees for out-of-pocket receipts and business trips." />
         <EmptyState
           icon={<Receipt size={28} strokeWidth={1.75} />}
           title="Pick a company"
@@ -79,7 +73,7 @@ export function ExpenseClaimsContentV2() {
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <PageHeader
         title="Expense Claims"
-        subtitle="Reimburse employees for out-of-pocket receipts and business mileage."
+        subtitle="Reimburse employees for out-of-pocket receipts and business trips."
         action={
           tab === "claims" ? (
             <Button size="sm" onClick={() => setWizardOpen(true)} className="shrink-0">
@@ -93,8 +87,8 @@ export function ExpenseClaimsContentV2() {
       <div className="mt-[var(--space-lg)]">
         <Tabs
           items={[
-            { value: "claims", label: "Claims", count: claims.length },
-            { value: "mileage", label: "Mileage", count: journeys.length },
+            { value: "claims", label: "Claims", count: claims.filter(isOpen).length },
+            { value: "mileage", label: "Mileage", count: journeys.filter(isOpen).length },
             { value: "settings", label: "Settings" },
           ]}
           value={tab}
@@ -131,9 +125,6 @@ export function ExpenseClaimsContentV2() {
       {tab === "settings" && (
         <ExpenseSettingsTab
           key={activeId}
-          members={team.members}
-          membersLoading={team.loading}
-          membersError={team.error}
           settings={settings}
           settingsLoading={ec.settingsLoading}
           settingsError={ec.settingsError}
@@ -145,12 +136,11 @@ export function ExpenseClaimsContentV2() {
       <NewClaimWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        receipts={receipts}
-        loadingReceipts={invoicesLoading && invoices.length === 0}
         members={team.members}
         contacts={contacts}
         role={team.role}
         selfId={team.selfId}
+        allowSelfApproval={settings?.allowSelfApproval ?? false}
         onCreated={() => {
           setTab("claims");
           // A claimant typed by name has just become a contact.
