@@ -260,43 +260,10 @@ export const createQuickBooksVendor = createAsyncThunk(
       return response.data;
     } catch (error: any) {
       const message = error?.response?.data?.message || error?.message || "";
-
-      // QBO error code 6000: companies without Multi-Currency enabled reject
-      // any CurrencyRef on the vendor payload, regardless of which currency
-      // was picked. Retry once without `currency` — the vendor then just
-      // gets the company's home currency instead of hard-failing.
-      if (message.includes("Multi Currency should be enabled")) {
-        try {
-          console.log(
-            "========== RETRYING CREATE VENDOR WITHOUT CURRENCY ==========",
-          );
-          const retryResponse = await api.post(
-            "/quickbooks/vendors",
-            {
-              displayName: data.displayName,
-              glAccountId,
-              taxCodeId,
-              ...(data.email ? { email: data.email } : {}),
-              ...(data.phone ? { phone: data.phone } : {}),
-              ...(data.address ? { address: data.address } : {}),
-            },
-            { headers },
-          );
-          console.log("========== CREATE VENDOR SUCCESS (no currency) ==========");
-          console.log(JSON.stringify(retryResponse.data, null, 2));
-          return retryResponse.data;
-        } catch (retryError: any) {
-          console.log("========== CREATE VENDOR RETRY ERROR ==========");
-          return thunkAPI.rejectWithValue({
-            message:
-              retryError?.response?.data?.message ||
-              retryError?.message ||
-              "Failed to create vendor",
-            statusCode: retryError?.response?.data?.statusCode,
-          });
-        }
-      }
-
+      // No retry without `currency` here: with QuickBooks Multicurrency off,
+      // that silently created the vendor in the home currency (a picked CAD
+      // came out USD). The backend now retries only when the picked currency
+      // IS the home currency, and otherwise explains why it can't be used.
       console.log("========== CREATE VENDOR ERROR ==========");
       return thunkAPI.rejectWithValue({
         message: message || "Failed to create vendor",
@@ -764,6 +731,12 @@ interface InviteQBMemberPayload {
   qbId: string;
   email: string;
   role: QBMemberRole;
+  /** Whether invoices they upload may auto-post. Left out (e.g. a resend), the backend keeps what's stored, or the role default. */
+  autoPostAllowed?: boolean;
+  /** Who approves their expense claims and trips (owner/admin/accountant user id); null = none. */
+  managerId?: string | null;
+  /** Contributors: the sidebar pages they can open (see lib/pageAccess.ts); null = all. */
+  pageAccess?: string[] | null;
 }
 
 export const inviteQBMember = createAsyncThunk(
@@ -777,7 +750,13 @@ export const inviteQBMember = createAsyncThunk(
       });
       const response = await api.post(
         `/qb-connections/${data.qbId}/members`,
-        { email: data.email, role: data.role },
+        {
+          email: data.email,
+          role: data.role,
+          ...(data.autoPostAllowed !== undefined && { autoPostAllowed: data.autoPostAllowed }),
+          ...(data.managerId !== undefined && { managerId: data.managerId }),
+          ...(data.pageAccess !== undefined && { pageAccess: data.pageAccess }),
+        },
         {
           headers: {
             Authorization: `Bearer ${data.accessToken}`,
@@ -829,6 +808,45 @@ export const fetchQBMembers = createAsyncThunk(
         error?.response?.data?.error ||
         error?.message ||
         "Failed to fetch team members";
+      return thunkAPI.rejectWithValue({
+        message,
+        statusCode: error?.response?.status,
+      });
+    }
+  },
+);
+
+// ================================
+// TEAM — UPDATE MEMBER (auto-post, manager, a contributor's pages)
+// ================================
+interface UpdateQBMemberPayload {
+  qbId: string;
+  memberId: string;
+  /** Only the fields sent change. */
+  autoPostAllowed?: boolean;
+  managerId?: string | null;
+  pageAccess?: string[] | null;
+}
+
+export const updateQBMember = createAsyncThunk(
+  "quickbooks/updateMember",
+  async (data: UpdateQBMemberPayload, thunkAPI) => {
+    try {
+      const response = await api.patch(
+        `/qb-connections/${data.qbId}/members/${data.memberId}`,
+        {
+          ...(data.autoPostAllowed !== undefined && { autoPostAllowed: data.autoPostAllowed }),
+          ...(data.managerId !== undefined && { managerId: data.managerId }),
+          ...(data.pageAccess !== undefined && { pageAccess: data.pageAccess }),
+        },
+        { headers: { "X-QB-Id": data.qbId } },
+      );
+      return response.data;
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to update team member";
       return thunkAPI.rejectWithValue({
         message,
         statusCode: error?.response?.status,

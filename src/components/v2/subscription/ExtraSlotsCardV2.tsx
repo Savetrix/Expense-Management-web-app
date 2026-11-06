@@ -228,6 +228,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
       message,
       confirmLabel: keeping ? "Keep slots" : removing ? "Reduce slots" : `Pay ${formatMoney(preview.amountDueNow)}`,
       tone: removing ? "destructive" : "default",
+      size: "wide",
     });
     if (!confirmed) return;
 

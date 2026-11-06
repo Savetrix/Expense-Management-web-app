@@ -17,7 +17,7 @@ import { ReactNode, useState } from "react";
 
 import { confirmDialog } from "@/lib/dialogManager";
 import { PRIVACY_URL, SUPPORT_EMAIL, TERMS_URL } from "@/lib/legal";
-import { capitalizeWords, normalizePhotoURL } from "@/lib/textFormat";
+import { capitalizeWords, normalizePhotoURL, personInitials } from "@/lib/textFormat";
 import { useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
 import { Avatar, PageHeader } from "@/components/v2/ui";
@@ -121,7 +121,7 @@ export function ProfileContentV2() {
         onClick={() => setEditProfileOpen(true)}
         className="mt-[var(--space-lg)] flex w-full items-center gap-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-md)] text-left shadow-sm transition-colors hover:bg-surface-alt"
       >
-        <Avatar name={name} photoURL={photoURL} size="lg" />
+        <Avatar name={name} photoURL={photoURL} initials={personInitials(apiUser?.firstName, apiUser?.lastName, apiUser?.email)} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-h3 font-bold text-content-primary">{name}</p>
           <p className="truncate text-body-sm text-content-secondary">{email}</p>

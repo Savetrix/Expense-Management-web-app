@@ -21,6 +21,7 @@ import {
   safeDetailValue,
 } from "@/lib/invoiceDetailTheme";
 import { getUserDisplayName, translateInvoiceReason } from "@/lib/invoiceDisplay";
+import { BankInsightsCard } from "@/components/v2/invoiceInsights/BankInsightsCard";
 
 // Zoom only applies to the <img> case — a PDF's own embedded viewer already
 // has native zoom/scroll. Same constants as InvoiceReviewContentV2/
@@ -340,7 +341,8 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
               QuickBooks bill but keeps the invoice under its current status —
               reuses the same review/edit screen a pending invoice posts
               through (InvoiceReviewContentV2), same as v1. */}
-          {(type === "auto" || type === "manual") && (
+          {/* A claim receipt's bill is the whole claim's — never edited from one receipt. */}
+          {(type === "auto" || type === "manual") && !invoiceObject?.claimReceipt && (
             <button
               type="button"
               onClick={() => router.push(`/invoices/${invoiceId}/review`)}
@@ -618,6 +620,8 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
               <span className="h-1 w-10 rounded-full bg-border-strong" />
             </div>
           </div>
+
+          <BankInsightsCard invoiceId={invoiceId} />
 
         {/* Status History */}
           {statusHistory.length > 0 && (
