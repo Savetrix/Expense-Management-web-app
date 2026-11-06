@@ -38,6 +38,8 @@ interface ClaimsTabProps {
   role: CompanyRole;
   selfId: string;
   allowSelfApproval: boolean;
+  /** False for a contributor without the Invoices page: no link to a receipt there. */
+  canOpenInvoices: boolean;
   onNewClaim: () => void;
 }
 
@@ -49,7 +51,7 @@ export const claimTitle = (claim: Pick<ExpenseClaimDto, "claimant" | "month">) =
 
 type BusyAction = "approve" | "approvePay" | "reject" | "markPaid" | "removeReceipt" | "deleteClaim" | "note";
 
-export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allowSelfApproval, onNewClaim }: ClaimsTabProps) {
+export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allowSelfApproval, canOpenInvoices, onNewClaim }: ClaimsTabProps) {
   const dispatch = useAppDispatch();
   const provider = useActiveProvider();
   const approver = isApprover(role);
@@ -89,7 +91,8 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
   // Nobody approves a claim they created or that's theirs, unless the company
   // allows it (Settings). The backend enforces the same rule.
   const isOwnClaim = (claim: ExpenseClaimDto) => claim.createdBy === selfId || claim.claimant.userId === selfId;
-  const selfApprovalBlocked = (claim: ExpenseClaimDto) => isOwnClaim(claim) && !allowSelfApproval;
+  // The owner approves their own (they have no manager).
+  const selfApprovalBlocked = (claim: ExpenseClaimDto) => isOwnClaim(claim) && !allowSelfApproval && role !== "owner";
   // The approver it was sent to acts on it, or an owner/admin as backup.
   const canAct = (claim: ExpenseClaimDto) => !claim.approver || claim.approver.userId === selfId || role === "owner" || role === "admin";
   // Approving posts the bill, which needs a GL account on every receipt — the
@@ -452,12 +455,14 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
                     )}
                     <div className="mt-[var(--space-xs)] flex flex-wrap items-center gap-[var(--space-sm)]">
                       {/* An approver fixes GL/tax/amounts on the usual review screen while the claim is in review. */}
-                      <Link
-                        href={approver && openClaim.status === "awaiting_review" ? `/invoices/${receipt.id}/review` : `/invoices/${receipt.id}`}
-                        className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline"
-                      >
-                        {approver && openClaim.status === "awaiting_review" ? "Review" : "Open receipt"}
-                      </Link>
+                      {canOpenInvoices && (
+                        <Link
+                          href={approver && openClaim.status === "awaiting_review" ? `/invoices/${receipt.id}/review` : `/invoices/${receipt.id}`}
+                          className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline"
+                        >
+                          {approver && openClaim.status === "awaiting_review" ? "Review" : "Open receipt"}
+                        </Link>
+                      )}
                       {canEditReceipts(openClaim) && noteDraft?.receiptId !== receipt.id && (
                         <button
                           type="button"

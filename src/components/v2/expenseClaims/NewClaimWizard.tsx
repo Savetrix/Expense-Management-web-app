@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
-import { CreatableCombobox, Modal, ModalDefinitionRow, ProgressBar, SelectDropdown } from "@/components/v2/ui";
+import { CreatableCombobox, Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import {
   createExpenseClaim,
@@ -20,8 +20,6 @@ import { useAppDispatch } from "@/store/hooks";
 
 import {
   FIELD_LABEL_CLASS,
-  approverOptionsFor,
-  effectiveApprover,
   errorMessage,
   isApprover,
   money,
@@ -31,6 +29,8 @@ import {
   type CompanyRole,
 } from "./shared";
 import type { TeamPerson } from "./useTeamMembers";
+import { ApproverNotice, useApproverPreview } from "./ApproverNotice";
+import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 interface NewClaimWizardProps {
   open: boolean;
@@ -40,8 +40,6 @@ interface NewClaimWizardProps {
   contacts: ClaimContactDto[];
   role: CompanyRole;
   selfId: string;
-  /** Company setting: may someone approve their own claim (and so be sent it)? */
-  allowSelfApproval: boolean;
   onCreated: () => void;
 }
 
@@ -58,7 +56,8 @@ const MAX_UPLOAD_FILES = 10;
 // A scan usually takes well under a minute; check back this often meanwhile.
 const POLL_MS = 4000;
 
-export function NewClaimWizard({ open, onClose, members, contacts, role, selfId, allowSelfApproval, onCreated }: NewClaimWizardProps) {
+export function NewClaimWizard({ open, onClose, members, contacts, role, selfId, onCreated }: NewClaimWizardProps) {
+  const provider = useActiveProvider();
   const dispatch = useAppDispatch();
   // Submitters (contributors) claim only for themselves.
   const submitterOnly = !isApprover(role);
@@ -77,7 +76,6 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
   const [step, setStep] = useState<Step>(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [claimantKey, setClaimantKey] = useState("");
-  const [approverId, setApproverId] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
 
@@ -140,19 +138,19 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
   const effectiveClaimantKey = submitterOnly ? selfId : claimantKey;
   const claimantLabel = options.find((o) => o.id === effectiveClaimantKey)?.label ?? "";
 
-  const approverOptions = useMemo(
-    () => approverOptionsFor(members, { selfId, subjectUserId: effectiveClaimantKey, allowSelfApproval }),
-    [members, allowSelfApproval, selfId, effectiveClaimantKey],
-  );
-  const effectiveApproverId = effectiveApprover(approverOptions, approverId);
-  const approverName = approverOptions.find((m) => m.userId === effectiveApproverId)?.name ?? "";
+  // It goes to the claimant's manager — a team member's own, or yours for
+  // someone outside the team (a contact or a typed name). Shown from step 2.
+  const claimantIsTeamMember = !!effectiveClaimantKey && !effectiveClaimantKey.startsWith(NAME_PREFIX) && !effectiveClaimantKey.startsWith(CONTACT_PREFIX);
+  const approverFor = claimantIsTeamMember && effectiveClaimantKey !== selfId ? effectiveClaimantKey : null;
+  const route = useApproverPreview(approverFor, open && step >= 2 && !!effectiveClaimantKey);
+  const approverName = route.preview?.approver?.name ?? "";
+  const autoApprove = !!route.preview?.autoApprove;
 
   const reset = () => {
     setStep(1);
     setSelected(new Set());
     setAutoSelect(new Set());
     setClaimantKey("");
-    setApproverId("");
     setNotes({});
   };
 
@@ -253,7 +251,7 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
   };
 
   const handleCreate = async () => {
-    if (!effectiveClaimantKey || !effectiveApproverId) return;
+    if (!effectiveClaimantKey || !route.ready) return;
     setCreating(true);
     const claimant = effectiveClaimantKey.startsWith(NAME_PREFIX)
       ? { name: effectiveClaimantKey.slice(NAME_PREFIX.length) }
@@ -262,11 +260,14 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
         : { userId: effectiveClaimantKey };
     const filledNotes = Object.fromEntries(chosen.map((r) => [r.id, (notes[r.id] ?? "").trim()] as const).filter(([, note]) => note));
     const result = await dispatch(
-      createExpenseClaim({ claimant, receiptIds: chosen.map((r) => r.id), notes: filledNotes, approverId: effectiveApproverId }),
+      createExpenseClaim({ claimant, receiptIds: chosen.map((r) => r.id), notes: filledNotes }),
     );
     setCreating(false);
     if (createExpenseClaim.fulfilled.match(result)) {
-      showToast(`Claim sent to ${approverName} for approval.`, "success");
+      const { autoApproveError } = result.meta;
+      if (autoApproveError) showToast(`Claim saved, but it couldn't be posted to ${provider.name} yet: ${autoApproveError} Fix it and approve it from Assigned to me.`, "warning");
+      else if (result.payload.status === "awaiting_review") showToast(`Claim sent to ${result.payload.approver?.name ?? approverName} for approval.`, "success");
+      else showToast(`Claim approved and posted to ${provider.name}.`, "success");
       reset();
       setReceiptsLoaded(false);
       onClose();
@@ -279,7 +280,7 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
 
   const mixedCurrency = currencies.length > 1;
   const nextDisabled =
-    (step === 1 && (chosen.length === 0 || mixedCurrency || uploading)) || (step === 2 && (!effectiveClaimantKey || !effectiveApproverId));
+    (step === 1 && (chosen.length === 0 || mixedCurrency || uploading)) || (step === 2 && (!effectiveClaimantKey || !route.ready));
 
   const footer = (
     <div className="flex w-full items-center justify-between gap-[var(--space-sm)]">
@@ -291,8 +292,8 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
           Next
         </Button>
       ) : (
-        <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || chosen.length === 0 || mixedCurrency || !effectiveApproverId}>
-          Send to {approverName}
+        <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || chosen.length === 0 || mixedCurrency || !route.ready}>
+          {autoApprove ? `Approve & post to ${provider.name}` : `Send to ${approverName}`}
         </Button>
       )}
     </div>
@@ -438,27 +439,11 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
                 : "When approved, the claim is posted as one bill payable to this person. Not on your team? Type their name — they're saved as a contact for next time."}
             </p>
 
-            <div className="mt-[var(--space-sm)]">
-              {approverOptions.length === 0 ? (
-                <p className="rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-danger-text">
-                  There&apos;s nobody else on this company who can approve claims. Ask the owner to invite an admin or accountant.
-                </p>
-              ) : (
-                <SelectDropdown label="Send to *" value={effectiveApproverId} onChange={(e) => setApproverId(e.target.value)}>
-                  <option value="" disabled>
-                    Choose an approver
-                  </option>
-                  {approverOptions.map((m) => (
-                    <option key={m.userId} value={m.userId}>
-                      {m.name} · {m.role}
-                    </option>
-                  ))}
-                </SelectDropdown>
-              )}
-              <p className="mt-[var(--space-xs)] text-caption text-content-secondary">
-                They approve or reject it. An owner or admin can step in if they&apos;re away.
-              </p>
-            </div>
+            {effectiveClaimantKey && (
+              <div className="mt-[var(--space-sm)]">
+                <ApproverNotice loading={route.loading} preview={route.preview} error={route.error} providerName={provider.name} noun="claim" />
+              </div>
+            )}
           </div>
         )}
 
@@ -466,7 +451,7 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
           <div className="flex flex-col gap-[var(--space-md)]">
             <div>
               <ModalDefinitionRow label="Claimant">{claimantLabel}</ModalDefinitionRow>
-              <ModalDefinitionRow label="Send to">{approverName}</ModalDefinitionRow>
+              <ModalDefinitionRow label="Approver">{autoApprove ? "You (owner) — approved on send" : approverName}</ModalDefinitionRow>
               <ModalDefinitionRow label="Month">{monthLabel(month)}</ModalDefinitionRow>
               <ModalDefinitionRow label="Receipts">{chosen.length}</ModalDefinitionRow>
             </div>
@@ -497,7 +482,9 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
               <span>{money(total, currencies[0])}</span>
             </div>
             <p className="text-caption text-content-secondary">
-              {approverName} gets it in Awaiting review. Approving it posts it to your accounting software; rejecting it keeps it out.
+              {autoApprove
+                ? `It's approved and posted to ${provider.name} as one bill payable to the claimant as soon as you send it.`
+                : `${approverName} gets it in Awaiting review. Approving it posts it to ${provider.name}; rejecting it keeps it out.`}
             </p>
           </div>
         )}

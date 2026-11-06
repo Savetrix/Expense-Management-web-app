@@ -95,7 +95,7 @@ describe("expenseClaims slice", () => {
 
   it("puts a new or changed claim in place, and drops one whose last receipt was removed", () => {
     let s = ec(loadClaims([claim("a"), claim("b")], "co"));
-    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"], approverId: "u2" }, inCo("co")));
+    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"] }, inCo("co")));
     assert.deepEqual(s.claims.map((c) => c.id), ["c", "a", "b"]);
 
     s = expenseClaimsReducer(s, approveExpenseClaim.fulfilled(claim("a", { status: "awaiting_reimbursement" }), "r", { id: "a" }, inCo("co")));
@@ -108,7 +108,7 @@ describe("expenseClaims slice", () => {
     assert.equal(s.claims.length, 3);
     s = expenseClaimsReducer(s, deleteExpenseClaim.fulfilled("c", "r", "c", inCo("co")));
     assert.deepEqual(s.claims.map((c) => c.id), ["a", "b"]);
-    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"], approverId: "u2" }, inCo("co")));
+    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"] }, inCo("co")));
 
     s = expenseClaimsReducer(
       s,
@@ -168,7 +168,7 @@ describe("invoice slice follows receipts onto and off claims", () => {
       createExpenseClaim.fulfilled(
         claim("c1", { receipts: [receipt("r1"), receipt("r2")] }),
         "r",
-        { claimant: { name: "A" }, receiptIds: ["r1", "r2"], approverId: "u2" },
+        { claimant: { name: "A" }, receiptIds: ["r1", "r2"] },
         inCo("co"),
       ),
     );
@@ -318,7 +318,7 @@ describe("mileage trips go through approval like claims", () => {
     assert.equal(s.journeys[0].paidVia, "accounting");
   });
 
-  it("a trip is sent with its approver, and approve-and-pay asks for ?pay=true", async () => {
+  it("a trip is sent without an approver (the backend routes it to the manager), and approve-and-pay asks for ?pay=true", async () => {
     const { createJourney, approveJourney } = await import("../store/expenseClaims/expenseClaimsApi");
     const store = configureStore({ reducer: { expenseClaims: expenseClaimsReducer, quickBooks: () => ({ qbConnectionId: "co" }) } });
     const originalPost = api.post;
@@ -328,12 +328,68 @@ describe("mileage trips go through approval like claims", () => {
         calls.push([url, body]);
         return { data: { data: { journey: trip("t1") } } };
       }) as unknown as typeof api.post;
-      await store.dispatch(createJourney({ driver: { userId: "u1" }, date: "2026-11-01", km: 42, purpose: "Client", approverId: "u2" }));
+      await store.dispatch(createJourney({ driver: { userId: "u1" }, date: "2026-11-01", km: 42, purpose: "Client" }));
       await store.dispatch(approveJourney({ id: "t1", pay: true }));
     } finally {
       api.post = originalPost;
     }
-    assert.deepEqual(calls[0], ["/mileage/journeys", { driver: { userId: "u1" }, date: "2026-11-01", km: 42, purpose: "Client", approverId: "u2" }]);
+    assert.deepEqual(calls[0], ["/mileage/journeys", { driver: { userId: "u1" }, date: "2026-11-01", km: 42, purpose: "Client" }]);
     assert.equal(calls[1][0], "/mileage/journeys/t1/approve?pay=true");
+  });
+});
+
+describe("approver is the manager, worked out by the backend", () => {
+  it("the preview asks about the claimant only when it isn't you", async () => {
+    const { fetchApproverPreview } = await import("../store/expenseClaims/expenseClaimsApi");
+    const store = configureStore({ reducer: { quickBooks: () => ({ qbConnectionId: "co" }) } });
+    const originalGet = api.get;
+    const params: unknown[] = [];
+    try {
+      api.get = (async (_url: string, config: { params: unknown }) => {
+        params.push(config.params);
+        return { data: { data: { approver: { userId: "m1", name: "Maya" }, autoApprove: false, code: null, message: null } } };
+      }) as unknown as typeof api.get;
+      const mine = await store.dispatch(fetchApproverPreview({ forUserId: null }));
+      await store.dispatch(fetchApproverPreview({ forUserId: "u9" }));
+      assert.ok(fetchApproverPreview.fulfilled.match(mine));
+      assert.equal(mine.payload.approver?.name, "Maya");
+    } finally {
+      api.get = originalGet;
+    }
+    assert.deepEqual(params, [{}, { for: "u9" }]);
+  });
+
+  it("an owner's claim that couldn't be posted on send carries the reason in meta", async () => {
+    const store = configureStore({ reducer: { expenseClaims: expenseClaimsReducer, quickBooks: () => ({ qbConnectionId: "co" }) } });
+    const originalPost = api.post;
+    try {
+      api.post = (async () => ({ data: { data: { claim: claim("c1"), autoApproveError: "Pick a GL account for these receipts first: Cafe" } } })) as unknown as typeof api.post;
+      const res = await store.dispatch(createExpenseClaim({ claimant: { name: "Kim" }, receiptIds: ["r1"] }));
+      assert.ok(createExpenseClaim.fulfilled.match(res));
+      assert.equal(res.meta.autoApproveError, "Pick a GL account for these receipts first: Cafe");
+    } finally {
+      api.post = originalPost;
+    }
+  });
+});
+
+describe("contributor page access", () => {
+  it("maps a path to its sidebar page and restricts only contributors with a list", async () => {
+    const { pageKeyOf, canOpenPage, ALL_PAGE_KEYS } = await import("../lib/pageAccess");
+    assert.equal(pageKeyOf("/invoices/123/review"), "invoices");
+    assert.equal(pageKeyOf("/expense-claims"), "expense-claims");
+    assert.equal(pageKeyOf("/quickbooks"), "accounting-software");
+    assert.equal(pageKeyOf("/plans"), "subscription");
+    assert.equal(pageKeyOf("/profile"), null);
+    assert.equal(pageKeyOf("/"), null);
+
+    assert.equal(canOpenPage("contributor", ["expense-claims"], "invoices"), false);
+    assert.equal(canOpenPage("contributor", ["expense-claims"], "expense-claims"), true);
+    // Always-open pages, no list (every page), and other roles are never blocked.
+    assert.equal(canOpenPage("contributor", ["expense-claims"], null), true);
+    assert.equal(canOpenPage("contributor", null, "invoices"), true);
+    assert.equal(canOpenPage("accountant", ["expense-claims"], "invoices"), true);
+    assert.equal(canOpenPage("owner", undefined, "subscription"), true);
+    assert.equal(ALL_PAGE_KEYS.length, 9);
   });
 });

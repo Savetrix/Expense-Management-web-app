@@ -30,6 +30,8 @@ export interface QBConnection {
   provider?: ConnectionProvider;
   /** The company's own auto-post toggle — absent on older cached data (unknown). */
   autoPostEnabled?: boolean;
+  /** Contributors: the sidebar pages they can open (lib/pageAccess.ts); null/absent = all. */
+  pageAccess?: string[] | null;
 }
 
 // Shared between QuickBooksConnectContent (the dedicated /quickbooks page)
