@@ -138,6 +138,8 @@ const companyOf = (getState: () => unknown) => (getState() as RootState).quickBo
 /** The company a change was made in — the slice ignores the result if the header has moved on to another one. */
 export interface CompanyMeta {
   qbConnectionId: string | null;
+  /** Creating as the owner approves (posts) it straight away; set when that posting was refused. */
+  autoApproveError?: string | null;
 }
 type Config = { rejectValue: ExpenseRequestError; fulfilledMeta: CompanyMeta };
 
@@ -178,17 +180,39 @@ export interface CreateClaimInput {
   receiptIds: string[];
   /** receiptId → the claimant's note on that receipt. */
   notes?: Record<string, string>;
-  /** The owner, admin or accountant the claim is sent to. */
-  approverId: string;
 }
+
+/** Who a claim or trip goes to — the person's manager — or why it can't be sent yet. */
+export interface ApproverPreviewDto {
+  approver: { userId: string; name: string } | null;
+  /** The owner's own are approved (posted) the moment they're sent. */
+  autoApprove: boolean;
+  /** "NO_MANAGER" / "SELF_APPROVAL_BLOCKED" when it can't be sent. */
+  code: string | null;
+  message: string | null;
+}
+
+/** forUserId: the claimant/driver when it's a team member other than you. */
+export const fetchApproverPreview = createAsyncThunk<ApproverPreviewDto, { forUserId?: string | null }, { rejectValue: ExpenseRequestError }>(
+  "expenseClaims/fetchApproverPreview",
+  async ({ forUserId }, { rejectWithValue }) => {
+    try {
+      const { data } = await api.get("/expense-claims/approver", { params: forUserId ? { for: forUserId } : {} });
+      return data.data;
+    } catch (error) {
+      return rejectWithValue(toError(error, "Couldn't check who approves this."));
+    }
+  },
+);
 
 export const createExpenseClaim = createAsyncThunk<ExpenseClaimDto, CreateClaimInput, Config>(
   "expenseClaims/createClaim",
   async (input, { getState, rejectWithValue, fulfillWithValue }) => {
     const meta = { qbConnectionId: companyOf(getState) };
     try {
-      const { data } = await api.post("/expense-claims", input);
-      return fulfillWithValue(data.data.claim, meta);
+      // The owner's own are posted on the way, so allow for the accounting software.
+      const { data } = await api.post("/expense-claims", input, { timeout: 90_000 });
+      return fulfillWithValue(data.data.claim, { ...meta, autoApproveError: data.data.autoApproveError ?? null });
     } catch (error) {
       return rejectWithValue(toError(error, "Couldn't create the claim."));
     }
@@ -375,8 +399,6 @@ export interface CreateJourneyInput {
   /** The whole trip. */
   km: number;
   purpose: string;
-  /** The owner, admin or accountant the trip is sent to. */
-  approverId: string;
 }
 
 export const createJourney = createAsyncThunk<JourneyDto, CreateJourneyInput, Config>(
@@ -384,8 +406,8 @@ export const createJourney = createAsyncThunk<JourneyDto, CreateJourneyInput, Co
   async (input, { getState, rejectWithValue, fulfillWithValue }) => {
     const meta = { qbConnectionId: companyOf(getState) };
     try {
-      const { data } = await api.post("/mileage/journeys", input);
-      return fulfillWithValue(data.data.journey, meta);
+      const { data } = await api.post("/mileage/journeys", input, { timeout: 60_000 });
+      return fulfillWithValue(data.data.journey, { ...meta, autoApproveError: data.data.autoApproveError ?? null });
     } catch (error) {
       return rejectWithValue(toError(error, "Couldn't save the journey."));
     }

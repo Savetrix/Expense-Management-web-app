@@ -25,14 +25,13 @@ import {
 import { useAppDispatch } from "@/store/hooks";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
+import { ApproverNotice, useApproverPreview } from "./ApproverNotice";
 import { PayEmployeeModal } from "./PayEmployeeModal";
 import {
   CARD_CLASS,
   CLAIM_STATUS_META,
   TOOLBAR_CLASS,
-  approverOptionsFor,
   canEditSettings,
-  effectiveApprover,
   errorMessage,
   isApprover,
   money,
@@ -60,7 +59,6 @@ interface TripForm {
   date: string;
   km: string;
   purpose: string;
-  approverId: string;
 }
 
 const STATUS_ORDER: JourneyStatus[] = ["awaiting_review", "awaiting_reimbursement", "paid", "rejected"];
@@ -93,7 +91,8 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
   // The approver it was sent to acts on it, or an owner/admin as backup.
   const canAct = (j: JourneyDto) => approver && (!j.approver || j.approver.userId === selfId || role === "owner" || role === "admin");
   const isOwn = (j: JourneyDto) => j.createdBy === selfId || j.driver.userId === selfId;
-  const selfBlocked = (j: JourneyDto) => isOwn(j) && !allowSelfApproval;
+  // The owner approves their own (they have no manager).
+  const selfBlocked = (j: JourneyDto) => isOwn(j) && !allowSelfApproval && role !== "owner";
   const canDelete = (j: JourneyDto) => (j.status === "awaiting_review" || j.status === "rejected") && (j.createdBy === selfId || canAct(j));
 
   const counts = useMemo(() => {
@@ -117,16 +116,14 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
 
   const km = form && form.km.trim() !== "" && Number(form.km) > 0 ? round2(Number(form.km)) : null;
   const formAmount = km === null || rate === null ? null : round2(km * rate);
-  const approverOptions = useMemo(
-    () => approverOptionsFor(drivers, { selfId, subjectUserId: form?.driverId ?? "", allowSelfApproval }),
-    [drivers, selfId, form?.driverId, allowSelfApproval],
-  );
-  const formApproverId = effectiveApprover(approverOptions, form?.approverId ?? "");
+  // It goes to the driver's manager (the backend works it out).
+  const route = useApproverPreview(form && form.driverId && form.driverId !== selfId ? form.driverId : null, !!form);
+  const ownerSends = !!route.preview?.autoApprove;
 
   const openForm = () => {
     // Most trips are your own; an approver logging one for someone else picks them.
     const self = driverOptions.find((d) => d.userId === selfId);
-    setForm({ driverId: self?.userId ?? driverOptions[0]?.userId ?? "", date: todayIso(), km: "", purpose: "", approverId: "" });
+    setForm({ driverId: self?.userId ?? driverOptions[0]?.userId ?? "", date: todayIso(), km: "", purpose: "" });
     setFormError("");
   };
 
@@ -142,17 +139,22 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
     if (!form.date) return setFormError("Pick the trip date.");
     if (km === null) return setFormError("Enter the trip's total km.");
     if (!form.purpose.trim()) return setFormError("Add the purpose of the trip.");
-    if (!formApproverId) return setFormError("Choose who should approve it.");
+    if (!route.ready) return setFormError(route.preview?.message ?? "Nobody can approve this trip yet.");
     setFormError("");
     setCreating(true);
     const result = await dispatch(
-      createJourney({ driver: { userId: form.driverId }, date: form.date, km, purpose: form.purpose.trim(), approverId: formApproverId }),
+      createJourney({ driver: { userId: form.driverId }, date: form.date, km, purpose: form.purpose.trim() }),
     );
     setCreating(false);
     if (createJourney.fulfilled.match(result)) {
       setForm(null);
-      setView(approver && result.payload.approver?.userId === selfId ? "assigned" : "awaiting_review");
-      showToast(`Trip sent to ${result.payload.approver?.name ?? "your approver"} — ${money(result.payload.amount)}.`, "success");
+      const sent = result.payload;
+      setView(sent.status !== "awaiting_review" ? sent.status : approver && sent.approver?.userId === selfId ? "assigned" : "awaiting_review");
+      const { autoApproveError } = result.meta;
+      if (autoApproveError) showToast(`Trip saved, but it couldn't be posted to ${provider.name} yet: ${autoApproveError}`, "warning");
+      else if (result.payload.status === "awaiting_review")
+        showToast(`Trip sent to ${result.payload.approver?.name ?? "your approver"} — ${money(result.payload.amount)}.`, "success");
+      else showToast(`Trip approved and posted to ${provider.name} — ${money(result.payload.amount)}.`, "success");
     } else {
       setFormError(errorMessage(result.payload, "Couldn't save the trip."));
     }
@@ -361,8 +363,8 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
             <Button variant="outline" size="sm" onClick={closeForm} disabled={creating}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || !formApproverId}>
-              Send for approval
+            <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || !route.ready}>
+              {ownerSends ? `Approve & post to ${provider.name}` : "Send for approval"}
             </Button>
           </div>
         }
@@ -389,22 +391,7 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
               onChange={(e) => patch({ km: e.target.value })}
             />
             <TextInput label="Purpose *" placeholder="e.g. Client meeting at Acme" value={form.purpose} onChange={(e) => patch({ purpose: e.target.value })} />
-            {approverOptions.length === 0 ? (
-              <p className="rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-danger-text">
-                There&apos;s nobody else on this company who can approve trips. Ask the owner to invite an admin or accountant.
-              </p>
-            ) : (
-              <SelectDropdown label="Send to *" value={formApproverId} onChange={(e) => patch({ approverId: e.target.value })}>
-                <option value="" disabled>
-                  Choose an approver
-                </option>
-                {approverOptions.map((m) => (
-                  <option key={m.userId} value={m.userId}>
-                    {m.name} · {m.role}
-                  </option>
-                ))}
-              </SelectDropdown>
-            )}
+            <ApproverNotice loading={route.loading} preview={route.preview} error={route.error} providerName={provider.name} noun="trip" />
 
             <div className="flex items-center justify-between rounded-md bg-surface-alt px-[var(--space-md)] py-[var(--space-sm)]">
               <span className="text-body-sm text-content-secondary">
