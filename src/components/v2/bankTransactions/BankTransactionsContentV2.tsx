@@ -316,6 +316,7 @@ export function BankTransactionsContentV2() {
           providerName={provider.name}
           onClose={() => setOpenId(null)}
           onUpdate={patchOne}
+          onRuleSaved={() => dispatch(fetchBankTransactions())}
         />
       )}
     </div>

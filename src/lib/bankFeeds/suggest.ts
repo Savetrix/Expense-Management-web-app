@@ -16,34 +16,22 @@
 // When all three pass, Scantrix fills in the coding itself (decided_by =
 // "autopilot") and says so on the line; the user can change it. It never
 // changes a line's status (exclude, transfer, match) by itself, and never posts.
+//
+// Smart Suggestions, step 1: a company rule ("Always code Esso to Vehicle
+// expense", rules.ts) comes before the history above. A rule is the company's
+// own instruction, so it counts as sure even for a payee seen for the first
+// time, and the line is filled in when the line itself is clean data.
+import type { AnyBulkWriteOperation } from "mongodb";
+
+import { payeeKey, ruleFor, ruleSubject, type AutoClassification } from "@/lib/suggestions/match";
+
 import type { Db } from "./db";
-import type { TxnDoc } from "./schema";
+import type { RuleDoc, RuleMatch, TxnDoc } from "./schema";
 import { logEvent } from "./store";
 
-// ---------------------------------------------------------------- payee key
-
-const NOISE = new Set([
-  "pos", "debit", "credit", "card", "purchase", "ach", "web", "online", "payment", "pmt", "recurring", "checkcard",
-  "visa", "mastercard", "mc", "inc", "llc", "ltd", "co", "the", "www", "com", "help", "trip", "sq", "tst", "paypal",
-  "ppd", "id", "ref", "des", "indn", "ccd", "txn", "transaction", "withdrawal", "deposit", "transfer", "xfer", "to", "from",
-]);
-
-/**
- * Who a line was paid to, reduced to a stable key: "UBER *TRIP HELP.UBER.COM"
- * and "Uber 063015 SF**POOL**" both become "uber". Plaid's cleaned-up merchant
- * name wins when there is one; otherwise digits, card masks, punctuation and
- * banking filler words are removed from the description.
- */
-export function payeeKey(merchantName: string | null | undefined, description: string): string {
-  const source = merchantName?.trim() ? merchantName : description;
-  const words = source
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 1 && !NOISE.has(w));
-  // "UBER … HELP.UBER.COM" names the payee twice.
-  return [...new Set(words)].slice(0, 3).join(" ");
-}
+// The payee key and rule matching live in lib/suggestions/match.ts, shared
+// with the invoice review screen.
+export { payeeKey } from "@/lib/suggestions/match";
 
 // ---------------------------------------------------------------- scoring
 
@@ -79,6 +67,10 @@ export interface Suggestion {
   autoCoded: boolean;
   /** Weighted votes behind the suggestion, and how many past lines. */
   basis: { agreeing: number; total: number; lines: number };
+  /** Which step found it: a company rule, or this payee's history. */
+  step: "rule" | "history";
+  /** The rule behind a step-1 suggestion. */
+  rule?: { id: string; match: RuleMatch; label: string };
   scoredAt: string;
 }
 
@@ -145,6 +137,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     },
     autoCoded: false,
     basis: { agreeing: 0, total: 0, lines: 0 },
+    step: "history",
     scoredAt,
   };
   if (!top) return empty;
@@ -193,7 +186,42 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     checks: { legibility: leg, completeness, history: { ok: historyOk, detail: historyDetail } },
     autoCoded,
     basis: { agreeing: top.weight, total, lines: weighted.length },
+    step: "history",
     scoredAt,
+  };
+}
+
+// ---------------------------------------------------------------- rules
+
+export type RuleLike = Pick<RuleDoc, "_id" | "match" | "value" | "label" | "glAccountId" | "taxCodeId" | "updatedAt">;
+
+/**
+ * Step 1: the rule's GL account and tax code. The vendor and payee come from
+ * this payee's history when there is one (`history`), since a rule names only
+ * the coding.
+ */
+export function scoreWithRule(line: LineFacts, rule: RuleLike, history: Suggestion | null, now = Date.now()): Suggestion {
+  const leg = legibility(line, new Date(now).toISOString().slice(0, 10));
+  const subject = ruleSubject(rule);
+  const fromHistory = history?.kind === "expense" ? history : null;
+  return {
+    kind: "expense",
+    glAccountId: rule.glAccountId,
+    taxCodeId: rule.taxCodeId ?? undefined,
+    vendorId: fromHistory?.vendorId,
+    payee: fromHistory?.payee,
+    confidence: "high",
+    reason: leg.ok ? `Coded by Scantrix — your company rule for ${subject}.` : leg.detail,
+    checks: {
+      legibility: leg,
+      completeness: { ok: true, detail: "The rule gives the GL account" + (rule.taxCodeId ? " and the tax code." : ".") },
+      history: { ok: true, detail: `Your company rule for ${subject}. A rule is your own instruction, so it counts even for a new payee.` },
+    },
+    autoCoded: leg.ok,
+    basis: { agreeing: 0, total: 0, lines: 0 },
+    step: "rule",
+    rule: { id: rule._id, match: rule.match, label: rule.label },
+    scoredAt: new Date(now).toISOString(),
   };
 }
 
@@ -204,7 +232,20 @@ function describe(v: Vote): string {
   return v.payee ? `${v.payee}` : "expense";
 }
 
+/** Auto-classification "Suggest only": the same suggestion, never filled in. */
+export function suggestOnly(s: Suggestion): Suggestion {
+  if (!s.autoCoded) return s;
+  const reason = s.reason.replace(/^Coded by Scantrix — /, "");
+  return { ...s, autoCoded: false, reason: reason.charAt(0).toUpperCase() + reason.slice(1) };
+}
+
 // ---------------------------------------------------------------- persistence
+
+/** The company's Auto-classification setting: "fill" until an Owner or Admin changes it. */
+export async function readAutoClassification(db: Db, qbConnectionId: string): Promise<AutoClassification> {
+  const doc = await db.suggestionSettings.findOne({ _id: qbConnectionId });
+  return doc?.autoClassification ?? "fill";
+}
 
 function toVote(r: Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt">): Vote | null {
   const kind: SuggestionKind | null =
@@ -215,11 +256,21 @@ function toVote(r: Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendor
 
 /**
  * Re-scores every undecided line of a company (or only those with the given
- * payee keys) and codes the ones that pass all three checks. Called after a
- * sync, a CSV import, and any decision the user makes. Returns how many lines
- * Scantrix coded by itself in this pass.
+ * payee keys) and codes the ones that pass all three checks, or that a company
+ * rule matches. Called after a sync, a CSV import, any decision the user makes,
+ * and any change to the rules or the Auto-classification setting. Returns how
+ * many lines Scantrix coded by itself in this pass, and how many lines each
+ * rule filled in (or, with "Suggest only", suggested on).
+ *
+ * Auto-classification: "off" clears every suggestion; "suggest" keeps them but
+ * fills nothing in; either way, what Scantrix filled in earlier is taken back.
+ * A rule marked broken (its account is gone) is skipped.
  */
-export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKeys?: string[]): Promise<{ scored: number; autoCoded: number }> {
+export async function refreshSuggestions(
+  db: Db,
+  qbConnectionId: string,
+  onlyKeys?: string[],
+): Promise<{ scored: number; autoCoded: number; byRule: Record<string, number> }> {
   // 1. Give every line its payee key (new lines from sync/import have none yet).
   const unkeyed = await db.txns
     .find({ qbConnectionId, payeeKey: null, removedAt: null }, { projection: { _id: 1, description: 1, merchantName: 1, counterpartyName: 1 } })
@@ -258,62 +309,86 @@ export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKey
   }
 
   // 3. Candidates: lines still to review that the user has not coded.
-  const candidates = await db.txns
-    .find({ qbConnectionId, removedAt: null, status: "review", decidedBy: { $in: [null, "autopilot"] }, postingStatus: null, ...keyFilter })
-    .toArray();
+  const [candidates, rules, mode] = await Promise.all([
+    db.txns.find({ qbConnectionId, removedAt: null, status: "review", decidedBy: { $in: [null, "autopilot"] }, postingStatus: null, ...keyFilter }).toArray(),
+    db.rules.find({ qbConnectionId, brokenAt: null }).toArray(),
+    readAutoClassification(db, qbConnectionId),
+  ]);
 
   let autoCoded = 0;
+  const byRule: Record<string, number> = {};
   const now = Date.now();
+  // One round trip per line was slow on a large company (every rule change
+  // re-scores all of them): plain suggestions go in one bulk write, and the
+  // lines Scantrix codes or uncodes are updated side by side.
+  const plain: AnyBulkWriteOperation<TxnDoc>[] = [];
+  const coding: Promise<void>[] = [];
+  const before = (c: TxnDoc) => ({ glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee });
+  // Takes back what Scantrix filled in by itself; the line keeps `suggestion` (null = none).
+  const uncode = async (c: TxnDoc, suggestion: Suggestion | null, reason: string) => {
+    const r = await db.txns.updateOne(
+      { _id: c._id, qbConnectionId, status: "review", decidedBy: "autopilot" },
+      { $set: { suggestion, glAccountId: null, taxCodeId: null, vendorId: null, payee: null, decidedBy: null, decidedAt: null, updatedAt: new Date() }, $inc: { version: 1 } },
+    );
+    if (r.modifiedCount === 1) {
+      await logEvent(db, { qbConnectionId, transactionId: c._id, actor: "autopilot", action: "bank.autopilot_uncoded", detail: { before: before(c), after: null, reason } });
+    }
+  };
+
   for (const c of candidates) {
-    const key = c.payeeKey ?? "";
-    const label = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
-    const s = score({ date: c.date, amountCents: c.amountCents, description: c.description, payeeLabel: label }, key ? (votesByKey.get(key) ?? []) : [], now);
     // Guarded by the same conditions in the filter, so a decision the user makes
     // while this runs is never overwritten.
     const guard = { _id: c._id, qbConnectionId, status: "review" as const };
+    if (mode === "off") {
+      if (c.decidedBy === "autopilot") coding.push(uncode(c, null, "Auto-classification was switched off."));
+      else if (c.suggestion != null) plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: null, updatedAt: new Date() } } } });
+      continue;
+    }
+    const key = c.payeeKey ?? "";
+    const label = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
+    const facts = { date: c.date, amountCents: c.amountCents, description: c.description, payeeLabel: label };
+    const fromHistory = score(facts, key ? (votesByKey.get(key) ?? []) : [], now);
+    // A new line from sync has no key in memory yet; the bulk write above gave it one.
+    const rule = ruleFor(rules, { ...c, payeeKey: c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description) });
+    const found = rule ? scoreWithRule(facts, rule, fromHistory, now) : fromHistory;
+    const s = mode === "suggest" ? suggestOnly(found) : found;
+    if (rule && (s.autoCoded || mode === "suggest")) byRule[rule._id] = (byRule[rule._id] ?? 0) + 1;
     if (s.autoCoded) {
       autoCoded += 1;
-      const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null);
-      const r = await db.txns.updateOne(
-        { ...guard, decidedBy: { $in: [null, "autopilot"] } },
-        {
-          $set: { suggestion: s, glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null, decidedBy: "autopilot", decidedAt: new Date(), updatedAt: new Date() },
-          $inc: { version: 1 },
-        },
-      );
-      if (r.modifiedCount === 1 && changed) {
-        await logEvent(db, {
-          qbConnectionId,
-          transactionId: c._id,
-          actor: "autopilot",
-          action: "bank.autopilot_coded",
-          detail: {
-            before: { glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee },
-            after: { glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null },
-            reason: s.reason,
+      const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null) || c.taxCodeId !== (s.taxCodeId ?? null);
+      coding.push((async () => {
+        const r = await db.txns.updateOne(
+          { ...guard, decidedBy: { $in: [null, "autopilot"] } },
+          {
+            $set: { suggestion: s, glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null, decidedBy: "autopilot", decidedAt: new Date(), updatedAt: new Date() },
+            $inc: { version: 1 },
           },
-        });
-      }
+        );
+        if (r.modifiedCount === 1 && changed) {
+          await logEvent(db, {
+            qbConnectionId,
+            transactionId: c._id,
+            actor: "autopilot",
+            action: "bank.autopilot_coded",
+            detail: {
+              before: before(c),
+              after: { glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null },
+              reason: s.reason,
+              step: s.step,
+              ...(s.rule ? { ruleId: s.rule.id } : {}),
+            },
+          });
+        }
+      })());
     } else if (c.decidedBy === "autopilot") {
-      // History no longer supports the coding Scantrix chose: undo it, keep the explanation.
-      const r = await db.txns.updateOne(
-        { ...guard, decidedBy: "autopilot" },
-        { $set: { suggestion: s, glAccountId: null, taxCodeId: null, vendorId: null, payee: null, decidedBy: null, decidedAt: null, updatedAt: new Date() }, $inc: { version: 1 } },
-      );
-      if (r.modifiedCount === 1) {
-        await logEvent(db, {
-          qbConnectionId,
-          transactionId: c._id,
-          actor: "autopilot",
-          action: "bank.autopilot_uncoded",
-          detail: { before: { glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee }, after: null, reason: s.reason },
-        });
-      }
+      // History, a rule or the setting no longer supports the coding Scantrix chose: undo it, keep the explanation.
+      coding.push(uncode(c, s, s.reason));
     } else {
-      await db.txns.updateOne({ ...guard, decidedBy: null }, { $set: { suggestion: s, updatedAt: new Date() } });
+      plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: s, updatedAt: new Date() } } } });
     }
   }
-  return { scored: candidates.length, autoCoded };
+  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding]);
+  return { scored: candidates.length, autoCoded, byRule };
 }
 
 export async function payeeKeyOf(db: Db, qbConnectionId: string, id: string): Promise<string | null> {

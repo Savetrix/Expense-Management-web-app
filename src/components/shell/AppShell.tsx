@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Banknote,
+  Bot,
   Car,
   Check,
   ChevronDown,
@@ -62,6 +63,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
+  { href: "/autopilot", label: "Autopilot", icon: Bot },
   { href: CLAIMS_HREF, label: "Expense Claims", icon: Car },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },

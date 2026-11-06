@@ -309,3 +309,96 @@ export const postBankTransactions = createAsyncThunk<{ results: PostResultDto[] 
     }
   },
 );
+
+// ---------------------------------------------------------------- smart suggestions: company rules
+
+export type SuggestionRuleMatch = "payee" | "description" | "category";
+export type AutoClassification = "off" | "suggest" | "fill";
+
+/** A company rule, "Always code Esso to Vehicle expense" (lib/bankFeeds/rules.ts RuleView). */
+export interface SuggestionRuleDto {
+  id: string;
+  match: SuggestionRuleMatch;
+  value: string;
+  label: string;
+  glAccountId: string;
+  taxCodeId: string | null;
+  /** Its GL account is no longer active in QuickBooks/Xero, so it is skipped. */
+  broken: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SuggestionRuleInput {
+  match: SuggestionRuleMatch;
+  label: string;
+  glAccountId: string;
+  taxCodeId: string | null;
+}
+
+/** `check` (the Rules tab) first marks rules whose GL account is gone. */
+export const fetchSuggestionRules = createAsyncThunk<SuggestionRuleDto[], { check?: boolean } | void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchRules",
+  async (args, { getState, rejectWithValue }) => {
+    try {
+      const body = await bankFetch<{ rules: SuggestionRuleDto[] }>(getState(), `/api/suggestion-rules${args?.check ? "?check=1" : ""}`);
+      return body.rules;
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** Creates a rule (no id) or changes one. `filled` = lines to review it filled in (or, with Suggest only, suggested on). */
+export const saveSuggestionRule = createAsyncThunk<
+  { rule: SuggestionRuleDto; filled: number; autoClassification: AutoClassification },
+  { id?: string; input: SuggestionRuleInput },
+  { state: RootState; rejectValue: BankRequestError }
+>("bankFeeds/saveRule", async ({ id, input }, { getState, rejectWithValue }) => {
+  try {
+    const path = id ? `/api/suggestion-rules/${encodeURIComponent(id)}` : "/api/suggestion-rules";
+    return await bankFetch(getState(), path, { method: id ? "PUT" : "POST", body: JSON.stringify(input) });
+  } catch (e) {
+    return rejectWithValue(reject(e));
+  }
+});
+
+export const deleteSuggestionRule = createAsyncThunk<{ id: string }, string, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/deleteRule",
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      await bankFetch(getState(), `/api/suggestion-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+      return { id };
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export interface SuggestionSettingsDto {
+  autoClassification: AutoClassification;
+  /** Owner or Admin. */
+  canChange: boolean;
+}
+
+export const fetchSuggestionSettings = createAsyncThunk<SuggestionSettingsDto, void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchSuggestionSettings",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch<SuggestionSettingsDto>(getState(), "/api/suggestion-settings");
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export const saveSuggestionSettings = createAsyncThunk<SuggestionSettingsDto, AutoClassification, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/saveSuggestionSettings",
+  async (autoClassification, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch<SuggestionSettingsDto>(getState(), "/api/suggestion-settings", { method: "PUT", body: JSON.stringify({ autoClassification }) });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);

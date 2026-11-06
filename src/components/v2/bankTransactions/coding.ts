@@ -28,6 +28,9 @@ export interface LineSuggestion {
   checks: Record<"legibility" | "completeness" | "history", { ok: boolean; detail: string }>;
   autoCoded: boolean;
   basis: { agreeing: number; total: number; lines: number };
+  /** Which step found it: a company rule, or this payee's history. Absent on lines scored before rules existed. */
+  step?: "rule" | "history";
+  rule?: { id: string; match: "payee" | "description" | "category"; label: string };
 }
 
 export function suggestionOf(txn: BankTransaction): LineSuggestion | null {

@@ -466,7 +466,7 @@ export function TransactionsTab({
         {status === "review" && anySuggested && (
           <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-secondary">
             <Sparkles size={13} strokeWidth={2.25} className="text-accent" />
-            Fields with a dashed outline are filled in from earlier lines for the same payee. Post confirms them, or change any of them first.
+            Fields with a dashed outline are filled in by one of your company rules or from earlier lines for the same payee. Post confirms them, or change any of them first.
           </p>
         )}
       </div>

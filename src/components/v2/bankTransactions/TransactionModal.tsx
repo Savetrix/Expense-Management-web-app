@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, CircleDashed, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -17,6 +18,7 @@ import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { codingFor, codingLabel, type Lookups } from "./coding";
 import { formatAmount } from "./format";
 import { isExactAmount, rankInvoices } from "./matching";
+import { RuleModal, type RuleDraft } from "./RuleModal";
 import { TransferModal } from "./TransferModal";
 import type { BankAccount, BankTransaction, InvoiceCandidate } from "./types";
 
@@ -30,6 +32,8 @@ interface TransactionModalProps {
   /** Open on the transfer form instead of the details (the row's transfer button). */
   initialFocus?: "match" | "transfer";
   providerName?: string;
+  /** A company rule was saved from this line: reload the lines it filled in. */
+  onRuleSaved?: () => void;
 }
 
 export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
@@ -49,8 +53,10 @@ export function TransactionModal({
   onUpdate,
   initialFocus,
   providerName = "QuickBooks",
+  onRuleSaved,
 }: TransactionModalProps) {
   const [transferOpen, setTransferOpen] = useState(initialFocus === "transfer");
+  const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
   const [search, setSearch] = useState("");
   const [pickedInvoice, setPickedInvoice] = useState("");
   const [payee, setPayee] = useState(txn?.payee ?? "");
@@ -91,7 +97,7 @@ export function TransactionModal({
   return (
     <>
       <Modal
-        open={!transferOpen}
+        open={!transferOpen && !ruleDraft}
         onClose={onClose}
         title="Transaction"
         widthClassName="max-w-xl"
@@ -284,6 +290,11 @@ export function TransactionModal({
                         </span>
                         {pendingSuggestion && codingLabel(coding, lookups) && <> · {codingLabel(coding, lookups)}</>}
                         {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by Scantrix — /, "")}</span>}
+                        {suggestion?.step === "rule" && (
+                          <Link href="/autopilot?tab=rules" className="text-caption font-semibold text-accent hover:underline">
+                            See your rules
+                          </Link>
+                        )}
                       </span>
                     </p>
                     {pendingSuggestion && (
@@ -317,7 +328,7 @@ export function TransactionModal({
                                 <CircleDashed size={14} className="mt-0.5 shrink-0" />
                               )}
                               <span>
-                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : "Matches your history"}: </span>
+                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : suggestion.step === "rule" ? "Company rule" : "Matches your history"}: </span>
                                 {suggestion.checks[k].detail}
                               </span>
                             </li>
@@ -379,7 +390,7 @@ export function TransactionModal({
                 }
                 placeholder="Who was paid or who paid you"
               />
-              <div>
+              <div className="flex flex-wrap gap-[var(--space-sm)]">
                 <Button
                   size="sm"
                   disabled={!coding.glAccountId}
@@ -398,11 +409,30 @@ export function TransactionModal({
                 >
                   Post
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!coding.glAccountId}
+                  title={coding.glAccountId ? "Code every matching line this way from now on" : "Pick a GL account first"}
+                  onClick={() => {
+                    const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
+                    setRuleDraft({
+                      match: "payee",
+                      label: txn.merchantName || payee.trim() || coding.payee || vendorName || txn.description,
+                      glAccountId: coding.glAccountId ?? "",
+                      taxCodeId: coding.taxCodeId ?? null,
+                      category: txn.bankCategory,
+                    });
+                  }}
+                >
+                  Always code like this
+                </Button>
               </div>
             </section>
           )}
         </div>
       </Modal>
+      <RuleModal draft={ruleDraft} lookups={lookups} onClose={() => setRuleDraft(null)} onSaved={() => onRuleSaved?.()} />
       {transferOpen && (
         <TransferModal
           txn={txn}

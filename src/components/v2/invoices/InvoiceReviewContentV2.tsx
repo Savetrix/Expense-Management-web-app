@@ -28,6 +28,7 @@ import type { CSSProperties } from "react";
 import { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import { InvoiceRuleHint } from "@/components/v2/invoices/InvoiceRuleHint";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { InlineEditField, SelectDropdown } from "@/components/v2/ui";
@@ -1025,15 +1026,23 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     );
   };
 
-  // Same overwrite-all-lines rule as handleGlAccountChange below.
-  const handleTaxCodeChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextTaxCodeId = event.target.value;
+  // Same overwrite-all-lines rule as chooseGlAccount below.
+  const chooseTaxCode = (nextTaxCodeId: string) => {
     updateField("taxCodeId", nextTaxCodeId);
     editLineItems((prev) => prev.map((item) => ({ ...item, taxCodeId: nextTaxCodeId || null })));
   };
+  const handleTaxCodeChange = (event: ChangeEvent<HTMLSelectElement>) => chooseTaxCode(event.target.value);
 
-  const handleGlAccountChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const account = glAccounts.find((acc) => acc.qbAccountId === event.target.value);
+  const handleGlAccountChange = (event: ChangeEvent<HTMLSelectElement>) => chooseGlAccount(event.target.value);
+
+  // A company rule for this vendor (InvoiceRuleHint): the same as picking its GL account and tax code here.
+  const applyRule = (rule: { glAccountId: string; taxCodeId: string | null }) => {
+    chooseGlAccount(rule.glAccountId);
+    if (rule.taxCodeId) chooseTaxCode(rule.taxCodeId);
+  };
+
+  const chooseGlAccount = (qbAccountId: string) => {
+    const account = glAccounts.find((acc) => acc.qbAccountId === qbAccountId);
     if (!account) return;
     editInvoice((prev) => ({ ...prev, glAccountId: account.qbAccountId }));
     // Invoice-level GL is the default for every line — changing it
@@ -1624,6 +1633,14 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                   {fieldErrors.glAccountId}
                 </p>
               )}
+              <InvoiceRuleHint
+                vendorName={invoice.vendor}
+                glAccountId={invoice.glAccountId}
+                taxCodeId={invoice.taxCodeId}
+                glAccounts={glAccounts}
+                allowFill={isPendingReview}
+                onUse={applyRule}
+              />
               {glAccountsMixedAcrossLines && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
                   Multiple GL codes selected across line items, extra charges and discounts — picking one here replaces all of them.
