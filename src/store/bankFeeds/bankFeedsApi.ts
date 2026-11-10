@@ -201,6 +201,22 @@ export const fetchBankTransactions = createAsyncThunk<{ transactions: BankTransa
   },
 );
 
+/**
+ * Of these bills (QuickBooks/Xero ids), the ones with nothing left to pay there.
+ * The bank page stops offering them for a match; when this fails it offers all, as before.
+ */
+export const fetchPaidBills = createAsyncThunk<string[], string[], { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchPaidBills",
+  async (billIds, { getState, rejectWithValue }) => {
+    try {
+      const body = await bankFetch<{ paid: string[] }>(getState(), "/api/bank-transactions/paid-bills", { method: "POST", body: JSON.stringify({ billIds }) });
+      return Array.isArray(body.paid) ? body.paid : [];
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
 export const updateBankTransaction = createAsyncThunk<
   { transaction: BankTransactionDto },
   { id: string; patch: BankTxnPatch; version?: number; action?: string },

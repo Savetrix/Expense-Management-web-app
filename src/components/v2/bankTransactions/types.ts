@@ -86,4 +86,6 @@ export interface InvoiceCandidate {
   number: string;
   date: string;
   total: number | null;
+  /** The bill's id in QuickBooks/Xero once posted; null before. */
+  billId?: string | null;
 }

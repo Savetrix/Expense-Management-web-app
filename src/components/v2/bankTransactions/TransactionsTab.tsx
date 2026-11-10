@@ -41,6 +41,8 @@ interface TransactionsTabProps {
   onOpen: (id: string, focus?: "match" | "transfer") => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
   invoices: InvoiceCandidate[];
+  /** Bills that can't be matched any more (see closedBills). */
+  closedBills?: ReadonlySet<string>;
   onBulkUpdate: (ids: string[], patch: Partial<BankTransaction>) => void;
   /** Different changes for many lines in one request (accept all matches, post selected). */
   onBulkItems: (items: ({ id: string } & Partial<BankTransaction>)[]) => void;
@@ -89,6 +91,7 @@ export function TransactionsTab({
   onOpen,
   onUpdate,
   invoices,
+  closedBills,
   onBulkUpdate,
   onBulkItems,
   lookups,
@@ -123,8 +126,8 @@ export function TransactionsTab({
     return { total: txns.length, review: by("review"), ready: by("ready"), matched: by("matched"), excluded: by("excluded"), transfer: by("transfer") };
   }, [txns]);
   const suggestions = useMemo(
-    () => findStrongSuggestions(txns, invoices).filter((s) => !dismissed.has(s.txn.id)),
-    [txns, invoices, dismissed],
+    () => findStrongSuggestions(txns, invoices, closedBills).filter((s) => !dismissed.has(s.txn.id)),
+    [txns, invoices, closedBills, dismissed],
   );
   const accountNames = useMemo(() => Array.from(new Set(txns.map((t) => t.accountName).filter(Boolean))).sort(), [txns]);
 
