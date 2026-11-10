@@ -13,7 +13,7 @@
 //      user's own decisions on lines with the same payee. Weight 1.0 if decided
 //      within 90 days, 0.5 within a year, 0 older. Pass when the agreeing weight
 //      is ≥ 3.0 AND ≥ 90% of all weight for that payee.
-// When all three pass, Scantrix fills in the coding itself (decided_by =
+// When all three pass, ScanTrix fills in the coding itself (decided_by =
 // "autopilot") and says so on the line; the user can change it. It never
 // changes a line's status (exclude, transfer, match) by itself, and never posts.
 import type { Db } from "./db";
@@ -75,7 +75,7 @@ export interface Suggestion {
   /** One plain sentence for the line. */
   reason: string;
   checks: { legibility: CheckResult; completeness: CheckResult; history: CheckResult };
-  /** Scantrix filled the coding in itself (all three checks passed). */
+  /** ScanTrix filled the coding in itself (all three checks passed). */
   autoCoded: boolean;
   /** Weighted votes behind the suggestion, and how many past lines. */
   basis: { agreeing: number; total: number; lines: number };
@@ -174,7 +174,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
   const confidence = historyOk && leg.ok && completeness.ok ? "high" : agreement >= 0.6 ? "medium" : "low";
   const autoCoded = confidence === "high" && v.kind === "expense";
   const reason = autoCoded
-    ? `Coded by Scantrix — ${historyDetail.charAt(0).toLowerCase()}${historyDetail.slice(1)}`
+    ? `Coded by ScanTrix — ${historyDetail.charAt(0).toLowerCase()}${historyDetail.slice(1)}`
     : !leg.ok
       ? leg.detail
       : !historyOk
@@ -217,7 +217,7 @@ function toVote(r: Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendor
  * Re-scores every undecided line of a company (or only those with the given
  * payee keys) and codes the ones that pass all three checks. Called after a
  * sync, a CSV import, and any decision the user makes. Returns how many lines
- * Scantrix coded by itself in this pass.
+ * ScanTrix coded by itself in this pass.
  */
 export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKeys?: string[]): Promise<{ scored: number; autoCoded: number }> {
   // 1. Give every line its payee key (new lines from sync/import have none yet).
@@ -234,7 +234,7 @@ export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKey
   }
   const keyFilter = onlyKeys ? { payeeKey: { $in: onlyKeys } } : {};
 
-  // 2. Votes: the USER's own decisions in the last year. Lines Scantrix coded by
+  // 2. Votes: the USER's own decisions in the last year. Lines ScanTrix coded by
   //    itself do not vote, or one early guess would keep confirming itself.
   const voteRows = await db.txns
     .find({
@@ -295,7 +295,7 @@ export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKey
         });
       }
     } else if (c.decidedBy === "autopilot") {
-      // History no longer supports the coding Scantrix chose: undo it, keep the explanation.
+      // History no longer supports the coding ScanTrix chose: undo it, keep the explanation.
       const r = await db.txns.updateOne(
         { ...guard, decidedBy: "autopilot" },
         { $set: { suggestion: s, glAccountId: null, taxCodeId: null, vendorId: null, payee: null, decidedBy: null, decidedAt: null, updatedAt: new Date() }, $inc: { version: 1 } },

@@ -1,6 +1,6 @@
 // GET /api/bank-transactions/unsorted?to=YYYY-MM-DD — how many bank lines up to
 // a period end are not in the books yet: still to review, or posted in
-// Scantrix but not yet sent to the accounting software. Period close's
+// ScanTrix but not yet sent to the accounting software. Period close's
 // "Clear the bank" step is done only when both are zero.
 import { bankContext, errorResponse, json } from "@/lib/bankFeeds/http";
 import { unsortedCounts } from "@/lib/bankFeeds/transactions";

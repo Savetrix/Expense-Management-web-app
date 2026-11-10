@@ -130,7 +130,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
   const handleApproveAndPay = async (claim: ExpenseClaimDto) => {
     const ok = await confirmDialog({
       title: "Approve, post and mark as paid?",
-      message: `This posts ${claimTitle(claim)} to ${provider.name} as one bill payable to ${claim.claimant.name}, and records that they've been paid ${money(claim.total, claim.currency)}. Scantrix doesn't send the money — pay them as you usually do.`,
+      message: `This posts ${claimTitle(claim)} to ${provider.name} as one bill payable to ${claim.claimant.name}, and records that they've been paid ${money(claim.total, claim.currency)}. ScanTrix doesn't send the money — pay them as you usually do.`,
       confirmLabel: "Approve & mark paid",
     });
     if (!ok) return;
@@ -183,7 +183,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
   const handleMarkPaid = async (claim: ExpenseClaimDto) => {
     const ok = await confirmDialog({
       title: "Mark as paid?",
-      message: `Record that ${claim.claimant.name} has been paid back ${money(claim.total, claim.currency)}. Scantrix doesn't send the money.`,
+      message: `Record that ${claim.claimant.name} has been paid back ${money(claim.total, claim.currency)}. ScanTrix doesn't send the money.`,
       confirmLabel: "Mark as paid",
     });
     if (!ok) return;

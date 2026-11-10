@@ -62,10 +62,10 @@ export const isUnsent = (t: BankTransaction) => SENDABLE.includes(t.status) && t
 function ledgerBlock(reason: string | null, error: string | null, providerName: string): string | null {
   if (!reason) return null;
   if (reason === "posting_not_configured") return `Sending lines to ${providerName} isn't switched on on this server yet. Post still saves each line as ready.`;
-  if (reason === "scope") return `${providerName} hasn't allowed Scantrix to post bank entries yet. Reconnect ${providerName} once (Integrations) to allow it.`;
+  if (reason === "scope") return `${providerName} hasn't allowed ScanTrix to post bank entries yet. Reconnect ${providerName} once (Integrations) to allow it.`;
   if (reason === "reconnect") return error || `Reconnect ${providerName} (Integrations) to send lines.`;
   if (reason === "permission") return error || `Your role can't send lines to ${providerName}.`;
-  return error || `Scantrix couldn't reach ${providerName} just now.`;
+  return error || `ScanTrix couldn't reach ${providerName} just now.`;
 }
 
 const DATE_CLASS =
@@ -329,7 +329,7 @@ export function TransactionsTab({
         if (t.matchedInvoiceId) {
           const inv = invoiceById.get(t.matchedInvoiceId);
           return (
-            <Link href={`/invoices/${t.matchedInvoiceId}`} title={inv ? `${inv.vendor}${inv.number ? ` #${inv.number}` : ""} in Scantrix` : "Invoice in Scantrix"} className="inline-flex text-accent hover:opacity-80">
+            <Link href={`/invoices/${t.matchedInvoiceId}`} title={inv ? `${inv.vendor}${inv.number ? ` #${inv.number}` : ""} in ScanTrix` : "Invoice in ScanTrix"} className="inline-flex text-accent hover:opacity-80">
               <Paperclip size={16} strokeWidth={2.25} />
             </Link>
           );

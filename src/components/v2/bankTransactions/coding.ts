@@ -85,7 +85,7 @@ export interface Coding {
 }
 
 /**
- * What a line shows: the user's own coding, Scantrix's coding, or — for a line
+ * What a line shows: the user's own coding, ScanTrix's coding, or — for a line
  * still to review whose payee was seen before — the suggestion from history.
  * A payee seen for the first time stays blank (the client's rule).
  */
@@ -93,7 +93,7 @@ export function codingFor(txn: BankTransaction): Coding {
   const suggestion = suggestionOf(txn);
   const own = { vendorId: txn.vendorId, payee: txn.payee, glAccountId: txn.categoryId, taxCodeId: txn.taxCodeId };
   const hasOwn = Boolean(own.vendorId || own.glAccountId || own.taxCodeId);
-  // Scantrix coded it itself: the values are saved, but not yet confirmed by a person.
+  // ScanTrix coded it itself: the values are saved, but not yet confirmed by a person.
   if (hasOwn && suggestion?.autoCoded && own.glAccountId === suggestion.glAccountId) {
     return { ...own, source: "autopilot", reason: suggestion.reason, suggestion };
   }
@@ -110,7 +110,7 @@ export function codingFor(txn: BankTransaction): Coding {
   return { source: "none", reason: suggestion?.reason ?? null, suggestion };
 }
 
-/** True when this field shows a value the user hasn't chosen (a suggestion, or Scantrix's own coding). */
+/** True when this field shows a value the user hasn't chosen (a suggestion, or ScanTrix's own coding). */
 export function isSuggestedField(txn: BankTransaction, field: "vendorId" | "categoryId" | "taxCodeId"): boolean {
   const c = codingFor(txn);
   if (c.source === "autopilot") return true;

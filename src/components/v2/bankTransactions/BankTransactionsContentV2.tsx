@@ -61,7 +61,7 @@ export function BankTransactionsContentV2() {
   const [relogin, setRelogin] = useState<BankAccount | null>(null);
   const lookups = useBankLookups();
   // After a decision the server re-scores lines with the same payee in the
-  // background; reload shortly after so lines Scantrix just coded show it.
+  // background; reload shortly after so lines ScanTrix just coded show it.
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refetchSoon = () => {
     if (refetchTimer.current) clearTimeout(refetchTimer.current);

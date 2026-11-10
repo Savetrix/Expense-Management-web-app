@@ -103,15 +103,15 @@ export function ConnectBankModal({ open, onClose, Launcher = DefaultLauncher, on
     <Modal open={open} onClose={close} title={relogin ? "Sign in to your bank again" : "Connect a bank with Plaid"} footer={footer} widthClassName="max-w-lg">
       {step === "intro" && (
         <div className="flex flex-col gap-[var(--space-md)] text-body-sm text-content-secondary">
-          <p>Plaid is the service that securely links your bank to Scantrix so bank activity can be imported and matched to your bills.</p>
+          <p>Plaid is the service that securely links your bank to ScanTrix so bank activity can be imported and matched to your bills.</p>
           <ul className="flex flex-col gap-[var(--space-sm)]">
             <li className="flex items-start gap-[var(--space-sm)]">
               <ShieldCheck size={18} className="mt-0.5 shrink-0 text-content-primary" />
-              <span>Read-only access. Scantrix can see account activity but can never move money.</span>
+              <span>Read-only access. ScanTrix can see account activity but can never move money.</span>
             </li>
             <li className="flex items-start gap-[var(--space-sm)]">
               <Lock size={18} className="mt-0.5 shrink-0 text-content-primary" />
-              <span>You enter your bank credentials inside Plaid&apos;s secure window. Scantrix never sees them.</span>
+              <span>You enter your bank credentials inside Plaid&apos;s secure window. ScanTrix never sees them.</span>
             </li>
             <li className="flex items-start gap-[var(--space-sm)]">
               <Unplug size={18} className="mt-0.5 shrink-0 text-content-primary" />

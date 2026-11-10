@@ -50,7 +50,7 @@ export async function bankContext(
 export function errorResponse(where: string, error: unknown): Response {
   if (isStoreError(error)) {
     console.error(`[bank] ${where}: store unavailable`, ((error as { cause?: Error }).cause ?? (error as Error)).message ?? "");
-    return fail(503, "Scantrix couldn't reach its bank records just now. Try again in a moment.", { reason: "store_unavailable" });
+    return fail(503, "ScanTrix couldn't reach its bank records just now. Try again in a moment.", { reason: "store_unavailable" });
   }
   if (error instanceof PlaidCallError) {
     console.error(`[bank] ${where}: plaid ${error.code} (${error.requestId ?? "no request id"})`);

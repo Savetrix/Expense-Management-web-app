@@ -113,7 +113,7 @@ export interface TxnDoc {
 
   /** Who the line was paid to, normalised (suggest.ts payeeKey). */
   payeeKey: string | null;
-  /** What Scantrix suggested, and why (suggest.ts). */
+  /** What ScanTrix suggested, and why (suggest.ts). */
   suggestion: unknown;
   /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
   postingStatus: "processing" | "posted" | "failed" | null;
@@ -133,7 +133,7 @@ export interface EventDoc {
   itemId: string | null;
   /** A user id, or "plaid" / "autopilot" / "system". */
   actor: string;
-  /** Where the change came from: the web app, Plaid, Scantrix's Autopilot, or the server itself. */
+  /** Where the change came from: the web app, Plaid, ScanTrix's Autopilot, or the server itself. */
   source: "web" | "plaid" | "autopilot" | "system";
   action: string;
   detail: unknown;
@@ -183,7 +183,7 @@ export interface PostingRecord {
   postedBy: string;
 }
 
-/** What Scantrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
+/** What ScanTrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
 export interface InsightDoc {
   _id: string;
   qbConnectionId: string;

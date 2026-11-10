@@ -22,7 +22,7 @@ import { toView, type BankTransactionView } from "./transactions";
 export interface PostingServices {
   ledger: LedgerContext;
   adapter: LedgerAdapter;
-  /** Scantrix vendor id → QuickBooks/Xero vendor id. */
+  /** ScanTrix vendor id → QuickBooks/Xero vendor id. */
   vendorIds(): Promise<Map<string, string>>;
   /** Tax code id → rate in percent. */
   taxRates(): Promise<Map<string, number>>;

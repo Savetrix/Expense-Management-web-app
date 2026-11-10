@@ -67,7 +67,7 @@ export interface ExpenseClaimDto {
   approvedBy: string | null;
   publishedAt: string | null;
   paidAt: string | null;
-  /** "manual" = marked paid in Scantrix; "accounting" = a bill payment was recorded in QuickBooks/Xero. */
+  /** "manual" = marked paid in ScanTrix; "accounting" = a bill payment was recorded in QuickBooks/Xero. */
   paidVia: "manual" | "accounting" | null;
   rejectedAt: string | null;
   rejectionReason: string | null;

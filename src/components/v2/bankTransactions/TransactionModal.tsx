@@ -245,7 +245,7 @@ export function TransactionModal({
                 </>
               )}
               <p className="rounded-md border border-dashed border-border px-[var(--space-sm)] py-[var(--space-xs)] text-caption text-content-secondary">
-                Entered straight into {providerName}? Searching {providerName} for bills and expenses that didn&apos;t come through Scantrix
+                Entered straight into {providerName}? Searching {providerName} for bills and expenses that didn&apos;t come through ScanTrix
                 isn&apos;t switched on yet (BE).
               </p>
             </section>
@@ -280,10 +280,10 @@ export function TransactionModal({
                       <Sparkles size={16} strokeWidth={2.25} className="mt-0.5 shrink-0 text-accent" />
                       <span>
                         <span className="font-semibold">
-                          {coding.source === "autopilot" ? "Coded by Scantrix" : pendingSuggestion ? "Scantrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
+                          {coding.source === "autopilot" ? "Coded by ScanTrix" : pendingSuggestion ? "ScanTrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
                         </span>
                         {pendingSuggestion && codingLabel(coding, lookups) && <> · {codingLabel(coding, lookups)}</>}
-                        {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by Scantrix — /, "")}</span>}
+                        {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by ScanTrix — /, "")}</span>}
                       </span>
                     </p>
                     {pendingSuggestion && (
@@ -305,7 +305,7 @@ export function TransactionModal({
                   {suggestion && (
                     <>
                       <button type="button" className="mt-[var(--space-xs)] text-caption font-semibold text-content-secondary underline" onClick={() => setShowChecks((v) => !v)}>
-                        {showChecks ? "Hide the checks" : "How Scantrix decided"}
+                        {showChecks ? "Hide the checks" : "How ScanTrix decided"}
                       </button>
                       {showChecks && (
                         <ul className="mt-[var(--space-xs)] flex flex-col gap-[var(--space-xs)] text-caption text-content-secondary">

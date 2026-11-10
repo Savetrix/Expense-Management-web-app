@@ -203,7 +203,7 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
             />
           </div>
           <p className="text-caption text-content-secondary">
-            Files are read in your browser. Only the dates, descriptions and amounts are saved to Scantrix.
+            Files are read in your browser. Only the dates, descriptions and amounts are saved to ScanTrix.
           </p>
           {error && <p className="text-caption font-semibold text-status-danger-text">{error}</p>}
           <div>

@@ -157,7 +157,7 @@ async function vouchUncached(token: string, key: string): Promise<VouchResult> {
     await new Promise((resolve) => setTimeout(resolve, first.pauseMs));
     attempt = await askBackend(token);
     if (attempt.kind === "retry") {
-      // Only the reason, never the token: the server log is where "Scantrix could not confirm your account" gets explained.
+      // Only the reason, never the token: the server log is where "ScanTrix could not confirm your account" gets explained.
       console.warn(`[bank door] ${SAVETRIX_API_BASE_URL}/qb-connections failed twice: ${first.detail}; then ${attempt.detail}`);
       return { ok: false, reason: "unavailable" };
     }
@@ -211,7 +211,7 @@ export async function authorizeBank(
   if (!vouched.ok) {
     return vouched.reason === "unauthenticated"
       ? { ok: false, status: 401, error: "Your session has expired. Sign in again." }
-      : { ok: false, status: 503, error: "Scantrix could not confirm your account just now. Try again in a moment." };
+      : { ok: false, status: 503, error: "ScanTrix could not confirm your account just now. Try again in a moment." };
   }
 
   const connection = vouched.caller.connections.find((c) => c.id === qbConnectionId);

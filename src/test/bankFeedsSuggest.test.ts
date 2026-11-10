@@ -43,7 +43,7 @@ describe("scoring", () => {
     assert.equal(s.autoCoded, true);
     assert.equal(s.confidence, "high");
     assert.equal(s.glAccountId, "gl-travel");
-    assert.match(s.reason, /^Coded by Scantrix — 3 earlier lines/);
+    assert.match(s.reason, /^Coded by ScanTrix — 3 earlier lines/);
   });
 
   it("waits with only 2 agreeing decisions, and says why", () => {
@@ -115,7 +115,7 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
     assert.equal(fourth?.categoryId, "gl-travel");
     assert.equal((fourth?.suggestion as Suggestion).autoCoded, true);
     const ev = await db.events.findOne({ transactionId: lines[3].id, action: "bank.autopilot_coded" });
-    assert.equal(ev?.source, "autopilot", "Scantrix's own coding is on the audit trail");
+    assert.equal(ev?.source, "autopilot", "ScanTrix's own coding is on the audit trail");
   });
 
   it("does not let its own coding vote, and undoes it when history changes", async () => {
@@ -128,7 +128,7 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
     await refreshSuggestions(db, "qb-1");
     const rows = await db.txns.find({ _id: { $in: lines.slice(3).map((l) => l.id) } }).toArray();
     for (const r of rows) {
-      assert.equal(r.decidedBy, null, "Scantrix's coding was taken back");
+      assert.equal(r.decidedBy, null, "ScanTrix's coding was taken back");
       assert.equal(r.glAccountId, null);
     }
   });

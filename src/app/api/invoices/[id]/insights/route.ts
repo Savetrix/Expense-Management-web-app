@@ -16,7 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       ? fail(401, "Your session has expired. Sign in again.")
       : found.status === 404
         ? fail(404, "Invoice not found.")
-        : fail(503, "Scantrix couldn't read this invoice just now.");
+        : fail(503, "ScanTrix couldn't read this invoice just now.");
   }
   try {
     const [period, bank] = await Promise.all([

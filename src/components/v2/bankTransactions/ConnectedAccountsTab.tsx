@@ -115,7 +115,7 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
   const disconnect = async (acct: BankAccount) => {
     const ok = await confirmDialog({
       title: "Disconnect this account?",
-      message: `${acct.institutionName} ${acct.name} will stop syncing. Imported transactions stay in Scantrix.`,
+      message: `${acct.institutionName} ${acct.name} will stop syncing. Imported transactions stay in ScanTrix.`,
       confirmLabel: "Disconnect",
       tone: "destructive",
     });
