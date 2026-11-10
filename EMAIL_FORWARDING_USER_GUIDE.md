@@ -1,13 +1,13 @@
 # Email forwarding — setup guide
 
-For the accountant using Scantrix. Two minutes to set up, once per company.
+For the accountant using ScanTrix. Two minutes to set up, once per company.
 
 ---
 
 ## What it does
 
 Every QuickBooks company gets its own email address. Forward a supplier invoice
-to it and it lands in Scantrix exactly as if you had uploaded the file by hand —
+to it and it lands in ScanTrix exactly as if you had uploaded the file by hand —
 same reading, same vendor matching, same duplicate checks, same review before
 anything is posted.
 
@@ -125,7 +125,7 @@ upload. Your existing review and approval rules govern.
 that files them. The person who actually forwarded the email is recorded in
 Recent email imports.
 
-**"Received" is when Scantrix processed it,** not when the email was originally
+**"Received" is when ScanTrix processed it,** not when the email was originally
 sent. Forward a month-old invoice and it will still say it arrived just now.
 
 **A delivery is never lost.** If anything is briefly unavailable, the mail

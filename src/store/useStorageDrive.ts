@@ -140,7 +140,7 @@ export function useStorageDrive(id: StorageDriveId, activeConnectionId: string |
   const disconnect = async (): Promise<boolean> => {
     const confirmed = await confirmDialog({
       title: `Disconnect ${drive.name}?`,
-      message: `Scantrix will stop saving copies of posted invoices to your ${drive.shortName}. This cannot be undone.`,
+      message: `ScanTrix will stop saving copies of posted invoices to your ${drive.shortName}. This cannot be undone.`,
       confirmLabel: "Disconnect",
       tone: "destructive",
     });

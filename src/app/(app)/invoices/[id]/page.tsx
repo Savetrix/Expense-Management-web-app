@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { InvoiceDetailContentV2 } from "@/components/v2/invoices/InvoiceDetailContentV2";
 
 export const metadata: Metadata = {
-  title: "Invoice Details — Scantrix",
+  title: "Invoice Details — ScanTrix",
 };
 
 export default async function InvoiceDetailV2Page({

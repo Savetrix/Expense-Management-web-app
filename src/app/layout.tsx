@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   // error is raised for relative ones.
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Scantrix — Invoice & Expense Management",
-    // Page titles supply their own " — Scantrix" today, so no template suffix
+    default: "ScanTrix — Invoice & Expense Management",
+    // Page titles supply their own " — ScanTrix" today, so no template suffix
     // is applied here; adding one would double the brand on every route.
     template: "%s",
   },

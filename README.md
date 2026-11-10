@@ -1,12 +1,12 @@
-# Scantrix Web App
+# ScanTrix Web App
 
-A Next.js (App Router) web port of the Scantrix mobile app — AI-assisted
+A Next.js (App Router) web port of the ScanTrix mobile app — AI-assisted
 invoice scanning, QuickBooks sync, and team management for small
 businesses.
 
 ## Invoice forwarding by email
 
-![Invoice forwarding by email: an invoice forwarded to a company's Scantrix address passes three checks, then joins the same processing pipeline as a manual upload](./EMAIL_FORWARDING_USER_FLOW.svg)
+![Invoice forwarding by email: an invoice forwarded to a company's ScanTrix address passes three checks, then joins the same processing pipeline as a manual upload](./EMAIL_FORWARDING_USER_FLOW.svg)
 
 Each QuickBooks company gets its own receiving address. Forward a supplier
 invoice to it and it enters the *same* pipeline a manual upload uses — extraction,
@@ -80,7 +80,7 @@ See `.env.local.example` for the full annotated list. Summary:
 
 | Variable | Purpose |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | Primary Scantrix/Savetrix REST API (auth, invoices, vendors) |
+| `NEXT_PUBLIC_API_URL` | Primary ScanTrix/Savetrix REST API (auth, invoices, vendors) |
 | `NEXT_PUBLIC_QUICKBOOKS_API_URL` | QuickBooks-specific backend (OAuth connect, bill posting) — a different host than the primary API |
 | `NEXT_PUBLIC_FIREBASE_*` | Firebase project config (mirrors what's already hardcoded in `src/lib/firebase/config.ts`) |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google OAuth Web client ID, used for real Google Sign-In via Google Identity Services |

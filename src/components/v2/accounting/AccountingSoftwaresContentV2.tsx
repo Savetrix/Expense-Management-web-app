@@ -77,7 +77,7 @@ const COMING_SOON: { key: string; brand: BrandName | null; name: string; descrip
     key: "sage",
     brand: "sage",
     name: "Sage",
-    description: "Sync Sage Business Cloud Accounting invoices and GL codes with Scantrix.",
+    description: "Sync Sage Business Cloud Accounting invoices and GL codes with ScanTrix.",
   },
   {
     // Tally and FreshBooks have no legitimately-licensed brand mark in
@@ -368,7 +368,7 @@ export function AccountingSoftwaresContentV2() {
     if (success) closeDetail();
   };
 
-  // Pulls the reference data Scantrix reads from QuickBooks (vendors, GL
+  // Pulls the reference data ScanTrix reads from QuickBooks (vendors, GL
   // accounts, tax codes) for the ACTIVE connection, then re-checks connection
   // status. All three thunks read qbConnectionId off the store rather than
   // taking it as an argument, which is why this only runs for the active
@@ -499,7 +499,7 @@ export function AccountingSoftwaresContentV2() {
 
       <PageHeader
         title="Integrations"
-        subtitle="Connect and synchronize the accounting software, storage drives, and AI tools you use with Scantrix."
+        subtitle="Connect and synchronize the accounting software, storage drives, and AI tools you use with ScanTrix."
         action={
           <>
             {/* <SearchInput
@@ -711,7 +711,7 @@ export function AccountingSoftwaresContentV2() {
                   icon={<BrandIcon name="claude" size={22} />}
                   name="Claude MCP"
                   nameBadge={<BetaBadge />}
-                  description="Ask Claude about your invoices and vendors from Scantrix. Still in testing."
+                  description="Ask Claude about your invoices and vendors from ScanTrix. Still in testing."
                   actions={
                     <Button
                       type="button"
@@ -1028,7 +1028,7 @@ export function AccountingSoftwaresContentV2() {
             </div>
           </McpStep>
 
-          <McpStep number={2} title="Add Scantrix as a connector">
+          <McpStep number={2} title="Add ScanTrix as a connector">
             <p className="text-caption text-content-secondary">
               <span className="font-semibold text-content-primary">Claude.ai / Claude Desktop:</span>
             </p>
@@ -1040,7 +1040,7 @@ export function AccountingSoftwaresContentV2() {
                 Click <span className="font-semibold text-content-primary">Add custom connector</span>.
               </li>
               <li>
-                For the name, enter <span className="font-semibold text-content-primary">Scantrix</span>.
+                For the name, enter <span className="font-semibold text-content-primary">ScanTrix</span>.
               </li>
               <li>Paste the URL you copied in Step 1.</li>
               <li>
@@ -1058,7 +1058,7 @@ export function AccountingSoftwaresContentV2() {
 
           <McpStep number={3} title="Authorize and start asking">
             <p className="text-caption text-content-secondary">
-              Sign in with your Scantrix account when prompted, then try:
+              Sign in with your ScanTrix account when prompted, then try:
             </p>
             <ul className="mt-[var(--space-xs)] flex flex-col gap-[var(--space-xs)]">
               {MCP_EXAMPLES.map((example) => (

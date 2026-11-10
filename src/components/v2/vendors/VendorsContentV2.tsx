@@ -313,7 +313,7 @@ export function VendorsContentV2() {
     if (!accessToken) return;
     const confirmed = await confirmDialog({
       title: "Deactivate vendor?",
-      message: `"${vendor.displayName}" will be marked inactive in Scantrix and won't be matched against new invoices. It stays active in ${provider.name} — this only affects Scantrix. Existing bills already posted for this vendor are not affected.`,
+      message: `"${vendor.displayName}" will be marked inactive in ScanTrix and won't be matched against new invoices. It stays active in ${provider.name} — this only affects ScanTrix. Existing bills already posted for this vendor are not affected.`,
       confirmLabel: "Deactivate",
       tone: "destructive",
     });
@@ -338,7 +338,7 @@ export function VendorsContentV2() {
     if (!accessToken) return;
     const confirmed = await confirmDialog({
       title: "Reactivate vendor?",
-      message: `"${vendor.displayName}" will become active again in Scantrix and can be matched against new invoices.`,
+      message: `"${vendor.displayName}" will become active again in ScanTrix and can be matched against new invoices.`,
       confirmLabel: "Reactivate",
     });
     if (!confirmed) return;

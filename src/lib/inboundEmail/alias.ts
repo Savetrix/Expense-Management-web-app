@@ -8,7 +8,7 @@
 // address unique and non-enumerable.
 //
 // Why not the company name alone: QuickBooks company names are not unique across
-// Scantrix customers, so two accounts both managing an "Acme Corp" would collide on
+// ScanTrix customers, so two accounts both managing an "Acme Corp" would collide on
 // one address. The suffix removes that entirely, and also survives a company being
 // renamed — the address is minted once and never re-derived, so a rename cannot
 // invalidate a contact the user has already saved.
@@ -209,7 +209,7 @@ export function aliasHashMatches(candidateHash: string, storedHash: string): boo
  *   customer's invoice queue and nobody operating the service would ever see
  *   them — a silent failure in exactly the channel used to report failures.
  *
- *   IMPERSONATION. `support@invoice.scantrix.ai` reads as Scantrix speaking.
+ *   IMPERSONATION. `support@invoice.scantrix.ai` reads as ScanTrix speaking.
  *   Because the address is public-facing and quotable, holding one is a
  *   ready-made way to collect invoices meant for the platform itself.
  *

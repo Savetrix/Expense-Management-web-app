@@ -40,7 +40,7 @@ const PLAN_META: Record<
   { tagline: string; features: string[]; priceNote: string; highlight?: boolean; staticBadge?: string }
 > = {
   trial: {
-    tagline: "Test Scantrix risk-free for your firm",
+    tagline: "Test ScanTrix risk-free for your firm",
     features: [
       "Unlimited scans during trial",
       "Unlimited team members",

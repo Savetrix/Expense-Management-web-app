@@ -168,7 +168,7 @@ export const createRemoteApp = (config) => {
                     "This account uses social login (Google / Apple / Microsoft). Please set a password at scantrix.ai/forgot-password, then try again.";
             }
             else if (/timeout|ETIMEDOUT|ECONNRESET|network|ENOTFOUND/i.test(msg)) {
-                userError = "Could not reach Scantrix servers. Please check your connection and try again.";
+                userError = "Could not reach ScanTrix servers. Please check your connection and try again.";
             }
             else {
                 userError = "Sign-in failed. Please try again. If this persists, reset your password at scantrix.ai.";
@@ -344,8 +344,8 @@ export const createRemoteApp = (config) => {
             const status = error?.response?.status;
             res.status(status === 401 ? 401 : 502).json({
                 message: status === 401
-                    ? "Your Scantrix session expired. Ask Claude for a new upload link."
-                    : "Scantrix could not accept that file. Please try again.",
+                    ? "Your ScanTrix session expired. Ask Claude for a new upload link."
+                    : "ScanTrix could not accept that file. Please try again.",
             });
         }
     });

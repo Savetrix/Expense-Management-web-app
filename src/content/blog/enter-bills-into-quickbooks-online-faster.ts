@@ -10,7 +10,7 @@ export const post: BlogPostSource = {
   publishedAt: "2026-09-30",
   category: "QuickBooks",
   tags: ["QuickBooks Online", "Bill entry", "Accounts payable"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: `
 Entering a bill into QuickBooks Online takes a minute or two. Entering sixty of them takes an afternoon, and it rarely happens in one sitting. It happens between client calls, on the last day of the month, from a PDF in one window and QuickBooks in the other.
 
@@ -78,7 +78,7 @@ If you evaluate a capture tool, look past "it reads PDFs" and ask more specific 
 - **How do invoices get in?** Upload, email forwarding, a connected drive. The fewer steps between the supplier's email and the tool, the better.
 - **Does it handle more than one company?** Essential if you keep books for several clients.
 
-This is the problem [Scantrix](/#how) is built around. It reads the vendor, invoice number, dates, line items, totals and currency, matches the vendor to your QuickBooks list, and posts invoices it reads confidently as bills. Anything it is unsure about, or that fails, waits in a review queue with the reason attached. Invoices can arrive by [email forwarding](/blog/forward-supplier-invoices-to-quickbooks-by-email), upload, or Google Drive.
+This is the problem [ScanTrix](/#how) is built around. It reads the vendor, invoice number, dates, line items, totals and currency, matches the vendor to your QuickBooks list, and posts invoices it reads confidently as bills. Anything it is unsure about, or that fails, waits in a review queue with the reason attached. Invoices can arrive by [email forwarding](/blog/forward-supplier-invoices-to-quickbooks-by-email), upload, or Google Drive.
 
 ## A realistic goal
 

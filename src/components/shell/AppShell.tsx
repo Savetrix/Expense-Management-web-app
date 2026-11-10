@@ -62,7 +62,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/subscription", label: "Subscription", icon: CreditCard },
 ];
 
-// Scantrix's own admins only (User.isSuperAdmin, sent with the signed-in
+// ScanTrix's own admins only (User.isSuperAdmin, sent with the signed-in
 // user). One entry for the whole admin area — its sections are tabs inside
 // (AdminShellV2). Hiding the link is convenience; every admin API re-checks it.
 const ADMIN_NAV_ITEMS: NavItem[] = [{ href: "/admin", label: "Admin", icon: ShieldCheck }];
@@ -380,9 +380,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"
               }`}
             >
-              Scantrix
+              ScanTrix
             </span>
-            {collapsed && <span className={TOOLTIP_CLASS}>Scantrix</span>}
+            {collapsed && <span className={TOOLTIP_CLASS}>ScanTrix</span>}
           </Link>
         </div>
 
@@ -618,7 +618,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-nav-hover px-[var(--space-lg)]">
               <Link href="/dashboard" aria-label="Go to dashboard" className="flex min-w-0 items-center gap-[var(--space-sm)]">
                 <Image src="/scantrix-icon.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded-md" />
-                <span className="truncate text-h3 font-bold text-white">Scantrix</span>
+                <span className="truncate text-h3 font-bold text-white">ScanTrix</span>
               </Link>
               <button
                 type="button"

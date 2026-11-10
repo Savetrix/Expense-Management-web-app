@@ -9,7 +9,7 @@ import { getAllPosts, getPostBySlug } from "@/lib/blog";
 //
 // Prerendered alongside the page for every generated slug.
 
-export const alt = "Scantrix Blog";
+export const alt = "ScanTrix Blog";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -24,7 +24,7 @@ const TEAL = "#1fb6aa";
 export default async function PostOpengraphImage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const post = getPostBySlug(slug);
-  const title = post?.title ?? "Scantrix Blog";
+  const title = post?.title ?? "ScanTrix Blog";
   // Long titles step down a size instead of overflowing the card.
   const titleSize = title.length > 52 ? 58 : 66;
 
@@ -46,7 +46,7 @@ export default async function PostOpengraphImage({ params }: { params: Promise<{
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
             <div style={{ width: 56, height: 56, borderRadius: 16, background: TEAL, display: "flex" }} />
-            <div style={{ fontSize: 34, fontWeight: 700, color: "#ffffff" }}>Scantrix Blog</div>
+            <div style={{ fontSize: 34, fontWeight: 700, color: "#ffffff" }}>ScanTrix Blog</div>
           </div>
           {post && (
             <div

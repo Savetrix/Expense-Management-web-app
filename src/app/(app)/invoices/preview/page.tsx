@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { InvoicePreviewContent } from "@/components/invoices/InvoicePreviewContent";
 
 export const metadata: Metadata = {
-  title: "Invoice Preview — Scantrix",
+  title: "Invoice Preview — ScanTrix",
 };
 
 export default function InvoicePreviewPage() {

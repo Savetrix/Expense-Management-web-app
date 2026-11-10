@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PlansContentV2 } from "@/components/v2/subscription/PlansContentV2";
 
 export const metadata: Metadata = {
-  title: "Plans — Scantrix",
+  title: "Plans — ScanTrix",
 };
 
 export default function PlansV2Page() {

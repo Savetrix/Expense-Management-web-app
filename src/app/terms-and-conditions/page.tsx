@@ -5,7 +5,7 @@ import { LegalContents } from "@/components/legal/LegalContents";
 import { SUPPORT_EMAIL } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Terms of Service | Scantrix",
+  title: "Terms of Service | ScanTrix",
   description: "The terms that govern your use of ScanTrix, operated by ScanTrix Technologies Inc.",
   alternates: { canonical: "/terms-and-conditions" },
 };

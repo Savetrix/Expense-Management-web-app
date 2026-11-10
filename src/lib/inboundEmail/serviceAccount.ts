@@ -1,4 +1,4 @@
-// SERVER-ONLY. The dedicated Scantrix account that performs inbound uploads.
+// SERVER-ONLY. The dedicated ScanTrix account that performs inbound uploads.
 //
 // ── WHY THIS EXISTS ──────────────────────────────────────────────────────────
 // An inbound email has no browser session, but the invoice it carries must be

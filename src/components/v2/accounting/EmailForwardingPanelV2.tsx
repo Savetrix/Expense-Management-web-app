@@ -71,7 +71,7 @@ const REJECTION_COPY: Record<string, string> = {
   // Restored: the original panel had this, and the redesign dropped it, so a
   // 403 fell back to showing the raw code. It names the one-click fix.
   forwarding_access_lost:
-    "Scantrix no longer has access to this company, so the invoice couldn't be filed. Press Reconnect, then forward the email again.",
+    "ScanTrix no longer has access to this company, so the invoice couldn't be filed. Press Reconnect, then forward the email again.",
   ingestion_failed: "The invoice couldn't be processed.",
   attachment_download_failed: "We couldn't retrieve the attachment from the mail provider.",
   invalid_payload: "The email couldn't be read.",
@@ -659,7 +659,7 @@ export function EmailForwardingPanelV2({
       <div className="flex flex-col gap-[var(--space-sm)]">
         {/* Restored from the original panel. Reconnect above only appears once
             a failure has been recorded, but access is lost the moment someone
-            removes Scantrix from the company's team — and nothing here knows
+            removes ScanTrix from the company's team — and nothing here knows
             until a forwarded invoice has already been refused. Re-running the
             invite when it isn't needed is harmless. */}
         {alias.delegationActive && (

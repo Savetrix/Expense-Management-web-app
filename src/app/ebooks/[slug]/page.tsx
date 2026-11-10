@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!book) return {};
   const path = `/ebooks/${book.slug}`;
   return {
-    title: `${book.title} | Scantrix E-books`,
+    title: `${book.title} | ScanTrix E-books`,
     description: book.description,
     alternates: { canonical: path },
     openGraph: { type: "article", url: path, title: book.title, description: book.description },
@@ -132,7 +132,7 @@ export default async function EbookPage({ params, searchParams }: PageProps) {
                 </h1>
                 <p className="mt-5 text-[18px] leading-relaxed text-text-secondary">{book.description}</p>
                 <p className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13.5px] font-medium text-text-secondary">
-                  <span className="text-trust-navy">Scantrix Team</span>
+                  <span className="text-trust-navy">ScanTrix Team</span>
                   {book.publishedLabel && (
                     <>
                       <span aria-hidden>·</span>

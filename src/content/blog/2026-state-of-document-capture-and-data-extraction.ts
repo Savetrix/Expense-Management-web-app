@@ -8,7 +8,7 @@ export const post: BlogPostSource = {
   publishedAt: "2026-10-10",
   category: "Accounts payable",
   tags: ["Document capture", "Data extraction", "QuickBooks Online", "AP automation"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: `
 A 2026 snapshot of how AP teams are modernizing invoice intake and extraction inside QuickBooks Online workflows.
 
@@ -65,8 +65,8 @@ The most important workflow shift is the move to exceptions-first review. Rather
 
 For AP teams using QuickBooks Online, exceptions-first review connects directly to daily execution. It helps ensure that capture and extraction support accuracy, while still reducing manual effort where the data is clear.
 
-## Where Scantrix fits in 2026 AP automation for QuickBooks Online
+## Where ScanTrix fits in 2026 AP automation for QuickBooks Online
 
-[Scantrix](/#email) is positioned for AP automation in QuickBooks Online with an accuracy-first workflow: ingest supplier invoices (email, PDF, photo, Drive), extract key fields, match vendors, and post bills automatically, with an exceptions-first review process for low-confidence items.
+[ScanTrix](/#email) is positioned for AP automation in QuickBooks Online with an accuracy-first workflow: ingest supplier invoices (email, PDF, photo, Drive), extract key fields, match vendors, and post bills automatically, with an exceptions-first review process for low-confidence items.
 `,
 };

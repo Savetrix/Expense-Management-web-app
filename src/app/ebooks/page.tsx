@@ -7,21 +7,21 @@ import { EBOOKS } from "@/content/ebooks";
 import { breadcrumbJsonLd, jsonLdScriptProps } from "@/lib/seo";
 
 const DESCRIPTION =
-  "In-depth guides on invoice capture, accounts payable and month-end close for accountants and bookkeepers, from the Scantrix team.";
+  "In-depth guides on invoice capture, accounts payable and month-end close for accountants and bookkeepers, from the ScanTrix team.";
 
 // Kept out of search results until at least one e-book has a real PDF, so
 // placeholder cards are never indexed.
 const hasPublishedEbook = EBOOKS.some((book) => book.file);
 
 export const metadata: Metadata = {
-  title: "E-books for Accountants & Bookkeepers | Scantrix",
+  title: "E-books for Accountants & Bookkeepers | ScanTrix",
   description: DESCRIPTION,
   alternates: { canonical: "/ebooks" },
   robots: hasPublishedEbook ? undefined : { index: false, follow: true },
   openGraph: {
     type: "website",
     url: "/ebooks",
-    title: "Scantrix E-books",
+    title: "ScanTrix E-books",
     description: DESCRIPTION,
   },
 };

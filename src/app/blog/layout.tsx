@@ -17,7 +17,7 @@ import { SiteHeader } from "@/components/landing/SiteHeader";
 // needs no top padding on <main>.
 export const metadata: Metadata = {
   alternates: {
-    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "Scantrix Blog" }] },
+    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "ScanTrix Blog" }] },
   },
 };
 

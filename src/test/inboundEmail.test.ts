@@ -159,7 +159,7 @@ describe("inbound alias addresses", () => {
 
   it("gives two workspaces with the SAME company name different addresses", () => {
     // The reason a bare company name cannot be the address: names are not unique
-    // across Scantrix customers.
+    // across ScanTrix customers.
     const a = mintAliasForCompany("Acme Corp");
     const b = mintAliasForCompany("Acme Corp");
     assert.equal(a.slug, b.slug);
@@ -216,7 +216,7 @@ describe("inbound alias addresses", () => {
   });
 
   it("normalizes the domain when formatting", () => {
-    assert.equal(formatAliasAddress("acme-7k2m9x", "@Invoice.Scantrix.AI"), "acme-7k2m9x@invoice.scantrix.ai");
+    assert.equal(formatAliasAddress("acme-7k2m9x", "@Invoice.ScanTrix.AI"), "acme-7k2m9x@invoice.scantrix.ai");
   });
 });
 

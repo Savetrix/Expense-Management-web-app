@@ -142,7 +142,7 @@ export interface AliasRecord {
   revokedAt: string | null;
   lastUsedAt: string | null;
   /**
-   * When the invoice backend last refused an upload with 403 — i.e. the Scantrix
+   * When the invoice backend last refused an upload with 403 — i.e. the ScanTrix
    * service account is no longer a member of this company.
    *
    * Exists because `active` answers the wrong question. `active` means "this

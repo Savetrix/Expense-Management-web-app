@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { InviteAcceptContent } from "@/components/auth/InviteAcceptContent";
 
 export const metadata: Metadata = {
-  title: "Accept Invite — Scantrix",
+  title: "Accept Invite — ScanTrix",
 };
 
 export default function InviteAcceptPage() {

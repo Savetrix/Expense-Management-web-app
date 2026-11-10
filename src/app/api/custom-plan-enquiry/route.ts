@@ -1,4 +1,4 @@
-// Custom Plan enquiries from the pricing surfaces -> the Scantrix sales inbox.
+// Custom Plan enquiries from the pricing surfaces -> the ScanTrix sales inbox.
 //
 // ── DELIBERATELY UNAUTHENTICATED ─────────────────────────────────────────────
 // Unlike every other route in this app, this one takes no Bearer token. It has

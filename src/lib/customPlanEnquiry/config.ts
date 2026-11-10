@@ -15,7 +15,7 @@ import { normalizeEmailAddress, parseEmailAddress } from "../inboundEmail/addres
  * Where enquiries go when CUSTOM_PLAN_ENQUIRY_TO_EMAIL is unset.
  *
  * This is the support address the app already publishes in the profile screen
- * (src/components/profile/ProfileContent.tsx) — a real, verified Scantrix
+ * (src/components/profile/ProfileContent.tsx) — a real, verified ScanTrix
  * mailbox rather than a guess, which is why it is safe as a fallback. Point the
  * env var at a dedicated sales inbox when one exists; until then enquiries land
  * somewhere a human actually reads.

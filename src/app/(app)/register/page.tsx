@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { RegisterFormV2 } from "@/components/v2/auth/RegisterFormV2";
 
 export const metadata: Metadata = {
-  title: "Create Account — Scantrix",
+  title: "Create Account — ScanTrix",
 };
 
 export default function RegisterV2Page() {

@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { ResetPasswordContent } from "@/components/auth/ResetPasswordContent";
 
 export const metadata: Metadata = {
-  title: "Reset Password — Scantrix",
+  title: "Reset Password — ScanTrix",
 };
 
 export default function ResetPasswordPage() {

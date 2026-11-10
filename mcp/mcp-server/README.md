@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant
 (Claude Desktop, Claude Code, or any MCP-capable client) operate the Savetrix /
-Scantrix invoice app on your behalf — reading data, and with explicit
+ScanTrix invoice app on your behalf — reading data, and with explicit
 confirmation, writing it: uploading and posting invoices to QuickBooks,
 managing vendors, GL accounts, tax codes, team members, and your subscription.
 

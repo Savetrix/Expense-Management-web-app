@@ -155,10 +155,10 @@ duplicate bill.
 ## 1. Problem statement
 
 Accountants receive supplier invoices by email, then download each attachment and
-re-upload it through the Scantrix dashboard. The download/re-upload step is pure
+re-upload it through the ScanTrix dashboard. The download/re-upload step is pure
 friction and is where invoices get lost or duplicated.
 
-We want forwarding an email to a Scantrix address to be equivalent to uploading the
+We want forwarding an email to a ScanTrix address to be equivalent to uploading the
 attachment by hand — same extraction, same vendor resolution, same review, same
 duplicate detection, same QuickBooks posting.
 
@@ -179,7 +179,7 @@ duplicate detection, same QuickBooks posting.
 - Inbound replies/threading, or an email-based approval workflow.
 - Non-QuickBooks accounting targets (the existing pipeline already gates that).
 
-## 3. Existing Scantrix workflow (with repository references)
+## 3. Existing ScanTrix workflow (with repository references)
 
 Manual upload, traced end to end:
 
@@ -289,13 +289,13 @@ characters from a 32-character alphabet (~30 bits).
 Why not the company name alone — three reasons, the first of which is functional
 rather than security:
 
-1. **QuickBooks company names are not unique across Scantrix customers.** Two
+1. **QuickBooks company names are not unique across ScanTrix customers.** Two
    accounts each managing an "Acme Corp" would collide on one address. The suffix
    removes that case entirely.
 2. **Renames would break saved contacts.** The address is minted once and never
    re-derived, so renaming the company in QuickBooks leaves it working.
 3. **A guessable address is a spam target** and discloses which companies use
-   Scantrix.
+   ScanTrix.
 
 Why not an opaque token alone: an accountant managing five clients ends up with five
 saved contacts, and `inv-7k2m9x…` gives them nothing to tell apart. The prefix is
@@ -339,7 +339,7 @@ Evaluated in order; the first failure short-circuits with a rejection code:
 3. Sender address parsed from **provider-validated** envelope/`From`, RFC-parsed,
    normalized (lowercase domain; local-part case preserved; Gmail-style `+tag`
    stripped only where the tenant opts in) → else `sender_not_registered`.
-4. Sender matches a registered Scantrix user → else `sender_not_registered`.
+4. Sender matches a registered ScanTrix user → else `sender_not_registered`.
 5. That user's email is **verified** → else `sender_not_verified`.
 6. User is active, not suspended/deleted → else `account_inactive`.
 7. User has upload permission on the alias's workspace → else `sender_not_authorized`.
@@ -411,7 +411,7 @@ breaks SPF while DKIM survives. Rejecting on SPF alone would break the primary u
 11. Worker completes sender + email-auth checks.
 12. Download eligible attachments under strict host/size/timeout/redirect controls.
 13. Validate type, magic bytes, size, hash; scan for malware.
-14. Store accepted files in private Scantrix storage.
+14. Store accepted files in private ScanTrix storage.
 15. Submit each accepted file to the **same** ingestion operation manual upload uses.
 16. Associate: user, workspace, inbound message, original filename, `source=email`,
     sender, received timestamp, provider email id, correlation id.

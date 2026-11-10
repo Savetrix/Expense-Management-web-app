@@ -32,7 +32,7 @@ export function EbookCard({ book }: { book: Ebook }) {
       style={{ background: "linear-gradient(155deg, var(--lp-navy) 0%, var(--lp-navy-950) 80%)" }}
     >
       <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[color:var(--lp-teal)]">
-        Scantrix
+        ScanTrix
       </span>
       <span className="max-w-[80%] text-[22px] font-semibold leading-tight tracking-[-0.01em]">{book.title}</span>
       <span className="h-[3px] w-8 rounded-full bg-[color:var(--lp-teal)]" />

@@ -29,7 +29,7 @@ const validSource = (overrides: Partial<BlogPostSource> = {}): BlogPostSource =>
   publishedAt: "2026-09-30",
   category: "QuickBooks",
   tags: ["Testing"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: "## Section\n\n" + "word ".repeat(320),
   ...overrides,
 });
@@ -106,8 +106,8 @@ describe("blog content", () => {
   // SEO-AUDIT.md §3 records three product claims the code does not support:
   // catching duplicate invoices, merging duplicate vendors, and an assistant
   // that finds duplicates. Posts may discuss duplicates as a problem, with
-  // manual controls, but no sentence may attribute that ability to Scantrix.
-  it("never attributes duplicate detection or vendor merging to Scantrix", () => {
+  // manual controls, but no sentence may attribute that ability to ScanTrix.
+  it("never attributes duplicate detection or vendor merging to ScanTrix", () => {
     for (const source of POST_SOURCES) {
       const sentences = source.body.split(/(?<=[.!?])\s+|\n+/);
       for (const sentence of sentences) {

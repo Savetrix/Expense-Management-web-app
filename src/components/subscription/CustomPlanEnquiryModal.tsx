@@ -228,7 +228,7 @@ export function CustomPlanEnquiryModal({
     } catch {
       // Offline, DNS, connection reset. Same rule: keep what they typed.
       setFormError(
-        "We couldn't reach Scantrix. Check your connection — your details are still here.",
+        "We couldn't reach ScanTrix. Check your connection — your details are still here.",
       );
     } finally {
       inFlightRef.current = false;
@@ -298,7 +298,7 @@ export function CustomPlanEnquiryModal({
               <CheckCircle2 size={24} strokeWidth={2} className="text-success" />
             </span>
             <p role="status" className="text-body-sm text-text-primary">
-              Your enquiry is with the Scantrix team. We usually reply within one business day — keep
+              Your enquiry is with the ScanTrix team. We usually reply within one business day — keep
               an eye on <strong className="font-semibold">{draft.email}</strong>.
             </p>
             <Button type="button" variant="primary" size="md" onClick={close} className="w-full">

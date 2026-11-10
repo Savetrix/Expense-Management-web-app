@@ -1,7 +1,7 @@
 # Savetrix MCP Server — How We Built It
 
 A step-by-step record of building the Savetrix MCP server: a Model Context
-Protocol server that exposes the Savetrix / Scantrix invoice app (auth,
+Protocol server that exposes the Savetrix / ScanTrix invoice app (auth,
 invoices, vendors, GL accounts, tax codes, QuickBooks, team, subscriptions)
 to AI assistants like Claude Desktop.
 

@@ -173,7 +173,7 @@ export function RegisterFormV2() {
           <div className="mb-[var(--space-xl)] text-center">
             <h1 className="text-h1 font-bold text-content-primary">Create Account</h1>
             <p className="mt-[var(--space-sm)] text-body text-content-secondary">
-              Start using Scantrix to scan, verify, and sync business documents.
+              Start using ScanTrix to scan, verify, and sync business documents.
             </p>
           </div>
 

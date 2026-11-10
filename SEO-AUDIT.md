@@ -1,4 +1,4 @@
-# Scantrix — Technical SEO Audit
+# ScanTrix — Technical SEO Audit
 
 **Site:** https://scantrix.ai
 **Primary market:** United States and Canada
@@ -65,13 +65,13 @@ Severity reflects commercial consequence, not technical difficulty.
 | 4 | **No canonical tags on any page.** | all 25 routes | When the same page is reachable at more than one address — with a tracking parameter on an ad click, with and without `www` — search engines have to guess which is the real one. Ad-campaign traffic is the common way this bites: every distinct `?utm_...` link can be treated as a separate page, splitting the page's accumulated credit. |
 | 5 | **No Open Graph or Twitter Card tags, and no preview image.** | absent from `src/app/layout.tsx` | Every link anyone shared — in a LinkedIn post, a Slack channel, a sales email, a WhatsApp message to a prospect — rendered as a bare grey URL with no title, no description and no image. For a B2B product sold partly through founder and network sharing, this suppresses click-through on the highest-intent traffic there is. |
 | 6 | **Twenty-four of 25 pages shared one identical meta description.** Only the homepage had its own. | `src/app/layout.tsx:20-22`; only `src/app/page.tsx:11-13` overrode it | Duplicate descriptions are a signal of a low-effort site, and they mean the search result snippet does not match what the searcher asked for. |
-| 7 | **The signed-in application was indexable.** Roughly twenty authenticated screens returned HTTP 200 with no instruction against indexing. | `/dashboard`, `/invoices`, `/vendors`, `/team`, `/profile`, `/subscription`, `/preferences`, `/gl-tax-codes`, `/plans`, `/paywall` and others | Two costs. Crawl effort was spent fetching twenty near-identical empty pages instead of the one page that sells. And a search for "Scantrix" could surface a blank *Dashboard* result — the worst possible first impression for a prospect. |
+| 7 | **The signed-in application was indexable.** Roughly twenty authenticated screens returned HTTP 200 with no instruction against indexing. | `/dashboard`, `/invoices`, `/vendors`, `/team`, `/profile`, `/subscription`, `/preferences`, `/gl-tax-codes`, `/plans`, `/paywall` and others | Two costs. Crawl effort was spent fetching twenty near-identical empty pages instead of the one page that sells. And a search for "ScanTrix" could surface a blank *Dashboard* result — the worst possible first impression for a prospect. |
 
 ### 2.3 Medium
 
 | # | Defect | Where | What it cost the business |
 |---|--------|-------|---------------------------|
-| 8 | **No structured data of any kind.** | absent | Structured data is how a search engine learns, without guessing, that Scantrix is a software product, who publishes it, and what it answers. It is also increasingly how AI assistants decide what to cite when someone asks them to recommend AP software. |
+| 8 | **No structured data of any kind.** | absent | Structured data is how a search engine learns, without guessing, that ScanTrix is a software product, who publishes it, and what it answers. It is also increasingly how AI assistants decide what to cite when someone asks them to recommend AP software. |
 | 9 | **Only one indexable page exists, and the navigation is entirely internal anchors.** The menu links to `#how`, `#pricing`, `#about`; the only genuine links are to Log in and Sign up. | `src/components/landing/LandingNav.tsx:10-17`; footer in `src/components/landing/LandingPage.tsx` | One page cannot be the best answer to "QuickBooks invoice scanning", "Dext alternative" and "how do I stop typing bills into QuickBooks" simultaneously. Each of those is a different searcher at a different stage. This is the single largest remaining constraint. |
 | 10 | **Everything below the opening screen was invisible without JavaScript.** Sections were set to zero opacity and only faded in when scrolled into view. | `src/app/globals.css:126-133`; `src/components/landing/primitives.tsx:53-65` | On top of defect 1, even a crawler that did render the page saw content that depended on a scroll event to become visible. |
 
@@ -108,7 +108,7 @@ support. They are flagged rather than fixed, because deciding what to do is a
 business call, not an engineering one. **All three are live on the site now.**
 
 **A. The duplicate-invoice claim contradicts a known open defect.**
-The homepage says Scantrix catches an invoice you have already paid — "Same
+The homepage says ScanTrix catches an invoice you have already paid — "Same
 vendor, same invoice number, second time around — flagged before it posts, not
 after the payment run" (`src/components/landing/LandingPage.tsx:525-526`).
 The repository's own backend ticket says the opposite. `BACKEND_duplicate-bills.md`
@@ -123,7 +123,7 @@ the same bill arriving a second time.
 in a financial product, that the team's own ticket documents as unfixed.*
 
 **B. Vendor de-duplication is advertised but not implemented.**
-The homepage says Scantrix "Spots the near-duplicates that accumulate over
+The homepage says ScanTrix "Spots the near-duplicates that accumulate over
 years… and suggests the merge" (`LandingPage.tsx:544`). The suggestion engine
 (`src/components/vendors/VendorCleanupSuggestions.tsx:17`) produces exactly five
 kinds of suggestion: deleted GL account, deleted tax code, suggested GL account,
@@ -137,7 +137,7 @@ each mapping to a tool the assistant actually has". The assistant has sixteen
 tools (`src/lib/chatbot/toolSchemas.ts`) and none of them detects duplicates.
 
 **One point of your brief that the code confirms, with a nuance worth keeping.**
-You described Scantrix as posting invoices to QuickBooks automatically right
+You described ScanTrix as posting invoices to QuickBooks automatically right
 after the scan. That is accurate: auto-posting is a real pipeline stage
 (`BACKEND_duplicate-bills.md` §1) controlled by a per-connection setting that
 defaults to on (`src/store/quickBooks/quickBooksSlice.ts:98`, toggled in
@@ -265,7 +265,7 @@ touched. The full technical record is in `SEO-CHANGELOG.md`.
 | **The private app is closed to search engines.** | ~20 screens returned an ordinary indexable response | Every route behind the login now carries `noindex, nofollow`, set once rather than page by page | new `src/app/(app)/layout.tsx` |
 | **Shared links now render a proper card.** | Bare grey URL — no title, no description, no image | Full Open Graph and Twitter Card tags plus a 1200×630 preview image, generated at build time so it can never drift from the page | `src/app/layout.tsx`, new `src/app/opengraph-image.tsx` |
 | **The homepage declares its true address.** | No canonical anywhere | Homepage self-canonicalises. Signed-in pages deliberately have none — pointing a private page at the homepage would claim it *is* the homepage | `src/app/layout.tsx`, `src/app/page.tsx` |
-| **The homepage title now leads with the category.** | "Scantrix — Invoices, posted to QuickBooks automatically" — brand first, category absent | "QuickBooks Invoice Scanning & AP Automation \| Scantrix" — what they searched for, then who we are | `src/app/page.tsx` |
+| **The homepage title now leads with the category.** | "ScanTrix — Invoices, posted to QuickBooks automatically" — brand first, category absent | "QuickBooks Invoice Scanning & AP Automation \| ScanTrix" — what they searched for, then who we are | `src/app/page.tsx` |
 | **Machine-readable description of the product.** | none | Three structured-data blocks: the company, the software (with a ten-item feature list drawn from the code), and the FAQ | new `src/lib/seo.ts`, `src/app/page.tsx` |
 | **A visible FAQ section was added.** Seven questions, each answered from existing copy or verified behaviour. Built with native disclosure markup, so every answer is in the HTML whether or not it is expanded. | none | Seven Q&As, matching the FAQ structured data exactly — Google only credits FAQ markup whose answers are visible on the page | `src/components/landing/LandingPage.tsx`, `src/lib/seo.ts` |
 | **Content no longer hides without JavaScript.** | Sections below the fold sat at zero opacity until scrolled into view | A no-JavaScript rule makes them visible immediately; the animation is unchanged for everyone else | `src/app/globals.css` |

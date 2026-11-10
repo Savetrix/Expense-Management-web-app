@@ -6,7 +6,7 @@ export const loginPage = (opts) => {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Sign in to Scantrix</title>
+<title>Sign in to ScanTrix</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -92,19 +92,19 @@ export const loginPage = (opts) => {
         <path d="M18 17.5v2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
     </div>
-    <span class="logo-text">Scantrix</span>
+    <span class="logo-text">ScanTrix</span>
   </a>
 
   <form class="card" method="POST" action="/login" id="loginForm">
     <div class="card-header">
       <h1 class="card-title">Welcome back</h1>
-      <p class="card-sub">Sign in to connect <strong>${app}</strong> to your Scantrix account.</p>
+      <p class="card-sub">Sign in to connect <strong>${app}</strong> to your ScanTrix account.</p>
     </div>
 
     ${opts.error ? `<div class="err">${esc(opts.error)}</div>` : ""}
 
     <div class="info">
-      Use your <strong>Scantrix email &amp; password</strong>. If you signed up with Google, Microsoft, or Apple,
+      Use your <strong>ScanTrix email &amp; password</strong>. If you signed up with Google, Microsoft, or Apple,
       you&apos;ll need to <a href="${esc(opts.webUrl)}/forgot-password" target="_blank" rel="noopener">set a password first</a>.
     </div>
 
@@ -135,7 +135,7 @@ export const loginPage = (opts) => {
       </div>
     </div>
 
-    <button type="submit" class="btn" id="submitBtn">Sign in to Scantrix</button>
+    <button type="submit" class="btn" id="submitBtn">Sign in to ScanTrix</button>
 
     <div class="foot">
       No account?

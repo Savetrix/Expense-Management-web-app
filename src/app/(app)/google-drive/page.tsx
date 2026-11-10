@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { StorageCallbackContentV2 } from "@/components/v2/accounting/StorageCallbackContentV2";
 
 export const metadata: Metadata = {
-  title: "Connecting Google Drive — Scantrix",
+  title: "Connecting Google Drive — ScanTrix",
 };
 
 export default function GoogleDriveCallbackV2Page() {

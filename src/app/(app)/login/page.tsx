@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { LoginFormV2 } from "@/components/v2/auth/LoginFormV2";
 
 export const metadata: Metadata = {
-  title: "Log in — Scantrix",
+  title: "Log in — ScanTrix",
 };
 
 export default function LoginV2Page() {

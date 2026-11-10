@@ -205,7 +205,7 @@ export function InvoiceHeroCard({
           <div className="w-full max-w-md cursor-auto rounded-2xl bg-surface p-[var(--space-lg)]" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-h3 font-extrabold text-content-primary">Confidence Score</h2>
             <p className="mt-[var(--space-sm)] text-body-sm text-content-secondary">
-              This score reflects how confident Scantrix is in the data extracted from your scanned invoice — things
+              This score reflects how confident ScanTrix is in the data extracted from your scanned invoice — things
               like the vendor, amounts, and invoice number.
             </p>
             <p className="mt-[var(--space-md)] rounded-md bg-surface-alt p-[var(--space-sm)] text-center text-caption text-content-secondary">

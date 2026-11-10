@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { StorageCallbackContentV2 } from "@/components/v2/accounting/StorageCallbackContentV2";
 
 export const metadata: Metadata = {
-  title: "Connecting OneDrive — Scantrix",
+  title: "Connecting OneDrive — ScanTrix",
 };
 
 export default function OneDriveCallbackV2Page() {
