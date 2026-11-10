@@ -39,12 +39,15 @@ interface AddVendorModalV2Props {
   onClose: () => void;
   /** Prefills the name field each time the modal opens. */
   initialName?: string;
+  /** Prefills GL account and tax code (e.g. from a bank line already coded). */
+  initialGlAccountId?: string;
+  initialTaxCodeId?: string;
   onCreated: (vendor: CreatedVendorRecord) => void;
 }
 
 // Create-only twin of the Add Vendor sheet on the Vendors page, for opening
 // in place from other screens (e.g. the invoice review vendor dropdown).
-export function AddVendorModalV2({ open, onClose, initialName = "", onCreated }: AddVendorModalV2Props) {
+export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAccountId = "", initialTaxCodeId = "", onCreated }: AddVendorModalV2Props) {
   const dispatch = useAppDispatch();
   const provider = useActiveProvider();
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
@@ -74,8 +77,8 @@ export function AddVendorModalV2({ open, onClose, initialName = "", onCreated }:
     if (!open) return;
     setDisplayName(initialName);
     setCurrency(CURRENCY_OPTIONS[0]);
-    setGlAccountId("");
-    setTaxCodeId("");
+    setGlAccountId(initialGlAccountId);
+    setTaxCodeId(initialTaxCodeId);
     setEmail("");
     setPhone("");
     setAddress("");

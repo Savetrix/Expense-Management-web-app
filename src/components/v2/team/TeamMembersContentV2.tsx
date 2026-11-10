@@ -23,15 +23,18 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
-import { Avatar, PageHeader } from "@/components/v2/ui";
+import { Avatar, Modal, PageHeader, SelectDropdown } from "@/components/v2/ui";
+import { ALL_PAGE_KEYS, PAGE_ACCESS_OPTIONS, type PageKey } from "@/lib/pageAccess";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectConnectedAccounts } from "@/store/quickBooks/quickBooksSlice";
 import {
   fetchQBMembers,
   inviteQBMember,
   removeQBMember,
+  updateQBMember,
   type QBMemberRole,
 } from "@/store/quickBooks/quickBooksApi";
+import { Switch } from "@/components/ui/Switch";
 import { fetchInboundOverview } from "@/store/inboundEmail/inboundEmailApi";
 
 interface QBMember {
@@ -39,8 +42,17 @@ interface QBMember {
   invitedEmail: string;
   role: string;
   inviteStatus?: string;
+  /** Whether invoices they upload may auto-post (on top of the company setting). */
+  autoPostAllowed?: boolean;
+  /** The email-forwarding account: its invoices follow the company setting only. */
+  isForwardingService?: boolean;
+  /** Who approves their expense claims and trips (a user id); null = none. */
+  managerUserId?: string | null;
+  /** Contributors: the pages they can open; null = all. */
+  pageAccess?: string[] | null;
   createdAt?: string;
   userId?: {
+    _id?: string;
     firstName: string;
     lastName: string;
     email: string;
@@ -85,6 +97,14 @@ const ROLE_FALLBACK = {
   className: "bg-background-alt text-text-secondary",
 };
 
+// New invites start from these; matches the backend's role defaults
+// (Scantrix_API services/team_auto_post.service.js).
+const ROLE_DEFAULT_AUTO_POST: Record<QBMemberRole, boolean> = {
+  admin: true,
+  accountant: true,
+  contributor: false,
+};
+
 const INVITABLE_ROLES: {
   key: QBMemberRole;
   label: string;
@@ -107,6 +127,20 @@ const INVITABLE_ROLES: {
   },
 ];
 
+// Who can be a manager (approve claims and trips): the owner, or an accepted
+// admin/accountant — same rule as the backend's checkManager.
+interface ManagerOption {
+  userId: string;
+  name: string;
+}
+
+const pagesLabel = (pages: string[] | null | undefined) =>
+  !pages
+    ? "All pages"
+    : PAGE_ACCESS_OPTIONS.filter((p) => pages.includes(p.key))
+        .map((p) => p.label)
+        .join(", ");
+
 const isValidEmail = (value: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
@@ -126,6 +160,7 @@ export function TeamMembersContentV2() {
   const router = useRouter();
   const loadingConnections = useAppSelector((state) => !state.quickBooks.connectionsLoaded);
   const [members, setMembers] = useState<QBMember[]>([]);
+  const [owner, setOwner] = useState<ManagerOption | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -135,6 +170,16 @@ export function TeamMembersContentV2() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteEmailError, setInviteEmailError] = useState("");
   const [inviteRole, setInviteRole] = useState<QBMemberRole>("accountant");
+  const [inviteAutoPost, setInviteAutoPost] = useState(ROLE_DEFAULT_AUTO_POST.accountant);
+  const [inviteManagerId, setInviteManagerId] = useState("");
+  const [invitePages, setInvitePages] = useState<Set<PageKey>>(() => new Set(ALL_PAGE_KEYS));
+  // The contributor whose pages are being edited, with the draft.
+  const [pagesEdit, setPagesEdit] = useState<{ member: QBMember; pages: Set<PageKey> } | null>(null);
+  const [savingMemberId, setSavingMemberId] = useState<string | null>(null);
+  // Members whose auto-post save is in flight — one each, so finishing one
+  // doesn't unlock another's switch mid-request.
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
+
   const [sending, setSending] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
 
@@ -157,6 +202,10 @@ export function TeamMembersContentV2() {
     if (currentRole === "admin") return memberRole !== "admin";
     return false;
   };
+
+  // Same who-can rule as removing (the backend enforces it too). The self
+  // row and the forwarding account are handled where the row is drawn.
+  const canEditAutoPost = (member: QBMember) => canRemoveRole(member.role);
 
   const currentUserEmail = authUser?.email?.toLowerCase();
   const isSelf = (member: QBMember) =>
@@ -232,6 +281,7 @@ export function TeamMembersContentV2() {
       if (membersForIdRef.current !== qbId) {
         membersForIdRef.current = null;
         setMembers([]);
+        setOwner(null);
       }
       setMembersLoading(true);
       setMembersError("");
@@ -239,6 +289,12 @@ export function TeamMembersContentV2() {
       if (fetchQBMembers.fulfilled.match(result)) {
         membersForIdRef.current = qbId;
         setMembers(result.payload?.data?.members ?? []);
+        const ownerUser = result.payload?.data?.owner?.userId;
+        setOwner(
+          ownerUser?._id
+            ? { userId: ownerUser._id, name: capitalizeWords(`${ownerUser.firstName ?? ""} ${ownerUser.lastName ?? ""}`.trim()) || ownerUser.email }
+            : null,
+        );
       } else {
         const payload = result.payload as { message?: string } | undefined;
         setMembers([]);
@@ -253,6 +309,65 @@ export function TeamMembersContentV2() {
     if (activeConnection?._id) fetchMembers(activeConnection._id);
     else setMembers([]);
   }, [activeConnection?._id, fetchMembers]);
+
+  const managerOptions = useMemo<ManagerOption[]>(
+    () => [
+      ...(owner ? [{ userId: owner.userId, name: `${owner.name} (Owner)` }] : []),
+      ...members
+        .filter((m) => m.inviteStatus === "accepted" && m.userId?._id && (m.role === "admin" || m.role === "accountant"))
+        .map((m) => ({ userId: m.userId!._id as string, name: `${memberDisplayName(m)} (${ROLE_META[m.role]?.label ?? m.role})` })),
+    ],
+    [owner, members],
+  );
+  const managerName = (userId: string | null | undefined) =>
+    userId ? managerOptions.find((m) => m.userId === userId)?.name.replace(/ \((Owner|Admin|Accountant)\)$/, "") ?? null : null;
+
+  // Saves one member's manager or pages; the row shows what the server stored.
+  const saveMember = async (member: QBMember, change: { managerId?: string | null; pageAccess?: string[] | null }, success: string) => {
+    if (!activeConnection) return false;
+    setSavingMemberId(member._id);
+    try {
+      const result = await dispatch(updateQBMember({ qbId: activeConnection._id, memberId: member._id, ...change }));
+      if (updateQBMember.fulfilled.match(result)) {
+        const saved = result.payload?.data?.member as QBMember | undefined;
+        setMembers((prev) =>
+          prev.map((m) => (m._id === member._id ? { ...m, managerUserId: saved?.managerUserId ?? null, pageAccess: saved?.pageAccess ?? null } : m)),
+        );
+        showToast(success, "success");
+        return true;
+      }
+      const payload = result.payload as { message?: string } | undefined;
+      showToast(payload?.message || "Could not save. Please try again.", "error");
+      return false;
+    } finally {
+      setSavingMemberId(null);
+    }
+  };
+
+  const handleSetManager = (member: QBMember, managerId: string) =>
+    saveMember(
+      member,
+      { managerId: managerId || null },
+      managerId
+        ? `${managerName(managerId)} now approves ${memberDisplayName(member)}'s expense claims and trips.`
+        : `${memberDisplayName(member)} has no manager now — they can't send claims or trips until they get one.`,
+    );
+
+  const handleSavePages = async () => {
+    if (!pagesEdit) return;
+    const pages = ALL_PAGE_KEYS.filter((k) => pagesEdit.pages.has(k));
+    const done = await saveMember(
+      pagesEdit.member,
+      { pageAccess: pages.length === ALL_PAGE_KEYS.length ? null : pages },
+      `Pages updated for ${memberDisplayName(pagesEdit.member)}.`,
+    );
+    if (done) setPagesEdit(null);
+  };
+
+  // The company's own auto-post toggle (from the connections list AppShell
+  // keeps loaded): off, nobody's uploads auto-post, whatever their switch
+  // says. null when not known.
+  const companyAutoPost = activeConnection?.autoPostEnabled ?? null;
 
   const handleRemoveMember = async (member: QBMember) => {
     if (!activeConnection) return;
@@ -310,13 +425,87 @@ export function TeamMembersContentV2() {
     }
   };
 
+  const chooseInviteRole = (role: QBMemberRole) => {
+    setInviteRole(role);
+    setInviteAutoPost(ROLE_DEFAULT_AUTO_POST[role]);
+  };
+
+  const toggleInvitePage = (key: PageKey) =>
+    setInvitePages((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   const openInviteSheet = () => {
     setInviteEmail("");
     setInviteEmailError("");
-    setInviteRole(
+    setInviteManagerId("");
+    setInvitePages(new Set(ALL_PAGE_KEYS));
+    chooseInviteRole(
       availableRoles[availableRoles.length - 1]?.key || "contributor",
     );
     setSheetVisible(true);
+  };
+
+  const handleToggleAutoPost = async (member: QBMember, allowed: boolean) => {
+    if (!activeConnection) return;
+    const name = memberDisplayName(member);
+    const confirmed = await confirmDialog(
+      allowed
+        ? {
+            title: `Allow auto-post for ${name}?`,
+            message: [
+              `Invoices ${name} uploads will be posted to ${activeConnection.name} automatically when they pass every check: an exact vendor match, no missing fields and high confidence. Anything else still goes to review.`,
+              ...(companyAutoPost === false
+                ? ["", `Auto-post is turned off for ${activeConnection.name} right now, so this applies once it's turned back on.`]
+                : []),
+            ].join("\n"),
+            confirmLabel: "Allow auto-post",
+            size: "wide",
+          }
+        : {
+            title: `Turn off auto-post for ${name}?`,
+            message: `Invoices ${name} uploads will always wait for review before they're posted. Invoices already posted aren't affected.`,
+            confirmLabel: "Turn off",
+            tone: "destructive",
+            size: "wide",
+          },
+    );
+    if (!confirmed) return;
+    const previous = member.autoPostAllowed;
+    const setRow = (value: boolean | undefined) =>
+      setMembers((prev) => prev.map((m) => (m._id === member._id ? { ...m, autoPostAllowed: value } : m)));
+    setTogglingIds((prev) => new Set(prev).add(member._id));
+    // Show it straight away; put the earlier value back if the save fails.
+    setRow(allowed);
+    try {
+      const result = await dispatch(
+        updateQBMember({ qbId: activeConnection._id, memberId: member._id, autoPostAllowed: allowed }),
+      );
+      if (updateQBMember.fulfilled.match(result)) {
+        // What the server stored is what the row shows.
+        const saved = result.payload?.data?.member?.autoPostAllowed;
+        if (typeof saved === "boolean") setRow(saved);
+        showToast(
+          allowed
+            ? `Invoices ${memberDisplayName(member)} uploads can now auto-post.`
+            : `Invoices ${memberDisplayName(member)} uploads will now wait for review.`,
+          "success",
+        );
+      } else {
+        setRow(previous);
+        const payload = result.payload as { message?: string } | undefined;
+        showToast(payload?.message || "Could not update auto-post. Please try again.", "error");
+      }
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(member._id);
+        return next;
+      });
+    }
   };
 
   const handleSendInvite = async () => {
@@ -326,6 +515,10 @@ export function TeamMembersContentV2() {
       return;
     }
     if (!accessToken || !activeConnection) return;
+    if (inviteRole === "contributor" && invitePages.size === 0) {
+      showToast("Give the contributor at least one page.", "warning");
+      return;
+    }
 
     setSending(true);
     try {
@@ -335,6 +528,16 @@ export function TeamMembersContentV2() {
           qbId: activeConnection._id,
           email: trimmedEmail.toLowerCase(),
           role: inviteRole,
+          // Only a change from the role default is stored; otherwise the
+          // member keeps following the role default.
+          ...(inviteAutoPost !== ROLE_DEFAULT_AUTO_POST[inviteRole] && { autoPostAllowed: inviteAutoPost }),
+          // Both always sent, so re-inviting someone gets exactly what this
+          // form shows (the server keeps the old value when one is left out).
+          managerId: inviteManagerId || null,
+          // Every page ticked = no restriction.
+          ...(inviteRole === "contributor" && {
+            pageAccess: invitePages.size === ALL_PAGE_KEYS.length ? null : ALL_PAGE_KEYS.filter((k) => invitePages.has(k)),
+          }),
         }),
       );
       if (inviteQBMember.fulfilled.match(result)) {
@@ -423,6 +626,12 @@ export function TeamMembersContentV2() {
             </div>
           ) : (
             <div className="flex flex-col gap-[var(--space-sm)]">
+              {companyAutoPost === false && (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-text-secondary">
+                  Auto-post is turned off for <strong className="font-semibold text-text-primary">{activeConnection?.name}</strong>,
+                  so no invoices auto-post right now. The switches below apply once it&apos;s turned back on in Preferences.
+                </div>
+              )}
               {displayMembers.map((member) => {
                 const meta = ROLE_META[member.role] || ROLE_FALLBACK;
                 const self = isSelf(member);
@@ -434,12 +643,17 @@ export function TeamMembersContentV2() {
                 const isRemoving = removingId === member._id;
                 const isResending = resendingId === member._id;
                 const joinedDate = formatMemberDate(member.createdAt);
+                // The owner's own row (added here, not a member) has no setting.
+                const hasAutoPostRow = member._id !== "__self__";
+                const autoPostOn =
+                  member.autoPostAllowed ?? ROLE_DEFAULT_AUTO_POST[member.role as QBMemberRole] ?? false;
                 return (
                   <div
                     key={member._id}
-                    className="flex items-center justify-between gap-[var(--space-sm)] rounded-lg border border-border bg-surface p-[var(--space-md)] shadow-sm"
+                    className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm"
                   >
-                    <div className="flex min-w-0 flex-1 items-center gap-[var(--space-sm)]">
+                    {/* Who: avatar, name, email, status — and what can be done to them. */}
+                    <div className="flex items-center gap-[var(--space-sm)] p-[var(--space-md)]">
                       <Avatar
                         name={memberDisplayName(member)}
                         photoURL={member.userId?.icon}
@@ -450,7 +664,7 @@ export function TeamMembersContentV2() {
                         <p className="truncate font-semibold text-text-primary">
                           {memberDisplayName(member)}
                           {self && (
-                            <span className="text-text-secondary"> (You)</span>
+                            <span className="font-normal text-text-secondary"> (You)</span>
                           )}
                         </p>
                         {member.userId && (
@@ -458,57 +672,155 @@ export function TeamMembersContentV2() {
                             {member.userId.email}
                           </p>
                         )}
-                        {pending && (
-                          <p className="text-caption font-semibold text-warning">
-                            Invite pending
-                          </p>
+                        {(pending || joinedDate) && (
+                          <div className="mt-[2px] flex flex-wrap items-center gap-x-[var(--space-sm)] gap-y-[2px] text-caption text-text-secondary">
+                            {pending && (
+                              <span className="rounded-pill bg-warning/10 px-[var(--space-xs)] py-[1px] font-semibold text-warning">
+                                Invite pending
+                              </span>
+                            )}
+                            {joinedDate && <span>Added {joinedDate}</span>}
+                          </div>
                         )}
-                        {joinedDate && (
-                          <p className="truncate text-caption text-text-secondary">
-                            Added {joinedDate}
-                          </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
+                        <span
+                          className={`rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${meta.className}`}
+                        >
+                          {meta.label}
+                        </span>
+                        {pending && canInvite && (
+                          <button
+                            type="button"
+                            onClick={() => handleResendInvite(member)}
+                            disabled={isResending}
+                            aria-label={`Resend invite to ${member.invitedEmail}`}
+                            title="Resend invite"
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60 lg:h-8 lg:w-8"
+                          >
+                            <RefreshCw
+                              size={16}
+                              strokeWidth={2.25}
+                              className={isResending ? "animate-spin" : ""}
+                            />
+                          </button>
+                        )}
+                        {removable && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveMember(member)}
+                            disabled={isRemoving}
+                            title="Remove member"
+                            className="flex h-10 w-10 items-center justify-center rounded-md bg-error/10 text-error disabled:opacity-60 lg:h-8 lg:w-8"
+                            aria-label={`Remove ${memberDisplayName(member)}`}
+                          >
+                            {isRemoving ? (
+                              "…"
+                            ) : (
+                              <UserX size={16} strokeWidth={2} />
+                            )}
+                          </button>
                         )}
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-[var(--space-xs)]">
-                      <span
-                        className={`rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${meta.className}`}
-                      >
-                        {meta.label}
-                      </span>
-                      {pending && canInvite && (
-                        <button
-                          type="button"
-                          onClick={() => handleResendInvite(member)}
-                          disabled={isResending}
-                          aria-label={`Resend invite to ${member.invitedEmail}`}
-                          title="Resend invite"
-                          className="flex h-10 shrink-0 items-center gap-1 rounded-md px-[var(--space-sm)] text-caption font-bold text-primary hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60 lg:h-8"
-                        >
-                          <RefreshCw
-                            size={14}
-                            strokeWidth={2.25}
-                            className={isResending ? "animate-spin" : ""}
+
+                    {/* Their setting, kept apart from who they are. */}
+                    {hasAutoPostRow && (
+                      <div className="flex items-center justify-between gap-[var(--space-md)] border-t border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)]">
+                        <div className="min-w-0">
+                          <p className="text-body-sm font-semibold text-text-primary">Auto-post invoices</p>
+                          <p className="text-caption text-text-secondary">
+                            {member.isForwardingService
+                              ? "Forwarded invoices follow the company auto-post setting."
+                              : autoPostOn
+                                ? "Invoices they upload post automatically when every check passes."
+                                : "Invoices they upload always wait for review."}
+                          </p>
+                        </div>
+                        {member.isForwardingService ? null : canEditAutoPost(member) ? (
+                          <Switch
+                            checked={autoPostOn}
+                            onChange={(allowed) => handleToggleAutoPost(member, allowed)}
+                            disabled={togglingIds.has(member._id)}
+                            label={`Auto-post invoices uploaded by ${memberDisplayName(member)}`}
                           />
-                          Resend
-                        </button>
-                      )}
-                      {removable && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMember(member)}
-                          disabled={isRemoving}
-                          className="flex h-10 w-10 items-center justify-center rounded-md bg-error/10 text-error disabled:opacity-60 lg:h-8 lg:w-8"
-                          aria-label={`Remove ${memberDisplayName(member)}`}
-                        >
-                          {isRemoving ? (
-                            "…"
-                          ) : (
-                            <UserX size={16} strokeWidth={2} />
-                          )}
-                        </button>
-                      )}
-                    </div>
+                        ) : (
+                          <span
+                            className={`shrink-0 rounded-pill px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold ${
+                              autoPostOn ? "bg-success/10 text-success" : "bg-background-alt text-text-secondary"
+                            }`}
+                          >
+                            {autoPostOn ? "On" : "Off"}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Who approves their expense claims and trips. */}
+                    {hasAutoPostRow && !member.isForwardingService && (
+                      <div className="flex flex-col gap-[var(--space-xs)] border-t border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)] sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-body-sm font-semibold text-text-primary">Manager</p>
+                          <p className="text-caption text-text-secondary">
+                            {managerName(member.managerUserId)
+                              ? `${managerName(member.managerUserId)} approves their expense claims and trips.`
+                              : member.managerUserId
+                                ? // Left the company or can't approve any more — the server treats them as no manager.
+                                  "Their manager left or can't approve any more — they can't send expense claims or trips until they get a new one."
+                                : "Not set — they can't send expense claims or trips until they have one."}
+                          </p>
+                        </div>
+                        {canEditAutoPost(member) && (
+                          <div className="flex w-full shrink-0 sm:w-auto sm:justify-end">
+                            <SelectDropdown
+                              aria-label={`Manager for ${memberDisplayName(member)}`}
+                              value={member.managerUserId ?? ""}
+                              onChange={(e) => handleSetManager(member, e.target.value)}
+                              disabled={savingMemberId === member._id}
+                              uiSize="sm"
+                              className="w-full sm:w-56"
+                            >
+                              {/* A former manager shows as the current value, so picking "No manager" is still a change. */}
+                              {member.managerUserId && !managerName(member.managerUserId) && (
+                                <option value={member.managerUserId} disabled>
+                                  Former manager
+                                </option>
+                              )}
+                              <option value="">No manager</option>
+                              {managerOptions
+                                .filter((o) => o.userId !== member.userId?._id)
+                                .map((o) => (
+                                  <option key={o.userId} value={o.userId}>
+                                    {o.name}
+                                  </option>
+                                ))}
+                            </SelectDropdown>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* A contributor's pages. */}
+                    {hasAutoPostRow && member.role === "contributor" && !member.isForwardingService && (
+                      <div className="flex items-center justify-between gap-[var(--space-md)] border-t border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)]">
+                        <div className="min-w-0">
+                          <p className="text-body-sm font-semibold text-text-primary">Pages</p>
+                          <p className="truncate text-caption text-text-secondary">{pagesLabel(member.pageAccess)}</p>
+                        </div>
+                        {canEditAutoPost(member) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setPagesEdit({ member, pages: new Set((member.pageAccess as PageKey[] | null | undefined) ?? ALL_PAGE_KEYS) })
+                            }
+                            disabled={savingMemberId === member._id}
+                          >
+                            Edit
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -667,7 +979,7 @@ export function TeamMembersContentV2() {
                     key={role.key}
                     type="button"
                     disabled={sending}
-                    onClick={() => setInviteRole(role.key)}
+                    onClick={() => chooseInviteRole(role.key)}
                     className={`flex items-center justify-between rounded-lg border-2 px-[var(--space-md)] py-[var(--space-sm)] text-left ${
                       selected
                         ? "border-primary bg-primary/5"
@@ -696,6 +1008,59 @@ export function TeamMembersContentV2() {
               })}
             </div>
 
+            {inviteRole === "contributor" && (
+              <div className="mt-[var(--space-md)] rounded-lg border border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)]">
+                <div className="flex items-center justify-between gap-[var(--space-sm)]">
+                  <p className="font-bold text-text-primary">Pages they can open</p>
+                  <button
+                    type="button"
+                    disabled={sending}
+                    onClick={() => setInvitePages(invitePages.size === ALL_PAGE_KEYS.length ? new Set() : new Set(ALL_PAGE_KEYS))}
+                    className="text-caption font-bold text-primary hover:underline"
+                  >
+                    {invitePages.size === ALL_PAGE_KEYS.length ? "Clear all" : "Select all"}
+                  </button>
+                </div>
+                <PageCheckboxes selected={invitePages} onToggle={toggleInvitePage} disabled={sending} />
+              </div>
+            )}
+
+            <div className="mt-[var(--space-md)]">
+              <SelectDropdown
+                label="Manager"
+                value={inviteManagerId}
+                onChange={(e) => setInviteManagerId(e.target.value)}
+                disabled={sending}
+              >
+                <option value="">No manager yet</option>
+                {managerOptions.map((o) => (
+                  <option key={o.userId} value={o.userId}>
+                    {o.name}
+                  </option>
+                ))}
+              </SelectDropdown>
+              <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
+                Approves their expense claims and mileage trips. Without one they can&apos;t send any. You can change this later.
+              </p>
+            </div>
+
+            <div className="mt-[var(--space-md)] flex items-start justify-between gap-[var(--space-md)] rounded-lg border border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)]">
+              <div>
+                <p className="font-bold text-text-primary">Auto-post their invoices</p>
+                <p className="text-caption text-text-secondary">
+                  On: invoices they upload are posted automatically when they pass every check. Off: they always wait
+                  for review. You can change this later.
+                  {companyAutoPost === false && " Auto-post is off for the whole company right now, so this applies once it's turned back on."}
+                </p>
+              </div>
+              <Switch
+                checked={inviteAutoPost}
+                onChange={setInviteAutoPost}
+                disabled={sending}
+                label="Auto-post their invoices"
+              />
+            </div>
+
             <Button
               onClick={handleSendInvite}
               loading={sending}
@@ -707,6 +1072,61 @@ export function TeamMembersContentV2() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={!!pagesEdit}
+        onClose={() => savingMemberId === null && setPagesEdit(null)}
+        title={pagesEdit ? `Pages for ${memberDisplayName(pagesEdit.member)}` : ""}
+        widthClassName="max-w-md"
+        footer={
+          <div className="flex w-full justify-end gap-[var(--space-sm)]">
+            <Button variant="outline" size="sm" onClick={() => setPagesEdit(null)} disabled={savingMemberId !== null}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleSavePages} loading={savingMemberId !== null} disabled={!pagesEdit || pagesEdit.pages.size === 0 || savingMemberId !== null}>
+              Save
+            </Button>
+          </div>
+        }
+      >
+        {pagesEdit && (
+          <div>
+            <p className="text-body-sm text-text-secondary">Pages they don&apos;t have are hidden from their menu. Profile is always available.</p>
+            <PageCheckboxes
+              selected={pagesEdit.pages}
+              onToggle={(key) =>
+                setPagesEdit((prev) => {
+                  if (!prev) return prev;
+                  const pages = new Set(prev.pages);
+                  if (pages.has(key)) pages.delete(key);
+                  else pages.add(key);
+                  return { ...prev, pages };
+                })
+              }
+            />
+            {pagesEdit.pages.size === 0 && <p className="mt-[var(--space-xs)] text-caption font-semibold text-error">Pick at least one page.</p>}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function PageCheckboxes({ selected, onToggle, disabled }: { selected: Set<PageKey>; onToggle: (key: PageKey) => void; disabled?: boolean }) {
+  return (
+    <div className="mt-[var(--space-sm)] grid grid-cols-1 gap-[var(--space-xs)] sm:grid-cols-2">
+      {PAGE_ACCESS_OPTIONS.map((p) => (
+        <label key={p.key} className="flex items-center gap-[var(--space-sm)] text-body-sm text-text-primary">
+          <input
+            type="checkbox"
+            checked={selected.has(p.key)}
+            onChange={() => onToggle(p.key)}
+            disabled={disabled}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          {p.label}
+        </label>
+      ))}
     </div>
   );
 }

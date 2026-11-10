@@ -236,6 +236,13 @@ export function InvoiceListContentV2() {
           invoice.file?.originalName?.replace(/\.pdf$/i, "").replace(/%20/g, " ") ||
           "Unknown Vendor";
         const fromEmail = emailSourced.has(invoice._id);
+        const claimTag = (invoice.expenseClaimId || invoice.claimReceipt) && (
+          <span className="inline-flex w-fit shrink-0 items-center rounded-pill bg-status-info-bg px-[var(--space-xs)] py-[1px] text-tiny font-bold text-status-info-text">
+            Expense claim
+          </span>
+        );
+        // Right after the invoice number when there is one; on its own line otherwise.
+        const tagInline = !failureReason && !!invoiceNumber;
         return (
           <div className="flex items-center gap-[var(--space-xs)]">
             <Avatar
@@ -250,7 +257,10 @@ export function InvoiceListContentV2() {
               {failureReason ? (
                 <p className="truncate text-tiny text-status-danger-text">{failureReason}</p>
               ) : invoiceNumber ? (
-                <p className="truncate text-tiny text-content-secondary">#{invoiceNumber}</p>
+                <div className="flex min-w-0 items-center gap-[var(--space-xs)]">
+                  <p className="truncate text-tiny text-content-secondary">#{invoiceNumber}</p>
+                  {claimTag}
+                </div>
               ) : null}
               {fromEmail && (
                 <span className="mt-[2px] inline-flex w-fit items-center gap-[2px] rounded-pill bg-surface-alt px-[var(--space-xs)] py-[1px] text-tiny font-bold text-content-secondary">
@@ -258,6 +268,7 @@ export function InvoiceListContentV2() {
                   Email
                 </span>
               )}
+              {!tagInline && claimTag && <div className="mt-[2px]">{claimTag}</div>}
             </div>
           </div>
         );
