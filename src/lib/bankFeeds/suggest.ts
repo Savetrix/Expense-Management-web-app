@@ -21,17 +21,25 @@
 // expense", rules.ts) comes before the history above. A rule is the company's
 // own instruction, so it counts as sure even for a payee seen for the first
 // time, and the line is filled in when the line itself is clean data.
+//
+// Step 2: every suggestion also carries the top 3 accounts (`picks`, from
+// lib/suggestions/picks.ts) with the past lines behind each, for the account
+// dropdown and "How Scantrix decided". Once a person picks a vendor for a
+// payee, the payee is linked to that vendor (payee_links), and later lines
+// from that payee get that vendor.
 import type { AnyBulkWriteOperation } from "mongodb";
 
 import { payeeKey, ruleFor, ruleSubject, type AutoClassification } from "@/lib/suggestions/match";
+import { historyPicks, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
-import type { RuleDoc, RuleMatch, TxnDoc } from "./schema";
+import type { PayeeLinkDoc, RuleDoc, RuleMatch, TxnDoc } from "./schema";
 import { logEvent } from "./store";
 
 // The payee key and rule matching live in lib/suggestions/match.ts, shared
 // with the invoice review screen.
 export { payeeKey } from "@/lib/suggestions/match";
+export { MIN_AGREEING_WEIGHT, MIN_AGREEMENT, voteWeight } from "@/lib/suggestions/picks";
 
 // ---------------------------------------------------------------- scoring
 
@@ -45,6 +53,8 @@ export interface Vote {
   payee: string | null;
   transferLabel: string | null;
   decidedAt: string;
+  /** The past line itself, shown as evidence. */
+  evidence?: Evidence;
 }
 
 export interface CheckResult {
@@ -71,22 +81,34 @@ export interface Suggestion {
   step: "rule" | "history";
   /** The rule behind a step-1 suggestion. */
   rule?: { id: string; match: RuleMatch; label: string };
+  /** Step 2: up to 3 accounts, best first, each with its reason and the past lines behind it. */
+  picks?: SuggestionPick[];
+  /** The vendor comes from the payee's link to a vendor, not from history. */
+  linkedVendor?: boolean;
   scoredAt: string;
 }
 
-const DAY = 86_400_000;
-export const MIN_AGREEING_WEIGHT = 3.0;
-export const MIN_AGREEMENT = 0.9;
+// The vendor is who was paid, not part of the coding: lines coded to the same
+// account and tax code agree even if one of them had no vendor picked yet.
+const groupKey = (v: Vote) =>
+  v.kind === "expense" ? `expense|${v.glAccountId}|${v.taxCodeId ?? ""}` : v.kind === "transfer" ? `transfer|${v.transferLabel ?? ""}` : v.kind;
 
-export function voteWeight(decidedAt: string, now = Date.now()): number {
-  const age = (now - new Date(decidedAt).getTime()) / DAY;
-  if (age <= 90) return 1;
-  if (age <= 365) return 0.5;
-  return 0;
+function memoryVotes(votes: Vote[], fallbackLabel: string): MemoryVote[] {
+  return votes
+    .filter((v) => v.kind === "expense" && v.glAccountId)
+    .map((v) => ({
+      glAccountId: v.glAccountId as string,
+      taxCodeId: v.taxCodeId,
+      decidedAt: v.decidedAt,
+      evidence: v.evidence ?? { label: v.payee ?? fallbackLabel, date: v.decidedAt.slice(0, 10), amountCents: null, source: "bank" as const },
+    }));
 }
 
-const groupKey = (v: Vote) =>
-  v.kind === "expense" ? `expense|${v.glAccountId}|${v.taxCodeId ?? ""}|${v.vendorId ?? ""}` : v.kind === "transfer" ? `transfer|${v.transferLabel ?? ""}` : v.kind;
+/** Who the history is about: the payee people wrote on the latest line, else the bank's name for it. */
+function subjectOf(votes: Vote[], fallback: string): string {
+  const latest = [...votes].filter((v) => v.payee).sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1))[0];
+  return latest?.payee ?? fallback;
+}
 
 export interface LineFacts {
   date: string;
@@ -138,6 +160,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     autoCoded: false,
     basis: { agreeing: 0, total: 0, lines: 0 },
     step: "history",
+    picks: [],
     scoredAt,
   };
   if (!top) return empty;
@@ -174,6 +197,13 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
         ? historyDetail
         : completeness.detail;
 
+  // Top 3 accounts: the suggestion's own first (with its confidence, which
+  // also weighs clean data and completeness), then the rest of the history.
+  const subject = subjectOf(weighted.map((x) => x.v), line.payeeLabel);
+  const fromHistory = historyPicks(memoryVotes(votes, line.payeeLabel), subject, now);
+  const own = v.kind === "expense" && v.glAccountId ? fromHistory.find((p) => p.glAccountId === v.glAccountId) : undefined;
+  const picks = topPicks(own ? [{ ...own, ...(v.taxCodeId ? { taxCodeId: v.taxCodeId } : {}), confidence }] : [], fromHistory.map((p) => (p.confidence === "high" ? { ...p, confidence: "medium" as const } : p)));
+
   return {
     kind: v.kind,
     glAccountId: v.glAccountId ?? undefined,
@@ -187,6 +217,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     autoCoded,
     basis: { agreeing: top.weight, total, lines: weighted.length },
     step: "history",
+    picks,
     scoredAt,
   };
 }
@@ -221,6 +252,11 @@ export function scoreWithRule(line: LineFacts, rule: RuleLike, history: Suggesti
     basis: { agreeing: 0, total: 0, lines: 0 },
     step: "rule",
     rule: { id: rule._id, match: rule.match, label: rule.label },
+    // The rule is the 1st pick; history adds the 2nd and 3rd, never as sure as the rule.
+    picks: topPicks(
+      [{ glAccountId: rule.glAccountId, ...(rule.taxCodeId ? { taxCodeId: rule.taxCodeId } : {}), confidence: "high", step: "rule", subject, lines: 0, weight: 0, evidence: [], ruleId: rule._id }],
+      (history?.picks ?? []).map((p) => (p.confidence === "high" ? { ...p, confidence: "medium" as const } : p)),
+    ),
     scoredAt: new Date(now).toISOString(),
   };
 }
@@ -247,11 +283,17 @@ export async function readAutoClassification(db: Db, qbConnectionId: string): Pr
   return doc?.autoClassification ?? "fill";
 }
 
-function toVote(r: Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt">): Vote | null {
+type VoteRow = Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt"> &
+  Partial<Pick<TxnDoc, "date" | "amountCents" | "description" | "merchantName" | "counterpartyName">>;
+
+function toVote(r: VoteRow): Vote | null {
   const kind: SuggestionKind | null =
     r.status === "transfer" ? "transfer" : r.status === "excluded" ? "exclude" : r.status === "matched" ? "bill" : r.glAccountId ? "expense" : null;
   if (!kind || !r.decidedAt) return null;
-  return { kind, glAccountId: r.glAccountId, taxCodeId: r.taxCodeId, vendorId: r.vendorId, payee: r.payee, transferLabel: r.transferLabel, decidedAt: r.decidedAt.toISOString() };
+  const evidence: Evidence | undefined = r.date
+    ? { label: (r.payee ?? r.merchantName ?? r.counterpartyName ?? r.description ?? "").trim() || "Earlier line", date: r.date, amountCents: typeof r.amountCents === "number" ? Math.abs(r.amountCents) : null, source: "bank" }
+    : undefined;
+  return { kind, glAccountId: r.glAccountId, taxCodeId: r.taxCodeId, vendorId: r.vendorId, payee: r.payee, transferLabel: r.transferLabel, decidedAt: r.decidedAt.toISOString(), ...(evidence ? { evidence } : {}) };
 }
 
 /**
@@ -295,8 +337,9 @@ export async function refreshSuggestions(
       decidedBy: { $nin: [null, "autopilot"] },
       payeeKey: { $nin: [null, ""], ...(onlyKeys ? { $in: onlyKeys } : {}) },
     })
-    .project<Pick<TxnDoc, "payeeKey" | "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt">>({
+    .project<VoteRow & Pick<TxnDoc, "payeeKey">>({
       payeeKey: 1, status: 1, glAccountId: 1, taxCodeId: 1, vendorId: 1, payee: 1, transferLabel: 1, decidedAt: 1,
+      date: 1, amountCents: 1, description: 1, merchantName: 1, counterpartyName: 1,
     })
     .toArray();
   const votesByKey = new Map<string, Vote[]>();
@@ -309,11 +352,13 @@ export async function refreshSuggestions(
   }
 
   // 3. Candidates: lines still to review that the user has not coded.
-  const [candidates, rules, mode] = await Promise.all([
+  const [candidates, rules, mode, links] = await Promise.all([
     db.txns.find({ qbConnectionId, removedAt: null, status: "review", decidedBy: { $in: [null, "autopilot"] }, postingStatus: null, ...keyFilter }).toArray(),
     db.rules.find({ qbConnectionId, brokenAt: null }).toArray(),
     readAutoClassification(db, qbConnectionId),
+    db.payeeLinks.find({ qbConnectionId, ...(onlyKeys ? { payeeKey: { $in: onlyKeys } } : {}) }).toArray(),
   ]);
+  const vendorByKey = new Map(links.map((l) => [l.payeeKey, l]));
 
   let autoCoded = 0;
   const byRule: Record<string, number> = {};
@@ -350,7 +395,10 @@ export async function refreshSuggestions(
     const fromHistory = score(facts, key ? (votesByKey.get(key) ?? []) : [], now);
     // A new line from sync has no key in memory yet; the bulk write above gave it one.
     const rule = ruleFor(rules, { ...c, payeeKey: c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description) });
-    const found = rule ? scoreWithRule(facts, rule, fromHistory, now) : fromHistory;
+    const scored = rule ? scoreWithRule(facts, rule, fromHistory, now) : fromHistory;
+    // A payee a person linked to a vendor gets that vendor, even with no coding history yet.
+    const link = vendorByKey.get(c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description));
+    const found = link ? withLinkedVendor(scored, link) : scored;
     const s = mode === "suggest" ? suggestOnly(found) : found;
     if (rule && (s.autoCoded || mode === "suggest")) byRule[rule._id] = (byRule[rule._id] ?? 0) + 1;
     if (s.autoCoded) {
@@ -389,6 +437,62 @@ export async function refreshSuggestions(
   }
   await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding]);
   return { scored: candidates.length, autoCoded, byRule };
+}
+
+/**
+ * Company memory for one vendor from bank lines: the accounts people coded
+ * this vendor's lines to in the last year. Only a person's decisions count
+ * (a line Scantrix filled in counts once a person posts it).
+ */
+export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: string): Promise<MemoryVote[]> {
+  if (!vendorId) return [];
+  const rows = await db.txns
+    .find({
+      qbConnectionId,
+      vendorId,
+      removedAt: null,
+      status: { $in: ["review", "ready"] },
+      glAccountId: { $ne: null },
+      decidedBy: { $nin: [null, "autopilot"] },
+      decidedAt: { $gt: new Date(Date.now() - 365 * 86_400_000) },
+    })
+    .project<VoteRow>({ status: 1, glAccountId: 1, taxCodeId: 1, vendorId: 1, payee: 1, transferLabel: 1, decidedAt: 1, date: 1, amountCents: 1, description: 1, merchantName: 1, counterpartyName: 1 })
+    .sort({ decidedAt: -1 })
+    .limit(500)
+    .toArray();
+  return memoryVotes(rows.map(toVote).filter((v): v is Vote => v !== null), "Bank line");
+}
+
+/** The vendor a person linked this payee to replaces the one from history. */
+export function withLinkedVendor(s: Suggestion, link: Pick<PayeeLinkDoc, "vendorId" | "payee">): Suggestion {
+  const completeness = s.kind === "expense" && !s.checks.completeness.ok && s.checks.completeness.detail === "No vendor to suggest."
+    ? { ok: true, detail: "Vendor and GL account are known" + (s.taxCodeId ? ", and the tax code." : ".") }
+    : s.checks.completeness;
+  return { ...s, vendorId: link.vendorId, payee: s.payee ?? link.payee ?? undefined, linkedVendor: true, checks: { ...s.checks, completeness } };
+}
+
+/**
+ * Called after a person's decision that set a vendor: links the line's payee
+ * to that vendor for this company (one vendor per payee; the latest wins).
+ */
+export async function linkPayeeToVendor(db: Db, args: { qbConnectionId: string; payeeKey: string; vendorId: string; payee: string | null; userId: string }): Promise<boolean> {
+  if (!args.payeeKey || !args.vendorId) return false;
+  const _id = `${args.qbConnectionId}:${args.payeeKey}`;
+  const before = await db.payeeLinks.findOne({ _id, qbConnectionId: args.qbConnectionId });
+  if (before?.vendorId === args.vendorId) return false;
+  await db.payeeLinks.updateOne(
+    { _id, qbConnectionId: args.qbConnectionId },
+    { $set: { payeeKey: args.payeeKey, vendorId: args.vendorId, payee: args.payee, linkedBy: args.userId, linkedAt: new Date() } },
+    { upsert: true },
+  );
+  await logEvent(db, {
+    qbConnectionId: args.qbConnectionId,
+    transactionId: null,
+    actor: args.userId,
+    action: "suggestion.payee_linked",
+    detail: { payeeKey: args.payeeKey, before: before ? { vendorId: before.vendorId } : null, after: { vendorId: args.vendorId } },
+  });
+  return true;
 }
 
 export async function payeeKeyOf(db: Db, qbConnectionId: string, id: string): Promise<string | null> {

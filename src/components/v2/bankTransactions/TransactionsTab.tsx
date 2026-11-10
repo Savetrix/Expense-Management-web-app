@@ -15,7 +15,9 @@ import { AddVendorModalV2 } from "@/components/v2/vendors/AddVendorModalV2";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
-import { codingFor, isSuggestedField, type Lookups } from "./coding";
+import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
+
+import { codingFor, isSuggestedField, picksFor, type Lookups } from "./coding";
 import { formatAmount } from "./format";
 import { findStrongSuggestions } from "./matching";
 import { SuggestedMatches } from "./SuggestedMatches";
@@ -294,6 +296,7 @@ export function TransactionsTab({
             title={c.reason ?? undefined}
             placeholder="GL account"
             clearLabel="No GL account"
+            picks={picksFor(t, lookups, glName).map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
             onSelect={(id) => onUpdate(t.id, { categoryId: id || undefined })}
             onAddNew={(name) => setAdding({ txnId: t.id, kind: "gl", name })}
           />

@@ -6,8 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { ruleForVendor } from "@/lib/suggestions/match";
-import { fetchSuggestionRules, fetchSuggestionSettings, type AutoClassification, type SuggestionRuleDto } from "@/store/bankFeeds/bankFeedsApi";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import type { AutoClassification, SuggestionRuleDto } from "@/store/bankFeeds/bankFeedsApi";
 import type { GLAccount } from "@/store/quickBooks/quickBooksSlice";
 
 // Smart Suggestions, step 1, on the invoice review screen: the company's rule
@@ -17,6 +16,7 @@ import type { GLAccount } from "@/store/quickBooks/quickBooksSlice";
 //   - otherwise: offered with "Use rule".
 // Either way nothing is saved until the person saves or posts the invoice.
 // Without bank feeds on the server (or with Auto-classification Off) it shows nothing.
+// The rules and the setting come from useInvoiceSuggestions.
 
 interface InvoiceRuleHintProps {
   vendorName: string;
@@ -26,28 +26,13 @@ interface InvoiceRuleHintProps {
   /** Only a pending invoice is filled in by itself; a posted one being edited is only offered the rule. */
   allowFill: boolean;
   onUse: (rule: { glAccountId: string; taxCodeId: string | null }) => void;
+  rules: SuggestionRuleDto[];
+  mode: AutoClassification;
 }
 
-export function InvoiceRuleHint({ vendorName, glAccountId, taxCodeId, glAccounts, allowFill, onUse }: InvoiceRuleHintProps) {
-  const dispatch = useAppDispatch();
-  const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
-  const [rules, setRules] = useState<SuggestionRuleDto[]>([]);
-  const [mode, setMode] = useState<AutoClassification>("off");
+export function InvoiceRuleHint({ vendorName, glAccountId, taxCodeId, glAccounts, allowFill, onUse, rules, mode }: InvoiceRuleHintProps) {
   const [filledBy, setFilledBy] = useState<string | null>(null);
   const filledOnce = useRef(false);
-
-  useEffect(() => {
-    if (!qbConnectionId) return;
-    let cancelled = false;
-    void Promise.all([dispatch(fetchSuggestionRules()), dispatch(fetchSuggestionSettings())]).then(([r, s]) => {
-      if (cancelled) return;
-      setRules(fetchSuggestionRules.fulfilled.match(r) ? r.payload : []);
-      setMode(fetchSuggestionSettings.fulfilled.match(s) ? s.payload.autoClassification : "off");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch, qbConnectionId]);
 
   const found = mode === "off" ? null : ruleForVendor(rules.filter((r) => !r.broken), vendorName);
   // Only an account this screen can select (the GL list for bills).

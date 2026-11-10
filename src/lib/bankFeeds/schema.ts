@@ -218,6 +218,22 @@ export interface RuleDoc {
  * Auto-classification: off (no suggestions), suggest (shown, never filled in)
  * or fill (only sure suggestions are filled in; the default).
  */
+/**
+ * Smart Suggestions, step 2: a payee a person linked to a vendor by picking
+ * that vendor on one of its lines. _id = `${qbConnectionId}:${payeeKey}`.
+ */
+export interface PayeeLinkDoc {
+  _id: string;
+  qbConnectionId: string;
+  payeeKey: string;
+  /** The vendor's id in Scantrix (the same id bank lines store). */
+  vendorId: string;
+  /** The payee as the person wrote it on that line. */
+  payee: string | null;
+  linkedBy: string;
+  linkedAt: Date;
+}
+
 export interface SuggestionSettingsDoc {
   _id: string;
   autoClassification: AutoClassification;
@@ -263,5 +279,7 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.webhooks.createIndex({ receivedAt: -1 }),
     db.ledgerMappings.createIndex({ qbConnectionId: 1 }),
     db.rules.createIndex({ qbConnectionId: 1, updatedAt: -1 }),
+    db.payeeLinks.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
+    db.txns.createIndex({ qbConnectionId: 1, vendorId: 1, decidedAt: -1 }),
   ]);
 }

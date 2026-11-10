@@ -9,6 +9,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 import { authFetch } from "../../lib/authFetch";
 // Type-only: the slice imports this file and store/index imports the slice.
 import type { RootState } from "..";
+import type { MemoryVote } from "@/lib/suggestions/picks";
 
 export interface BankAccountDto {
   id: string;
@@ -385,6 +386,19 @@ export const deleteSuggestionRule = createAsyncThunk<{ id: string }, string, { s
     try {
       await bankFetch(getState(), `/api/suggestion-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
       return { id };
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** Smart Suggestions, step 2: what people coded this vendor's bank lines to (company memory). */
+export const fetchVendorMemory = createAsyncThunk<MemoryVote[], string, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchVendorMemory",
+  async (vendorId, { getState, rejectWithValue }) => {
+    try {
+      const body = await bankFetch<{ votes: MemoryVote[] }>(getState(), `/api/suggestions/vendor-memory?vendorId=${encodeURIComponent(vendorId)}`);
+      return Array.isArray(body.votes) ? body.votes : [];
     } catch (e) {
       return rejectWithValue(reject(e));
     }

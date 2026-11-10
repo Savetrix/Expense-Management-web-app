@@ -12,6 +12,7 @@ import type { Filter } from "mongodb";
 import type { Db } from "./db";
 import type { TxnDoc, TxnStatus } from "./schema";
 import { logEvent } from "./store";
+import { linkPayeeToVendor, payeeKey } from "./suggest";
 
 export type { TxnStatus } from "./schema";
 const STATUSES: TxnStatus[] = ["review", "ready", "matched", "excluded", "transfer"];
@@ -238,6 +239,16 @@ export async function decide(
     return { ok: false, status: 409, error: STALE, current: fresh ? toView(fresh) : undefined };
   }
   await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after } });
+  // Smart Suggestions, step 2: a person picked a vendor for this payee, so later lines from it get that vendor.
+  if (typeof set.vendorId === "string" && set.vendorId) {
+    await linkPayeeToVendor(db, {
+      qbConnectionId: args.qbConnectionId,
+      payeeKey: updated.payeeKey ?? payeeKey(updated.merchantName ?? updated.counterpartyName, updated.description),
+      vendorId: set.vendorId,
+      payee: updated.payee,
+      userId: args.userId,
+    });
+  }
   return { ok: true, txn: toView(updated) };
 }
 

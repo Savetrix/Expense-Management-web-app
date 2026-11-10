@@ -29,9 +29,11 @@ import { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, u
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { InvoiceRuleHint } from "@/components/v2/invoices/InvoiceRuleHint";
+import { useInvoiceSuggestions } from "@/components/v2/invoices/useInvoiceSuggestions";
+import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
-import { InlineEditField, SelectDropdown } from "@/components/v2/ui";
+import { CreatableCombobox, InlineEditField, SelectDropdown } from "@/components/v2/ui";
 import type { InlineEditFieldHandle } from "@/components/v2/ui";
 import { VendorResolutionDialogV2 } from "@/components/v2/invoices/VendorResolutionDialogV2";
 import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
@@ -964,6 +966,15 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     [glAccounts, invoice.glAccountId],
   );
 
+  const glAccountOptions = useMemo(() => glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name })), [glAccounts]);
+  // Smart Suggestions: the top 3 GL accounts for this vendor, and the company's rules.
+  const suggestions = useInvoiceSuggestions({
+    invoiceId,
+    vendorId: selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "",
+    vendorName: invoice.vendor || "",
+    glAccounts,
+  });
+
   const resolvedTaxCodeName = useMemo(() => {
     const match = taxCodes.find((code) => getTaxCodeId(code) === invoice.taxCodeId);
     return match ? getTaxCodeLabel(match) : "";
@@ -1033,7 +1044,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   };
   const handleTaxCodeChange = (event: ChangeEvent<HTMLSelectElement>) => chooseTaxCode(event.target.value);
 
-  const handleGlAccountChange = (event: ChangeEvent<HTMLSelectElement>) => chooseGlAccount(event.target.value);
 
   // A company rule for this vendor (InvoiceRuleHint): the same as picking its GL account and tax code here.
   const applyRule = (rule: { glAccountId: string; taxCodeId: string | null }) => {
@@ -1607,26 +1617,32 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
             </FieldRow>
             <FieldRow id="field-glAccountId" label="GL Code / Category (vendor default)" required>
               <div className="flex justify-end">
-                <SelectDropdown
-                  uiSize="sm"
-                  error={fieldErrors.glAccountId}
+                <CreatableCombobox
+                  floating
+                  noun="GL account"
+                  ariaLabel="GL account"
+                  options={glAccountOptions}
                   value={invoice.glAccountId}
-                  onChange={handleGlAccountChange}
+                  valueLabel={resolvedGlAccountName || undefined}
+                  onSelect={(id) => {
+                    if (!id) return;
+                    chooseGlAccount(id);
+                    // A suggested account brings its usual tax code when none is set yet.
+                    const tax = suggestions.picks.find((p) => p.pick.glAccountId === id)?.pick.taxCodeId;
+                    if (tax && !invoice.taxCodeId) chooseTaxCode(tax);
+                  }}
+                  picks={suggestions.picks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
+                  error={fieldErrors.glAccountId}
                   title={resolvedGlAccountName || undefined}
-                  className="w-56 max-w-full"
-                >
-                  <option value="" disabled>
-                    {glAccountsLoading
+                  placeholder={
+                    glAccountsLoading
                       ? "Loading accounts…"
-                      : resolvedGlAccountName ||
-                        (!glAccountsError && glAccounts.length === 0 ? "No GL accounts configured" : "Select GL Account")}
-                  </option>
-                  {glAccounts.map((account) => (
-                    <option key={account._id} value={account.qbAccountId}>
-                      {account.name}
-                    </option>
-                  ))}
-                </SelectDropdown>
+                      : !glAccountsError && glAccounts.length === 0
+                        ? "No GL accounts configured"
+                        : "Select GL Account"
+                  }
+                  className="w-56 max-w-full"
+                />
               </div>
               {fieldErrors.glAccountId && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-semibold text-status-danger-text">
@@ -1640,6 +1656,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                 glAccounts={glAccounts}
                 allowFill={isPendingReview}
                 onUse={applyRule}
+                rules={suggestions.rules}
+                mode={suggestions.mode}
               />
               {glAccountsMixedAcrossLines && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">

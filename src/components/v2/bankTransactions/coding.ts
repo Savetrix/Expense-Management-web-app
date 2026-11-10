@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
+import { pickReason, type SuggestionPick } from "@/lib/suggestions/picks";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchQuickBooksAccounts, fetchQuickBooksTaxCodes, fetchQuickBooksVendors } from "@/store/quickBooks/quickBooksApi";
 import type { GLAccount, TaxCode, Vendor } from "@/store/quickBooks/quickBooksSlice";
@@ -31,6 +32,10 @@ export interface LineSuggestion {
   /** Which step found it: a company rule, or this payee's history. Absent on lines scored before rules existed. */
   step?: "rule" | "history";
   rule?: { id: string; match: "payee" | "description" | "category"; label: string };
+  /** Step 2: the top 3 accounts, best first. Absent on lines scored before step 2. */
+  picks?: SuggestionPick[];
+  /** The vendor comes from the payee's link to a vendor a person picked. */
+  linkedVendor?: boolean;
 }
 
 export function suggestionOf(txn: BankTransaction): LineSuggestion | null {
@@ -102,14 +107,17 @@ export function codingFor(txn: BankTransaction): Coding {
   }
   // History fills, field by field, whatever the user hasn't set on a line still to review.
   const fromHistory = txn.status === "review" && suggestion?.kind === "expense" && suggestion.glAccountId ? suggestion : null;
+  // A payee linked to a vendor suggests that vendor even without coding history.
+  const linked = txn.status === "review" && suggestion?.linkedVendor && suggestion.vendorId ? suggestion.vendorId : undefined;
   const merged = {
-    vendorId: own.vendorId ?? fromHistory?.vendorId,
+    vendorId: own.vendorId ?? fromHistory?.vendorId ?? linked,
     payee: own.payee ?? fromHistory?.payee,
     glAccountId: own.glAccountId ?? fromHistory?.glAccountId,
     taxCodeId: own.taxCodeId ?? fromHistory?.taxCodeId,
   };
   if (hasOwn) return { ...merged, source: "user", reason: fromHistory?.reason ?? null, suggestion };
   if (fromHistory) return { ...merged, source: "suggested", reason: fromHistory.reason, suggestion };
+  if (linked) return { vendorId: linked, source: "suggested", reason: "This payee is linked to a vendor someone picked before.", suggestion };
   return { source: "none", reason: suggestion?.reason ?? null, suggestion };
 }
 
@@ -127,4 +135,14 @@ export function codingLabel(c: Coding, lookups: Lookups): string {
   const gl = c.glAccountId ? lookups.glById.get(c.glAccountId)?.name : undefined;
   const tax = c.taxCodeId ? lookups.taxById.get(c.taxCodeId) : undefined;
   return [vendor ?? c.payee, gl, tax ? taxCodeLabel(tax) : undefined].filter(Boolean).join(" · ");
+}
+
+/** The line's top 3 accounts for the account dropdown: name, reason, confidence. */
+export function picksFor(txn: BankTransaction, lookups: Lookups, accountName?: (id: string) => string | undefined): { pick: SuggestionPick; name: string; reason: string }[] {
+  if (txn.status !== "review") return [];
+  const picks = suggestionOf(txn)?.picks ?? [];
+  return picks.flatMap((pick) => {
+    const name = accountName?.(pick.glAccountId) ?? lookups.glById.get(pick.glAccountId)?.name;
+    return name ? [{ pick, name, reason: pickReason(pick, name) }] : [];
+  });
 }

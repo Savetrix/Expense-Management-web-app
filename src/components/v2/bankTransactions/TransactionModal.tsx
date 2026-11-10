@@ -15,7 +15,10 @@ import {
 } from "@/components/v2/ui";
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
-import { codingFor, codingLabel, type Lookups } from "./coding";
+import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
+import { PicksExplained } from "@/components/v2/suggestions/PicksExplained";
+
+import { codingFor, codingLabel, picksFor, type Lookups } from "./coding";
 import { formatAmount } from "./format";
 import { billsFor, isExactAmount, rankInvoices, vendorAgrees } from "./matching";
 import { RuleModal, type RuleDraft } from "./RuleModal";
@@ -89,6 +92,7 @@ export function TransactionModal({
   const matchedInvoice = invoices.find((c) => c.id === txn.matchedInvoiceId);
   const coding = codingFor(txn);
   const suggestion = coding.suggestion;
+  const linePicks = picksFor(txn, lookups);
   const pendingSuggestion = coding.source === "suggested";
   const useSuggestion = () => {
     const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
@@ -322,6 +326,12 @@ export function TransactionModal({
                       <button type="button" className="mt-[var(--space-xs)] text-caption font-semibold text-content-secondary underline" onClick={() => setShowChecks((v) => !v)}>
                         {showChecks ? "Hide the checks" : "How Scantrix decided"}
                       </button>
+                      {showChecks && linePicks.length > 0 && (
+                        <div className="mt-[var(--space-xs)]">
+                          <p className="mb-[var(--space-xs)] text-caption font-semibold text-content-primary">Top accounts for this line</p>
+                          <PicksExplained picks={linePicks} />
+                        </div>
+                      )}
                       {showChecks && (
                         <ul className="mt-[var(--space-xs)] flex flex-col gap-[var(--space-xs)] text-caption text-content-secondary">
                           {(["legibility", "completeness", "history"] as const).map((k) => (
@@ -368,7 +378,12 @@ export function TransactionModal({
                 noun="GL account"
                 ariaLabel="GL account"
                 value={txn.categoryId ?? ""}
-                onSelect={(id) => onUpdate(txn.id, { categoryId: id || undefined })}
+                onSelect={(id) => {
+                  // A suggested account brings its usual tax code when none is set yet.
+                  const tax = linePicks.find((p) => p.pick.glAccountId === id)?.pick.taxCodeId;
+                  onUpdate(txn.id, { categoryId: id || undefined, ...(tax && !txn.taxCodeId ? { taxCodeId: tax } : {}) });
+                }}
+                picks={linePicks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
                 clearLabel="No category"
                 placeholder="GL account"
                 uiSize="md"

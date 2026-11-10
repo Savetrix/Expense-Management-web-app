@@ -23,5 +23,5 @@ export function openTestDb(uri: string): Promise<Db> {
 }
 
 export async function clearBankTestData(db: Db): Promise<void> {
-  await Promise.all([db.items, db.accounts, db.txns, db.events, db.webhooks, db.insights, db.ledgerMappings, db.rules, db.suggestionSettings].map((c) => c.deleteMany({})));
+  await Promise.all([db.items, db.accounts, db.txns, db.events, db.webhooks, db.insights, db.ledgerMappings, db.rules, db.suggestionSettings, db.payeeLinks].map((c) => c.deleteMany({})));
 }
