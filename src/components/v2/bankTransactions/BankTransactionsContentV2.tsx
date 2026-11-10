@@ -12,6 +12,7 @@ import {
   fetchBankAccounts,
   fetchBankTransactions,
   fetchLedgerAccounts,
+  fetchPaidBills,
   importBankCsv,
   postBankTransactions,
   updateBankTransaction,
@@ -24,7 +25,7 @@ import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
-import { toCandidates } from "./matching";
+import { closedBills, toCandidates } from "./matching";
 import { TransactionModal } from "./TransactionModal";
 import { TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
@@ -133,6 +134,21 @@ export function BankTransactionsContentV2() {
     () => toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices),
     [pendingInvoices, autoPostedInvoices, manualPostedInvoices],
   );
+  // Bills paid in QuickBooks/Xero (or matched to a line already) aren't offered
+  // for a match. Asked once per set of bills; on failure every bill is offered.
+  const billIdsKey = useMemo(() => Array.from(new Set(candidates.map((c) => c.billId).filter(Boolean))).sort().join(","), [candidates]);
+  const [paidBills, setPaidBills] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!qbConnectionId || !billIdsKey) return;
+    let cancelled = false;
+    void dispatch(fetchPaidBills(billIdsKey.split(","))).then((r) => {
+      if (!cancelled && fetchPaidBills.fulfilled.match(r)) setPaidBills(new Set(r.payload));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId, billIdsKey]);
+  const closed = useMemo(() => closedBills(txns, candidates, paidBills), [txns, candidates, paidBills]);
 
   // Every decision is saved on the server. A status change carries the line's
   // version, so a teammate's newer change is never overwritten; field edits
@@ -238,6 +254,7 @@ export function BankTransactionsContentV2() {
             }}
             onUpdate={patchOne}
             invoices={candidates}
+            closedBills={closed}
             onBulkUpdate={patchMany}
             onBulkItems={async (items) => {
               const result = await dispatch(bulkUpdateBankTransactions({ items: items as ({ id: string } & BankTxnPatch)[] }));
@@ -310,6 +327,7 @@ export function BankTransactionsContentV2() {
           key={`${openTxn.id}-${openFocus ?? "details"}`}
           txn={openTxn}
           invoices={candidates}
+          closedBills={closed}
           lookups={lookups}
           bankAccounts={bankAccounts}
           initialFocus={openFocus}

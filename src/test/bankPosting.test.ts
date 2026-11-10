@@ -30,6 +30,7 @@ function fakeAdapter(behaviour: (call: Call, n: number) => void | Promise<void> 
   const calls: Call[] = [];
   const adapter: LedgerAdapter = {
     listAccounts: async () => CHART,
+    paidBills: async () => [],
     post: async (_ctx, posting, key) => {
       calls.push({ posting, key });
       await behaviour({ posting, key }, calls.length);
