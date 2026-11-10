@@ -36,6 +36,7 @@ import {
 } from "@/store/quickBooks/quickBooksApi";
 import { Switch } from "@/components/ui/Switch";
 import { fetchInboundOverview } from "@/store/inboundEmail/inboundEmailApi";
+import { TeamBillingCardV2, TeamCheckoutReturn } from "./TeamBillingCardV2";
 
 interface QBMember {
   _id: string;
@@ -181,6 +182,9 @@ export function TeamMembersContentV2() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
 
   const [sending, setSending] = useState(false);
+  // Bumped when a team payment is confirmed (back from Stripe) — reloads the billing card.
+  const [billingRefresh, setBillingRefresh] = useState(0);
+  const checkoutReturn = <TeamCheckoutReturn onConfirmed={() => setBillingRefresh((n) => n + 1)} />;
   const [addressCopied, setAddressCopied] = useState(false);
 
   // With exactly one connected company there's nothing to choose, so use it
@@ -571,6 +575,7 @@ export function TeamMembersContentV2() {
   if (!activeConnection) {
     return (
       <div className="mx-auto max-w-2xl p-[var(--space-lg)]">
+        {checkoutReturn}
         <div className="rounded-lg border border-border bg-surface p-[var(--space-lg)] shadow-sm">
           <EmptyState
             icon={<Users size={28} strokeWidth={1.75} />}
@@ -594,6 +599,7 @@ export function TeamMembersContentV2() {
 
   return (
     <div className="max-w-6xl p-[var(--space-md)] sm:p-[var(--space-lg)]">
+      {checkoutReturn}
       <PageHeader
         title="Team Members"
         subtitle="Manage team contributors, accountants, and invoice parsing inboxes."
@@ -894,6 +900,8 @@ export function TeamMembersContentV2() {
               {activeRoleMeta.label}
             </span>
           </div>
+
+          <TeamBillingCardV2 connection={activeConnection} refreshKey={billingRefresh} />
 
           {!canInvite && (
             <>
