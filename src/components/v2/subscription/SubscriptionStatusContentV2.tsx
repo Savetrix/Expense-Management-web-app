@@ -183,6 +183,16 @@ export function SubscriptionStatusContentV2() {
                 </div>
               </div>
 
+              {subscription.paidBy && (
+                <div className="rounded-lg border border-primary/30 bg-surface/60 px-[var(--space-md)] py-[var(--space-sm)]">
+                  <p className="text-body-sm text-text-secondary">
+                    <span className="font-bold text-text-primary">{subscription.paidBy.name}</span> (an admin on your team) bought
+                    this plan with their card. It renews on that card. To pay yourself, change the card in Manage billing;
+                    cancel there if you don&apos;t want the next payment.
+                  </p>
+                </div>
+              )}
+
               {subscription.downgradeAvailableAt && (
                 <div className="rounded-lg border border-warning/30 bg-warning/5 px-[var(--space-md)] py-[var(--space-sm)]">
                   <p className="text-body-sm text-text-secondary">
