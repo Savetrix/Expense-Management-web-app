@@ -48,6 +48,8 @@ interface TransactionsTabProps {
   onPost: (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => void;
   /** Accepts suggested matches; the parent also sends them when it can. */
   onAcceptMatches: (picked: StrongSuggestion[]) => void;
+  /** "Not this" on a line Scantrix found already entered in QuickBooks/Xero. */
+  onUnlinkFound?: (id: string) => void;
   lookups: Lookups;
   /** First load from the server still running. */
   loading?: boolean;
@@ -97,6 +99,7 @@ export function TransactionsTab({
   onBulkUpdate,
   onPost,
   onAcceptMatches,
+  onUnlinkFound,
   lookups,
   loading = false,
   ledger,
@@ -249,6 +252,12 @@ export function TransactionsTab({
         <button type="button" onClick={() => onOpen(t.id)} className="block w-full min-w-0 text-left" title="Open details">
           <span className="block truncate font-semibold text-content-primary hover:underline">{t.description || "—"}</span>
           <span className="block truncate text-content-secondary">{t.accountName || "—"}</span>
+          {t.status === "review" && (t.ledgerCandidates?.length ?? 0) > 0 && (
+            <span className="flex items-center gap-0.5 truncate font-semibold text-status-warning-text" title={`An entry with the same amount is already in ${providerName}. Open the line to check it.`}>
+              <AlertTriangle size={12} strokeWidth={2.25} className="shrink-0" />
+              Possibly in {providerName}: check
+            </span>
+          )}
         </button>
       ),
     },
@@ -294,7 +303,9 @@ export function TransactionsTab({
           const matched = t.matchedInvoiceId ? invoiceById.get(t.matchedInvoiceId) : undefined;
           return (
             <span className="block truncate text-content-secondary">
-              {t.status === "matched" ? `Bill: ${matched ? `${matched.vendor}${matched.number ? ` #${matched.number}` : ""}` : "matched"}` : t.status === "transfer" ? `Transfer · ${t.transferAccount ?? ""}` : glName(c.glAccountId) || "—"}
+              {t.posting?.found
+                ? `Entered in ${providerName}: ${t.posting.found.label}${t.posting.found.name ? ` · ${t.posting.found.name}` : ""}`
+                : t.status === "matched" ? `Bill: ${matched ? `${matched.vendor}${matched.number ? ` #${matched.number}` : ""}` : "matched"}` : t.status === "transfer" ? `Transfer · ${t.transferAccount ?? ""}` : glName(c.glAccountId) || "—"}
             </span>
           );
         }
@@ -366,6 +377,27 @@ export function TransactionsTab({
         if (t.postingStatus === "posted") {
           // In the books: locked here; a change is made in QuickBooks/Xero itself.
           const label = `In ${providerName}`;
+          if (t.posting?.found) {
+            // Entered straight into QuickBooks/Xero; Scantrix only linked it, so it can be put back.
+            return (
+              <span className="inline-flex items-center gap-[var(--space-xs)]">
+                {t.posting.url ? (
+                  <a href={t.posting.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-caption font-semibold text-status-success-text hover:underline" title={`Open in ${providerName}`}>
+                    {label}
+                    <ExternalLink size={12} strokeWidth={2.25} />
+                  </a>
+                ) : (
+                  <Badge variant="success">{label}</Badge>
+                )}
+                {onUnlinkFound && (
+                  <button type="button" className={ROW_BTN} onClick={() => onUnlinkFound(t.id)} title={`Not this entry: put the line back in To review`}>
+                    <Undo2 size={13} strokeWidth={2.25} />
+                    Not this
+                  </button>
+                )}
+              </span>
+            );
+          }
           return t.posting?.url ? (
             <a href={t.posting.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-caption font-semibold text-status-success-text hover:underline" title={`Open in ${providerName}`}>
               {label}

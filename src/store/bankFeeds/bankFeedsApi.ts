@@ -175,11 +175,63 @@ export interface BankTransactionDto {
   bankCategory?: string;
   suggestion?: unknown;
   postingStatus?: "processing" | "posted" | "failed";
-  /** The entry in QuickBooks/Xero once sent (or the last error). */
-  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null };
+  /** The entry in QuickBooks/Xero once sent (or the last error). `found`: someone entered it there directly. */
+  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: FoundEntryDto & { auto: boolean } };
+  /** Entries already in QuickBooks/Xero that could be this line; a person picks. */
+  ledgerCandidates?: FoundEntryDto[];
   decidedAt?: string;
   version: number;
 }
+
+/** An entry already in QuickBooks/Xero (an expense, deposit, transfer or payment). */
+export interface FoundEntryDto {
+  key: string;
+  label: string;
+  name: string | null;
+  date: string;
+  amount: number;
+  url: string | null;
+}
+
+/**
+ * Moves lines in To review that someone already entered straight into
+ * QuickBooks/Xero to Matched (server: lib/bankFeeds/foundInLedger.ts).
+ */
+export const checkFoundInLedger = createAsyncThunk<
+  { checked?: number; linked?: number; possible?: number; skipped?: boolean },
+  void,
+  { state: RootState; rejectValue: BankRequestError }
+>("bankFeeds/checkFoundInLedger", async (_, { getState, rejectWithValue }) => {
+  try {
+    return await bankFetch(getState(), "/api/bank-transactions/found-in-ledger", { method: "POST" });
+  } catch (e) {
+    return rejectWithValue(reject(e));
+  }
+});
+
+/** A person picks which entry already in QuickBooks/Xero is this line. */
+export const linkFoundEntry = createAsyncThunk<{ transaction: BankTransactionDto }, { id: string; key: string }, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/linkFoundEntry",
+  async ({ id, key }, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch(getState(), `/api/bank-transactions/${encodeURIComponent(id)}/found`, { method: "POST", body: JSON.stringify({ key }) });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** "Not this": a line Scantrix found in QuickBooks/Xero goes back to To review. */
+export const unlinkFoundEntry = createAsyncThunk<{ transaction: BankTransactionDto }, string, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/unlinkFoundEntry",
+  async (id, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch(getState(), `/api/bank-transactions/${encodeURIComponent(id)}/found`, { method: "DELETE" });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
 
 export type BankTxnPatch = Partial<Pick<BankTransactionDto, "status" | "matchedInvoiceId" | "transferAccount" | "transferAccountId" | "categoryId" | "taxCodeId" | "vendorId" | "payee">>;
 

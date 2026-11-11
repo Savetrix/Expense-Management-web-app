@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleDashed, Sparkles } from "lucide-react";
+import { CheckCircle2, CircleDashed, ExternalLink, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -34,6 +34,10 @@ interface TransactionModalProps {
   providerName?: string;
   /** Post: saves the line as ready and sends it to QuickBooks/Xero when it can. Absent: Post only saves. */
   onPost?: (patch: Partial<BankTransaction>) => void;
+  /** Picks which entry already in QuickBooks/Xero is this line. */
+  onLinkFound?: (key: string) => void;
+  /** "Not this": a line found in QuickBooks/Xero goes back to To review. */
+  onUnlinkFound?: () => void;
 }
 
 export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
@@ -55,6 +59,8 @@ export function TransactionModal({
   initialFocus,
   providerName = "QuickBooks",
   onPost,
+  onLinkFound,
+  onUnlinkFound,
 }: TransactionModalProps) {
   const [transferOpen, setTransferOpen] = useState(initialFocus === "transfer");
   const [search, setSearch] = useState("");
@@ -82,7 +88,10 @@ export function TransactionModal({
   const excluded = txn.status === "excluded";
   const transfer = txn.status === "transfer";
   const ready = txn.status === "ready";
-  const inactive = excluded || transfer || ready;
+  // Someone entered this line straight into QuickBooks/Xero (foundInLedger.ts).
+  const found = txn.posting?.found;
+  const inactive = excluded || transfer || ready || Boolean(found);
+  const candidates = txn.status === "review" ? (txn.ledgerCandidates ?? []) : [];
   const matchedInvoice = invoices.find((c) => c.id === txn.matchedInvoiceId);
   const coding = codingFor(txn);
   const suggestion = coding.suggestion;
@@ -103,7 +112,20 @@ export function TransactionModal({
         widthClassName="max-w-xl"
         footer={
           <>
-            {excluded || ready ? (
+            {found ? (
+              onUnlinkFound && (
+                <Button
+                  variant="outline"
+                  title={`Put this line back in To review. Scantrix won't link it to this ${providerName} entry again.`}
+                  onClick={() => {
+                    onUnlinkFound();
+                    onClose();
+                  }}
+                >
+                  Not this
+                </Button>
+              )
+            ) : excluded || ready ? (
               <Button
                 variant="outline"
                 onClick={() => onUpdate(txn.id, { status: "review" })}
@@ -168,12 +190,67 @@ export function TransactionModal({
                 {STATUS_LABEL[txn.status]}
               </Badge>
             </ModalDefinitionRow>
+            {found && (
+              <ModalDefinitionRow label={`In ${providerName}`}>
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <span className="truncate">
+                    Entered there directly: {found.label}
+                    {found.name ? ` · ${found.name}` : ""} · {found.date}
+                  </span>
+                  {found.url && (
+                    <a href={found.url} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 text-accent hover:opacity-80" title={`Open in ${providerName}`}>
+                      <ExternalLink size={13} strokeWidth={2.25} />
+                    </a>
+                  )}
+                </span>
+              </ModalDefinitionRow>
+            )}
             {transfer && (
               <ModalDefinitionRow label="Other account">
                 {txn.transferAccount || "—"}
               </ModalDefinitionRow>
             )}
           </div>
+
+          {candidates.length > 0 && (
+            <section className="flex flex-col gap-[var(--space-sm)] rounded-md border border-status-warning-border bg-status-warning-bg p-[var(--space-sm)]">
+              <h3 className="text-body font-bold text-content-primary">Already in {providerName}?</h3>
+              <p className="text-body-sm text-content-secondary">
+                {candidates.length === 1 ? "This entry" : "These entries"} in {providerName} {candidates.length === 1 ? "has" : "have"} the same amount on this bank account, within 3 days. Pick the one that is this line, so it isn&apos;t entered twice.
+              </p>
+              <ul className="rounded-md border border-border bg-surface">
+                {candidates.map((c) => (
+                  <li key={c.key} className="flex items-center gap-[var(--space-sm)] border-b border-border p-[var(--space-sm)] last:border-b-0">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-body-sm font-semibold text-content-primary">
+                        {c.label}
+                        {c.name ? ` · ${c.name}` : ""}
+                      </span>
+                      <span className="block text-caption text-content-secondary">
+                        {c.date} · {formatAmount(c.amount)}
+                      </span>
+                    </span>
+                    {c.url && (
+                      <a href={c.url} target="_blank" rel="noopener noreferrer" className="inline-flex text-accent hover:opacity-80" title={`Open in ${providerName}`}>
+                        <ExternalLink size={14} strokeWidth={2.25} />
+                      </a>
+                    )}
+                    {onLinkFound && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          onLinkFound(c.key);
+                          onClose();
+                        }}
+                      >
+                        This one
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {!inactive && (
             <section className="flex flex-col gap-[var(--space-sm)]">
@@ -252,8 +329,8 @@ export function TransactionModal({
                 </>
               )}
               <p className="rounded-md border border-dashed border-border px-[var(--space-sm)] py-[var(--space-xs)] text-caption text-content-secondary">
-                Entered straight into {providerName}? Searching {providerName} for bills and expenses that didn&apos;t come through Scantrix
-                isn&apos;t switched on yet (BE).
+                Entered straight into {providerName}? Scantrix checks {providerName} every few minutes. When exactly one entry on this bank
+                account has the same amount within 3 days, the line moves to Matched by itself. The bank account must be chosen in Connected accounts.
               </p>
             </section>
           )}

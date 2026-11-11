@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { Filter } from "mongodb";
 
 import type { Db } from "./db";
-import type { TxnDoc, TxnStatus } from "./schema";
+import type { FoundEntry, TxnDoc, TxnStatus } from "./schema";
 import { logEvent } from "./store";
 
 export type { TxnStatus } from "./schema";
@@ -39,10 +39,23 @@ export interface BankTransactionView {
   suggestion?: unknown;
   postingStatus?: string;
   /** What the screen needs about the entry in QuickBooks/Xero (no keys). */
-  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null };
+  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: FoundEntryView & { auto: boolean } };
+  /** Entries already in QuickBooks/Xero that could be this line; a person picks (foundInLedger.ts). */
+  ledgerCandidates?: FoundEntryView[];
   decidedAt?: string;
   version: number;
 }
+
+/** An entry already in QuickBooks/Xero, for the screen. */
+export interface FoundEntryView {
+  key: string;
+  label: string;
+  name: string | null;
+  date: string;
+  amount: number;
+  url: string | null;
+}
+const foundView = (e: FoundEntry): FoundEntryView => ({ key: e.key, label: e.label, name: e.name, date: e.date, amount: e.amountCents / 100, url: e.url });
 
 export function toView(r: TxnDoc): BankTransactionView {
   return {
@@ -74,8 +87,10 @@ export function toView(r: TxnDoc): BankTransactionView {
           error: r.posting.error,
           postedAt: r.posting.postedAt ? new Date(r.posting.postedAt).toISOString() : null,
           viaTransactionId: r.posting.viaTransactionId,
+          ...(r.posting.found ? { found: { ...foundView(r.posting.found), auto: r.posting.found.auto } } : {}),
         }
       : undefined,
+    ...(r.ledgerCandidates?.length ? { ledgerCandidates: r.ledgerCandidates.map(foundView) } : {}),
     decidedAt: r.decidedAt ? r.decidedAt.toISOString() : undefined,
     version: r.version,
   };

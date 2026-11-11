@@ -118,6 +118,13 @@ export interface TxnDoc {
   /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
   postingStatus: "processing" | "posted" | "failed" | null;
   posting: PostingRecord | null;
+  /**
+   * Entries already in QuickBooks/Xero that could be this line (foundInLedger.ts),
+   * when more than one fits and a person has to pick. Absent on older lines.
+   */
+  ledgerCandidates?: FoundEntry[] | null;
+  /** Entry keys a person said are NOT this line ("Not this"); never linked again. */
+  ledgerRejected?: string[];
 
   version: number;
   createdAt: Date;
@@ -181,6 +188,24 @@ export interface PostingRecord {
   startedAt: Date;
   postedAt: Date | null;
   postedBy: string;
+  /**
+   * Set when Scantrix didn't make this entry: someone entered the line straight
+   * into QuickBooks/Xero and Scantrix found it there (foundInLedger.ts).
+   */
+  found?: (FoundEntry & { auto: boolean }) | null;
+}
+
+/** An entry already in QuickBooks/Xero, as kept on a bank line. */
+export interface FoundEntry {
+  /** LedgerEntry.key: `${entity}:${id}` (+ ":from"/":to" for a transfer side). */
+  key: string;
+  entity: string;
+  id: string;
+  label: string;
+  name: string | null;
+  date: string;
+  amountCents: number;
+  url: string | null;
 }
 
 /** What Scantrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */

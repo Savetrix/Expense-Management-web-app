@@ -242,6 +242,8 @@ export async function refreshSuggestions(db: Db, qbConnectionId: string, onlyKey
       removedAt: null,
       decidedAt: { $gt: new Date(Date.now() - 365 * 86_400_000) },
       decidedBy: { $nin: [null, "autopilot"] },
+      // A line found already entered in QuickBooks/Xero says nothing about coding.
+      "posting.found": null,
       payeeKey: { $nin: [null, ""], ...(onlyKeys ? { $in: onlyKeys } : {}) },
     })
     .project<Pick<TxnDoc, "payeeKey" | "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt">>({
