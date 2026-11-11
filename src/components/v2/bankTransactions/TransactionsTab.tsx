@@ -17,8 +17,8 @@ import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
 import { codingFor, isSuggestedField, type Lookups } from "./coding";
 import { formatAmount } from "./format";
-import { findStrongSuggestions } from "./matching";
-import { SuggestedMatches } from "./SuggestedMatches";
+import { findStrongSuggestions, type StrongSuggestion } from "./matching";
+import { LINE_COLUMN_WIDTH, SuggestedMatches } from "./SuggestedMatches";
 import { STATUS_LABEL } from "./TransactionModal";
 import type { LedgerAccountDto } from "@/store/bankFeeds/bankFeedsApi";
 
@@ -44,8 +44,10 @@ interface TransactionsTabProps {
   /** Bills that can't be matched any more (see closedBills). */
   closedBills?: ReadonlySet<string>;
   onBulkUpdate: (ids: string[], patch: Partial<BankTransaction>) => void;
-  /** Different changes for many lines in one request (accept all matches, post selected). */
-  onBulkItems: (items: ({ id: string } & Partial<BankTransaction>)[]) => void;
+  /** Posts lines: saves each as ready and sends it to QuickBooks/Xero when it can. */
+  onPost: (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => void;
+  /** Accepts suggested matches; the parent also sends them when it can. */
+  onAcceptMatches: (picked: StrongSuggestion[]) => void;
   lookups: Lookups;
   /** First load from the server still running. */
   loading?: boolean;
@@ -61,7 +63,7 @@ const SENDABLE: BankTxnStatus[] = ["ready", "matched", "transfer"];
 export const isUnsent = (t: BankTransaction) => SENDABLE.includes(t.status) && t.postingStatus !== "posted";
 
 /** Why sending isn't possible right now, in the user's words (null = it is). */
-function ledgerBlock(reason: string | null, error: string | null, providerName: string): string | null {
+export function ledgerBlock(reason: string | null, error: string | null, providerName: string): string | null {
   if (!reason) return null;
   if (reason === "posting_not_configured") return `Sending lines to ${providerName} isn't switched on on this server yet. Post still saves each line as ready.`;
   if (reason === "scope") return `${providerName} hasn't allowed Scantrix to post bank entries yet. Reconnect ${providerName} once (Integrations) to allow it.`;
@@ -93,7 +95,8 @@ export function TransactionsTab({
   invoices,
   closedBills,
   onBulkUpdate,
-  onBulkItems,
+  onPost,
+  onAcceptMatches,
   lookups,
   loading = false,
   ledger,
@@ -172,17 +175,21 @@ export function TransactionsTab({
     );
   }
 
-  const acceptOne = (s: { txn: BankTransaction; invoice: InvoiceCandidate }) => {
-    onUpdate(s.txn.id, { status: "matched", matchedInvoiceId: s.invoice.id });
-  };
+  // Post and Accept also send to QuickBooks/Xero (Saurabh, 11 Nov: "nothing in
+  // between"), when sending works now; a match also needs its bill there.
+  const sendsNow = Boolean(onSend) && !blocked;
   const acceptAll = async () => {
+    const n = suggestions.length;
+    const waiting = sendsNow ? suggestions.filter((s) => !s.invoice.billId).length : 0;
     const ok = await confirmDialog({
-      title: `Accept ${suggestions.length} strong match${suggestions.length === 1 ? "" : "es"}?`,
-      message: "Each bank line is matched to the bill with the same amount dated within 7 days. You can still change a match afterwards.",
-      confirmLabel: "Accept all",
+      title: sendsNow ? `Accept and send ${n} match${n === 1 ? "" : "es"}?` : `Accept ${n} strong match${n === 1 ? "" : "es"}?`,
+      message: sendsNow
+        ? `Each bank line is matched to the bill from the same vendor with the same amount, dated within 7 days, and the payment is sent to ${providerName} on that bill. A sent line can only be changed in ${providerName}.${waiting > 0 ? ` ${waiting} of them will wait in Matched: their bill isn't in ${providerName} yet.` : ""}`
+        : "Each bank line is matched to the bill from the same vendor with the same amount, dated within 7 days. You can still change a match afterwards.",
+      confirmLabel: sendsNow ? "Accept & send all" : "Accept all",
     });
     if (!ok) return;
-    onBulkItems(suggestions.map((s) => ({ id: s.txn.id, status: "matched" as const, matchedInvoiceId: s.invoice.id })));
+    onAcceptMatches(suggestions);
   };
 
   const selectedIds = Array.from(selected).filter((id) => rows.some((r) => r.id === id));
@@ -190,14 +197,22 @@ export function TransactionsTab({
   const postable = selectedRows.filter((r) => r.status === "review").map((r) => ({ r, patch: postPatch(r, lookups) }));
   const sendableSelected = selectedRows.filter(isUnsent);
   const unsentInTab = rows.filter(isUnsent);
-  const postSelected = () => {
+  const postSelected = async () => {
     const ready = postable.filter((p) => p.patch);
     const missing = postable.length - ready.length;
     if (ready.length === 0) {
       showToast("Pick a GL account on the selected lines first.", "warning");
       return;
     }
-    onBulkItems(ready.map((p) => ({ id: p.r.id, ...(p.patch as Partial<BankTransaction>) })));
+    if (sendsNow && ready.length > 1) {
+      const ok = await confirmDialog({
+        title: `Post ${ready.length} lines to ${providerName}?`,
+        message: `Each line is sent to ${providerName} with the vendor, GL account and tax code it shows. A sent line can only be changed in ${providerName}.`,
+        confirmLabel: `Post ${ready.length}`,
+      });
+      if (!ok) return;
+    }
+    onPost(ready.map((p) => ({ txn: p.r, patch: p.patch as Partial<BankTransaction> })));
     if (missing > 0) showToast(`${missing} line${missing === 1 ? "" : "s"} skipped: no GL account yet.`, "info");
     setSelected(new Set());
   };
@@ -225,11 +240,11 @@ export function TransactionsTab({
   const fieldTone = (t: BankTransaction, field: "vendorId" | "categoryId" | "taxCodeId") => (isSuggestedField(t, field) ? "suggested" : "default");
 
   const columns: DataTableColumn<BankTransaction>[] = [
-    { key: "date", header: "Date", width: "96px", render: (t) => <span className="whitespace-nowrap">{t.date}</span> },
+    { key: "date", header: "Date", width: LINE_COLUMN_WIDTH.date, render: (t) => <span className="whitespace-nowrap">{t.date}</span> },
     {
       key: "description",
       header: "Description",
-      width: "22%",
+      width: LINE_COLUMN_WIDTH.description,
       render: (t) => (
         <button type="button" onClick={() => onOpen(t.id)} className="block w-full min-w-0 text-left" title="Open details">
           <span className="block truncate font-semibold text-content-primary hover:underline">{t.description || "—"}</span>
@@ -240,14 +255,14 @@ export function TransactionsTab({
     {
       key: "amount",
       header: "Amount",
-      width: "104px",
+      width: LINE_COLUMN_WIDTH.amount,
       align: "right",
       render: (t) => <span className={`font-semibold ${t.amount < 0 ? "text-status-danger-text" : "text-status-success-text"}`}>{formatAmount(t.amount)}</span>,
     },
     {
       key: "vendor",
       header: "Vendor",
-      width: "15%",
+      width: LINE_COLUMN_WIDTH.vendor,
       render: (t) => {
         const c = codingFor(t);
         if (!editable(t)) return <span className="block truncate text-content-secondary">{(c.vendorId && lookups.vendorById.get(c.vendorId)?.displayName) || t.payee || "—"}</span>;
@@ -272,7 +287,7 @@ export function TransactionsTab({
     {
       key: "gl",
       header: "GL account",
-      width: "17%",
+      width: LINE_COLUMN_WIDTH.gl,
       render: (t) => {
         const c = codingFor(t);
         if (!editable(t)) {
@@ -303,7 +318,7 @@ export function TransactionsTab({
     {
       key: "tax",
       header: "Tax",
-      width: "12%",
+      width: LINE_COLUMN_WIDTH.tax,
       render: (t) => {
         const c = codingFor(t);
         const label = c.taxCodeId ? lookups.taxById.get(c.taxCodeId) : undefined;
@@ -327,7 +342,7 @@ export function TransactionsTab({
     {
       key: "paperwork",
       header: <Paperclip size={13} strokeWidth={2.25} aria-label="Invoice or receipt" />,
-      width: "56px",
+      width: LINE_COLUMN_WIDTH.paperwork,
       render: (t) => {
         if (t.matchedInvoiceId) {
           const inv = invoiceById.get(t.matchedInvoiceId);
@@ -345,7 +360,7 @@ export function TransactionsTab({
     {
       key: "actions",
       header: "",
-      width: "236px",
+      width: LINE_COLUMN_WIDTH.actions,
       align: "right",
       render: (t) => {
         if (t.postingStatus === "posted") {
@@ -391,7 +406,7 @@ export function TransactionsTab({
         const patch = postPatch(t, lookups);
         return (
           <span className="inline-flex items-center gap-[var(--space-xs)]">
-            <Button size="sm" disabled={!patch} title={patch ? `Post to ${providerName}` : "Pick a GL account first"} onClick={() => patch && onUpdate(t.id, patch)}>
+            <Button size="sm" disabled={!patch} title={patch ? `Post to ${providerName}` : "Pick a GL account first"} onClick={() => patch && onPost([{ txn: t, patch }])}>
               Post
             </Button>
             <button type="button" className={ROW_BTN} onClick={() => onOpen(t.id, "match")} title="Match to a bill or an entry already in the books">
@@ -451,7 +466,9 @@ export function TransactionsTab({
         </div>
         {status === "review" && (
           <RoleInfoBanner>
-            Post saves a line as ready, with its vendor, GL account and tax code. Then send it to {providerName} from Ready to post.
+            {sendsNow
+              ? `Post sends a line to ${providerName} straight away, with its vendor, GL account and tax code.`
+              : `Post saves a line as ready, with its vendor, GL account and tax code. Then send it to ${providerName} from Ready to post.`}
           </RoleInfoBanner>
         )}
         {SENDABLE.includes(status as BankTxnStatus) && blocked && <RoleInfoBanner>{blocked}</RoleInfoBanner>}
@@ -512,7 +529,10 @@ export function TransactionsTab({
       {status === "review" && (
         <SuggestedMatches
           suggestions={suggestions}
-          onAccept={acceptOne}
+          lookups={lookups}
+          providerName={providerName}
+          sends={sendsNow}
+          onAccept={(s) => onAcceptMatches([s])}
           onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
           onAcceptAll={acceptAll}
         />

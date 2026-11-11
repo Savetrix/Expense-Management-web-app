@@ -88,4 +88,7 @@ export interface InvoiceCandidate {
   total: number | null;
   /** The bill's id in QuickBooks/Xero once posted; null before. */
   billId?: string | null;
+  /** The bill's own GL account and tax code, to show where a match goes. */
+  glAccountId?: string | null;
+  taxCodeId?: string | null;
 }

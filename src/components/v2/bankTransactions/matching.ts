@@ -19,6 +19,8 @@ export function toCandidates(...lists: InvoiceRecord[][]): InvoiceCandidate[] {
         date: (d?.invoiceDate || inv.createdAt || "").slice(0, 10),
         total: typeof d?.totalAmount === "number" ? d.totalAmount : null,
         billId: inv.quickbooks?.billId || null,
+        glAccountId: d?.glAccountId || null,
+        taxCodeId: d?.taxCodeId || null,
       });
     }
   }
