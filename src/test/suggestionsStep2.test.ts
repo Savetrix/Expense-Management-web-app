@@ -188,6 +188,26 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.ok(await db.events.findOne({ action: "suggestion.payee_linked", actor: "u1" }));
   });
 
+  it("counts the linked vendor as known: a vendor on the 1st line, accounts only on the next 2, fills the 4th", async () => {
+    await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "RBC", rows: petro(4) });
+    const lines = await listTransactions(db, "qb-1");
+    await decide(db, { qbConnectionId: "qb-1", id: lines[0].id, userId: "u1", patch: { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" } });
+    for (const l of lines.slice(1, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel" } });
+    await refreshSuggestions(db, "qb-1");
+    const fourth = await lineAfter("qb-1", lines[3].id);
+    assert.equal(fourth?.categoryId, "gl-travel");
+    assert.equal(fourth?.vendorId, "v-petro");
+    assert.equal((fourth?.suggestion as Suggestion).confidence, "high");
+  });
+
+  it("without any vendor or payee, 3 agreeing accounts still wait (nothing says who was paid)", async () => {
+    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel" });
+    await refreshSuggestions(db, "qb-1");
+    const fourth = await lineAfter("qb-1", lines[3].id);
+    assert.equal(fourth?.categoryId, undefined);
+    assert.equal((fourth?.suggestion as Suggestion).checks.completeness.detail, "No vendor to suggest.");
+  });
+
   it("never lets one company's history, links or vendor memory reach another", async () => {
     await codeLines("qb-1", 3, 3, { glAccountId: "gl-travel", vendorId: "v-petro", payee: "Petro Canada" });
     await importCsv(db, { qbConnectionId: "qb-2", userId: "u9", accountLabel: "TD", rows: petro(1) });

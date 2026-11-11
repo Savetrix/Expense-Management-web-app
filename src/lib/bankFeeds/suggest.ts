@@ -129,8 +129,12 @@ export function legibility(line: LineFacts, today = new Date().toISOString().sli
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
-/** Scores one line against the votes of past lines with the same payee. */
-export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggestion {
+/**
+ * Scores one line against the votes of past lines with the same payee. A
+ * vendor a person linked to this payee (`link`) is the line's vendor: it
+ * counts as known even when the past lines were coded without one.
+ */
+export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: Pick<PayeeLinkDoc, "vendorId" | "payee"> | null): Suggestion {
   const scoredAt = new Date(now).toISOString();
   const leg = legibility(line, new Date(now).toISOString().slice(0, 10));
   const weighted = votes.map((v) => ({ v, w: voteWeight(v.decidedAt, now) })).filter((x) => x.w > 0);
@@ -161,6 +165,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     basis: { agreeing: 0, total: 0, lines: 0 },
     step: "history",
     picks: [],
+    ...(link ? { vendorId: link.vendorId, payee: link.payee ?? undefined, linkedVendor: true } : {}),
     scoredAt,
   };
   if (!top) return empty;
@@ -175,13 +180,15 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
       : `Earlier lines for this payee were coded differently (${[`${describe(top.vote)} ${top.lines}×`, ...others].join(", ")}).`;
 
   const v = top.vote;
+  const vendorId = link?.vendorId ?? v.vendorId;
+  const payee = v.payee ?? link?.payee ?? null;
   const anyTax = weighted.some((x) => x.v.taxCodeId);
   const completeness: CheckResult =
     v.kind !== "expense"
       ? { ok: true, detail: v.kind === "transfer" ? "A transfer between your own accounts." : v.kind === "exclude" ? "Earlier lines like this were excluded." : "Earlier lines like this paid a bill." }
       : !v.glAccountId
         ? { ok: false, detail: "No GL account to suggest." }
-        : !v.vendorId && !v.payee
+        : !vendorId && !payee
           ? { ok: false, detail: "No vendor to suggest." }
           : anyTax && !v.taxCodeId
             ? { ok: false, detail: "Earlier lines for this payee had a tax code, the latest did not." }
@@ -208,8 +215,8 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     kind: v.kind,
     glAccountId: v.glAccountId ?? undefined,
     taxCodeId: v.taxCodeId ?? undefined,
-    vendorId: v.vendorId ?? undefined,
-    payee: v.payee ?? undefined,
+    vendorId: vendorId ?? undefined,
+    payee: payee ?? undefined,
     transferLabel: v.transferLabel ?? undefined,
     confidence,
     reason,
@@ -218,6 +225,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now()): Suggest
     basis: { agreeing: top.weight, total, lines: weighted.length },
     step: "history",
     picks,
+    ...(link ? { linkedVendor: true } : {}),
     scoredAt,
   };
 }
@@ -392,13 +400,13 @@ export async function refreshSuggestions(
     const key = c.payeeKey ?? "";
     const label = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
     const facts = { date: c.date, amountCents: c.amountCents, description: c.description, payeeLabel: label };
-    const fromHistory = score(facts, key ? (votesByKey.get(key) ?? []) : [], now);
     // A new line from sync has no key in memory yet; the bulk write above gave it one.
-    const rule = ruleFor(rules, { ...c, payeeKey: c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description) });
-    const scored = rule ? scoreWithRule(facts, rule, fromHistory, now) : fromHistory;
+    const lineKey = c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description);
     // A payee a person linked to a vendor gets that vendor, even with no coding history yet.
-    const link = vendorByKey.get(c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description));
-    const found = link ? withLinkedVendor(scored, link) : scored;
+    const link = vendorByKey.get(lineKey) ?? null;
+    const fromHistory = score(facts, key ? (votesByKey.get(key) ?? []) : [], now, link);
+    const rule = ruleFor(rules, { ...c, payeeKey: lineKey });
+    const found = rule ? withLinkedVendor(scoreWithRule(facts, rule, fromHistory, now), link) : fromHistory;
     const s = mode === "suggest" ? suggestOnly(found) : found;
     if (rule && (s.autoCoded || mode === "suggest")) byRule[rule._id] = (byRule[rule._id] ?? 0) + 1;
     if (s.autoCoded) {
@@ -463,12 +471,9 @@ export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: str
   return memoryVotes(rows.map(toVote).filter((v): v is Vote => v !== null), "Bank line");
 }
 
-/** The vendor a person linked this payee to replaces the one from history. */
-export function withLinkedVendor(s: Suggestion, link: Pick<PayeeLinkDoc, "vendorId" | "payee">): Suggestion {
-  const completeness = s.kind === "expense" && !s.checks.completeness.ok && s.checks.completeness.detail === "No vendor to suggest."
-    ? { ok: true, detail: "Vendor and GL account are known" + (s.taxCodeId ? ", and the tax code." : ".") }
-    : s.checks.completeness;
-  return { ...s, vendorId: link.vendorId, payee: s.payee ?? link.payee ?? undefined, linkedVendor: true, checks: { ...s.checks, completeness } };
+/** A rule names only the coding; the vendor a person linked this payee to fills the vendor. */
+function withLinkedVendor(s: Suggestion, link: Pick<PayeeLinkDoc, "vendorId" | "payee"> | null): Suggestion {
+  return link ? { ...s, vendorId: link.vendorId, payee: s.payee ?? link.payee ?? undefined, linkedVendor: true } : s;
 }
 
 /**
