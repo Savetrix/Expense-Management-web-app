@@ -76,8 +76,35 @@ export class LedgerError extends Error {
   }
 }
 
+/**
+ * An entry already in the books that moved money in or out of a bank or card
+ * account: an expense, deposit, transfer side, bill or customer payment. Read
+ * to find bank lines someone entered straight into QuickBooks/Xero.
+ */
+export interface LedgerEntry {
+  /** Unique per entry side: `${entity}:${id}`, plus ":from"/":to" for a transfer. */
+  key: string;
+  /** The provider's own type: "Purchase", "Deposit", "BankTransaction", "Payment"... */
+  entity: string;
+  /** The provider's id (the same for both sides of a transfer). */
+  id: string;
+  /** The bank or card account in QuickBooks/Xero the money moved in. */
+  accountId: string;
+  /** "YYYY-MM-DD". */
+  date: string;
+  /** Cents; negative = money out of that account. */
+  amountCents: number;
+  /** For people: "Expense", "Deposit", "Transfer", "Bill payment"... */
+  label: string;
+  /** Who was paid or who paid, or the memo. */
+  name: string | null;
+  url: string | null;
+}
+
 export interface LedgerAdapter {
   listAccounts(ctx: LedgerContext): Promise<LedgerAccount[]>;
+  /** Entries dated from..to ("YYYY-MM-DD", inclusive) that moved money in a bank or card account. */
+  entriesBetween(ctx: LedgerContext, from: string, to: string): Promise<LedgerEntry[]>;
   /** Of these bills (the provider's own ids), the ones with nothing left to pay. Unknown ids are left out. */
   paidBills(ctx: LedgerContext, billIds: string[]): Promise<string[]>;
   post(ctx: LedgerContext, posting: Posting, idempotencyKey: string): Promise<PostedEntry>;
