@@ -180,8 +180,10 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
       : `Earlier lines for this payee were coded differently (${[`${describe(top.vote)} ${top.lines}×`, ...others].join(", ")}).`;
 
   const v = top.vote;
-  const vendorId = link?.vendorId ?? v.vendorId;
-  const payee = v.payee ?? link?.payee ?? null;
+  // Who was paid: the linked vendor, else the newest agreeing line that names a vendor or payee.
+  const agreeing = weighted.map((x) => x.v).filter((x) => groupKey(x) === groupKey(v)).sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1));
+  const vendorId = link?.vendorId ?? v.vendorId ?? agreeing.find((x) => x.vendorId)?.vendorId ?? null;
+  const payee = v.payee ?? link?.payee ?? agreeing.find((x) => x.payee)?.payee ?? null;
   const anyTax = weighted.some((x) => x.v.taxCodeId);
   const completeness: CheckResult =
     v.kind !== "expense"

@@ -200,6 +200,17 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.equal((fourth?.suggestion as Suggestion).confidence, "high");
   });
 
+  it("a payee typed on one line is enough: accounts only on the next 2 still fill the 4th", async () => {
+    await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "RBC", rows: petro(4) });
+    const lines = await listTransactions(db, "qb-1");
+    await decide(db, { qbConnectionId: "qb-1", id: lines[0].id, userId: "u1", patch: { payee: "Petro Canada", glAccountId: "gl-travel" } });
+    for (const l of lines.slice(1, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel" } });
+    await refreshSuggestions(db, "qb-1");
+    const fourth = await lineAfter("qb-1", lines[3].id);
+    assert.equal(fourth?.categoryId, "gl-travel");
+    assert.equal(fourth?.payee, "Petro Canada");
+  });
+
   it("without any vendor or payee, 3 agreeing accounts still wait (nothing says who was paid)", async () => {
     const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel" });
     await refreshSuggestions(db, "qb-1");
