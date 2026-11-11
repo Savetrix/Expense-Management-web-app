@@ -78,5 +78,7 @@ export class LedgerError extends Error {
 
 export interface LedgerAdapter {
   listAccounts(ctx: LedgerContext): Promise<LedgerAccount[]>;
+  /** Of these bills (the provider's own ids), the ones with nothing left to pay. Unknown ids are left out. */
+  paidBills(ctx: LedgerContext, billIds: string[]): Promise<string[]>;
   post(ctx: LedgerContext, posting: Posting, idempotencyKey: string): Promise<PostedEntry>;
 }

@@ -156,6 +156,26 @@ function kindOf(type: string): LedgerAccount["kind"] {
   return "other";
 }
 
+const QB_ID = /^\d{1,20}$/;
+const BILL_CHUNK = 100;
+
+/** Pure: the queries that read these bills' open balances, 100 bills each. Ids that aren't QuickBooks ids are dropped. */
+export function buildQbBillBalanceQueries(billIds: string[]): LedgerRequest[] {
+  const ids = Array.from(new Set(billIds.filter((id) => QB_ID.test(id))));
+  const out: LedgerRequest[] = [];
+  for (let i = 0; i < ids.length; i += BILL_CHUNK) {
+    const list = ids.slice(i, i + BILL_CHUNK).map((id) => `'${id}'`).join(",");
+    out.push({ method: "GET", path: "/query", query: { query: `select Id, Balance from Bill where Id in (${list}) MAXRESULTS 1000` } });
+  }
+  return out;
+}
+
+/** Pure: the bills in a query answer with a zero balance. */
+export function paidFromQbAnswer(data: Record<string, unknown>): string[] {
+  const rows = ((data.QueryResponse as { Bill?: { Id?: string; Balance?: number | string }[] } | undefined)?.Bill ?? []);
+  return rows.filter((b) => b.Id && b.Balance !== undefined && b.Balance !== "" && Number(b.Balance) <= 0).map((b) => String(b.Id));
+}
+
 export const quickbooks: LedgerAdapter = {
   async listAccounts(ctx) {
     const out: LedgerAccount[] = [];
@@ -172,6 +192,11 @@ export const quickbooks: LedgerAdapter = {
       if (rows.length < 1000) break;
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async paidBills(ctx, billIds) {
+    const answers = await Promise.all(buildQbBillBalanceQueries(billIds).map((req) => call(ctx, req)));
+    return answers.flatMap(paidFromQbAnswer);
   },
 
   async post(ctx, posting, idempotencyKey): Promise<PostedEntry> {

@@ -124,6 +124,25 @@ function deepLink(ctx: LedgerContext, path: string | null): string | null {
   return ctx.shortCode ? `https://go.xero.com/organisationlogin/default.aspx?shortcode=${ctx.shortCode}&redirecturl=${path}` : `https://go.xero.com${path}`;
 }
 
+const XERO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BILL_CHUNK = 40;
+
+/** Pure: the requests that read these bills (Xero "invoices" of type ACCPAY), 40 each. Ids that aren't Xero ids are dropped. */
+export function buildXeroBillRequests(billIds: string[]): LedgerRequest[] {
+  const ids = Array.from(new Set(billIds.filter((id) => XERO_ID.test(id))));
+  const out: LedgerRequest[] = [];
+  for (let i = 0; i < ids.length; i += BILL_CHUNK) out.push({ method: "GET", path: "/Invoices", query: { IDs: ids.slice(i, i + BILL_CHUNK).join(",") } });
+  return out;
+}
+
+/** Pure: the bills in an answer that can't be paid any more: paid in full, voided or deleted. */
+export function paidFromXeroAnswer(data: Record<string, unknown>): string[] {
+  const rows = (data.Invoices ?? []) as { InvoiceID?: string; Status?: string; AmountDue?: number }[];
+  return rows
+    .filter((b) => b.InvoiceID && (b.Status === "PAID" || b.Status === "VOIDED" || b.Status === "DELETED" || (b.Status === "AUTHORISED" && typeof b.AmountDue === "number" && b.AmountDue <= 0)))
+    .map((b) => b.InvoiceID as string);
+}
+
 export const xero: LedgerAdapter = {
   async listAccounts(ctx) {
     const data = await call(ctx, { method: "GET", path: "/Accounts" });
@@ -132,6 +151,11 @@ export const xero: LedgerAdapter = {
       .filter((a) => a.Status !== "ARCHIVED" && a.Status !== "DELETED")
       .map((a) => ({ id: a.AccountID, name: a.Code ? `${a.Code} ${a.Name}` : a.Name, kind: kindOf(a), type: a.Type ?? "", currency: a.CurrencyCode ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async paidBills(ctx, billIds) {
+    const answers = await Promise.all(buildXeroBillRequests(billIds).map((req) => call(ctx, req)));
+    return answers.flatMap(paidFromXeroAnswer);
   },
 
   async post(ctx, posting, idempotencyKey): Promise<PostedEntry> {

@@ -16,13 +16,15 @@ import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
 import { codingFor, codingLabel, type Lookups } from "./coding";
 import { formatAmount } from "./format";
-import { isExactAmount, rankInvoices } from "./matching";
+import { billsFor, isExactAmount, rankInvoices, vendorAgrees } from "./matching";
 import { TransferModal } from "./TransferModal";
 import type { BankAccount, BankTransaction, InvoiceCandidate } from "./types";
 
 interface TransactionModalProps {
   txn: BankTransaction | null;
   invoices: InvoiceCandidate[];
+  /** Bills that can't be matched any more (see closedBills); the line's own bill is still shown. */
+  closedBills?: ReadonlySet<string>;
   lookups: Lookups;
   bankAccounts: BankAccount[];
   onClose: () => void;
@@ -30,6 +32,8 @@ interface TransactionModalProps {
   /** Open on the transfer form instead of the details (the row's transfer button). */
   initialFocus?: "match" | "transfer";
   providerName?: string;
+  /** Post: saves the line as ready and sends it to QuickBooks/Xero when it can. Absent: Post only saves. */
+  onPost?: (patch: Partial<BankTransaction>) => void;
 }
 
 export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
@@ -43,12 +47,14 @@ export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
 export function TransactionModal({
   txn,
   invoices,
+  closedBills,
   lookups,
   bankAccounts,
   onClose,
   onUpdate,
   initialFocus,
   providerName = "QuickBooks",
+  onPost,
 }: TransactionModalProps) {
   const [transferOpen, setTransferOpen] = useState(initialFocus === "transfer");
   const [search, setSearch] = useState("");
@@ -57,8 +63,8 @@ export function TransactionModal({
   const [showChecks, setShowChecks] = useState(false);
 
   const ranked = useMemo(
-    () => (txn ? rankInvoices(txn, invoices) : []),
-    [txn, invoices],
+    () => (txn ? rankInvoices(txn, closedBills ? billsFor(txn, invoices, closedBills) : invoices) : []),
+    [txn, invoices, closedBills],
   );
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -194,7 +200,7 @@ export function TransactionModal({
                   <ul className="max-h-52 overflow-y-auto rounded-md border border-border">
                     {visible.length === 0 && (
                       <li className="p-[var(--space-sm)] text-body-sm text-content-secondary">
-                        No bills match.
+                        {search ? "No bills match." : "No unpaid bills to match. Bills already paid, or matched to another line, aren't shown."}
                       </li>
                     )}
                     {visible.slice(0, 50).map((c, i) => (
@@ -217,6 +223,7 @@ export function TransactionModal({
                               {c.date || "No date"} · {formatAmount(c.total)}
                             </span>
                           </span>
+                          {vendorAgrees(txn, c) && <Badge variant="success">Same vendor</Badge>}
                           {i === 0 &&
                             !search &&
                             (isExactAmount(txn, c) ? (
@@ -386,13 +393,15 @@ export function TransactionModal({
                   title={coding.glAccountId ? undefined : "Pick a GL account first"}
                   onClick={() => {
                     const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
-                    onUpdate(txn.id, {
+                    const patch: Partial<BankTransaction> = {
                       status: "ready",
                       vendorId: coding.vendorId,
                       categoryId: coding.glAccountId,
                       taxCodeId: coding.taxCodeId,
                       payee: payee.trim() || coding.payee || vendorName,
-                    });
+                    };
+                    if (onPost) onPost(patch);
+                    else onUpdate(txn.id, patch);
                     onClose();
                   }}
                 >
