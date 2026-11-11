@@ -39,6 +39,8 @@ interface TransactionModalProps {
   providerName?: string;
   /** A company rule was saved from this line: reload the lines it filled in. */
   onRuleSaved?: () => void;
+  /** Post: saves the line as ready and sends it to QuickBooks/Xero when it can. Absent: Post only saves. */
+  onPost?: (patch: Partial<BankTransaction>) => void;
 }
 
 export const STATUS_LABEL: Record<BankTransaction["status"], string> = {
@@ -60,6 +62,7 @@ export function TransactionModal({
   initialFocus,
   providerName = "QuickBooks",
   onRuleSaved,
+  onPost,
 }: TransactionModalProps) {
   const [transferOpen, setTransferOpen] = useState(initialFocus === "transfer");
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
@@ -416,13 +419,15 @@ export function TransactionModal({
                   title={coding.glAccountId ? undefined : "Pick a GL account first"}
                   onClick={() => {
                     const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
-                    onUpdate(txn.id, {
+                    const patch: Partial<BankTransaction> = {
                       status: "ready",
                       vendorId: coding.vendorId,
                       categoryId: coding.glAccountId,
                       taxCodeId: coding.taxCodeId,
                       payee: payee.trim() || coding.payee || vendorName,
-                    });
+                    };
+                    if (onPost) onPost(patch);
+                    else onUpdate(txn.id, patch);
                     onClose();
                   }}
                 >

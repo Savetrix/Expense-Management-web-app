@@ -25,9 +25,9 @@ import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
-import { closedBills, toCandidates } from "./matching";
+import { closedBills, toCandidates, type StrongSuggestion } from "./matching";
 import { TransactionModal } from "./TransactionModal";
-import { TransactionsTab } from "./TransactionsTab";
+import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
 
 type Tab = "transactions" | "accounts";
@@ -168,6 +168,49 @@ export function BankTransactionsContentV2() {
       refetchSoon();
     } else showToast(result.payload?.message ?? "Couldn't save those changes.", "error");
   };
+  // Post and Accept send to QuickBooks/Xero straight away (Saurabh, 11 Nov:
+  // "nothing in between"): save the decision, then send it. One line carries
+  // its version, so a teammate's newer change isn't overwritten. A line that
+  // can't go yet (a match whose bill isn't in the books, sending switched off)
+  // stays in Ready to post or Matched, with the reason, as before.
+  const saveAndSend = async (items: { txn: BankTransaction; patch: Partial<BankTransaction>; sendable: boolean }[], kind: "post" | "match") => {
+    let saved: string[];
+    if (items.length === 1) {
+      const [x] = items;
+      const result = await dispatch(updateBankTransaction({ id: x.txn.id, patch: x.patch as BankTxnPatch, version: x.txn.version }));
+      if (updateBankTransaction.rejected.match(result)) {
+        showToast(result.payload?.message ?? "Couldn't save that change.", "error");
+        return;
+      }
+      saved = [x.txn.id];
+    } else {
+      const result = await dispatch(bulkUpdateBankTransactions({ items: items.map((x) => ({ id: x.txn.id, ...(x.patch as BankTxnPatch) })) }));
+      if (!bulkUpdateBankTransactions.fulfilled.match(result)) {
+        showToast(result.payload?.message ?? "Couldn't save those changes.", "error");
+        return;
+      }
+      const { updated, failed } = result.payload;
+      if (failed.length > 0) showToast(`${failed.length} not saved: ${failed[0].error}`, "warning");
+      saved = updated.map((t) => t.id);
+    }
+    refetchSoon();
+    const sendable = new Set(items.filter((x) => x.sendable).map((x) => x.txn.id));
+    const toSend = saved.filter((id) => sendable.has(id));
+    const held = saved.length - toSend.length;
+    const blocked = canPost ? ledgerBlock(ledger.reason, ledger.error, provider.name) : `Your role can't send lines to ${provider.name}.`;
+    if (blocked) {
+      if (saved.length > 0) showToast(`${saved.length} ${kind === "match" ? "matched" : "ready to post"}. ${blocked}`, "info");
+      return;
+    }
+    if (held > 0) showToast(`${held} matched but not sent: post the bill to ${provider.name} first, then send it from Matched.`, "info");
+    if (toSend.length > 0) await sendLines(toSend);
+  };
+  const acceptMatches = (picked: StrongSuggestion[]) =>
+    saveAndSend(
+      picked.map((x) => ({ txn: x.txn, patch: { status: "matched" as const, matchedInvoiceId: x.invoice.id }, sendable: Boolean(x.invoice.billId) })),
+      "match",
+    );
+  const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
   const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
 
@@ -256,16 +299,11 @@ export function BankTransactionsContentV2() {
             invoices={candidates}
             closedBills={closed}
             onBulkUpdate={patchMany}
-            onBulkItems={async (items) => {
-              const result = await dispatch(bulkUpdateBankTransactions({ items: items as ({ id: string } & BankTxnPatch)[] }));
-              if (bulkUpdateBankTransactions.fulfilled.match(result)) {
-                const { updated, failed } = result.payload;
-                showToast(failed.length ? `${updated.length} matched, ${failed.length} not: ${failed[0].error}` : `${updated.length} matched.`, failed.length ? "warning" : "success");
-              } else showToast(result.payload?.message ?? "Couldn't save those matches.", "error");
-            }}
+            onPost={postLines}
             lookups={lookups}
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
             ledger={ledger}
+            onAcceptMatches={acceptMatches}
             onSend={canPost ? sendLines : undefined}
             sendingIds={sendingIds}
           />
@@ -334,6 +372,7 @@ export function BankTransactionsContentV2() {
           providerName={provider.name}
           onClose={() => setOpenId(null)}
           onUpdate={patchOne}
+          onPost={(patch) => postLines([{ txn: openTxn, patch }])}
           onRuleSaved={() => dispatch(fetchBankTransactions())}
         />
       )}
