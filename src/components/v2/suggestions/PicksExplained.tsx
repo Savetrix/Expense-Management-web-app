@@ -33,7 +33,7 @@ export function PicksExplained({ picks }: { picks: { pick: SuggestionPick; name:
             <ul className="mt-[2px] text-[11px] text-content-secondary">
               {pick.evidence.map((e, j) => (
                 <li key={`${e.date}-${j}`}>
-                  {[e.label, formatPlainDate(e.date, { day: "numeric", month: "short", year: "numeric" }), money(e.amountCents), e.source === "invoice" ? "bill" : "bank line"]
+                  {[e.label, formatPlainDate(e.date, { day: "numeric", month: "short", year: "numeric" }), money(e.amountCents), e.source === "invoice" ? "bill" : e.source === "quickbooks" ? "from QuickBooks" : e.source === "xero" ? "from Xero" : "bank line"]
                     .filter(Boolean)
                     .join(" · ")}
                 </li>

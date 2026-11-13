@@ -23,6 +23,7 @@ import {
 } from "@/store/bankFeeds/bankFeedsApi";
 import { getInvoices } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
+import { requestHistoryRead } from "@/components/v2/suggestions/historyClient";
 
 import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
@@ -231,6 +232,19 @@ export function BankTransactionsContentV2() {
     const timer = window.setInterval(() => void checkLedger(), 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [checkLedger, qbConnectionId, canPost]);
+  // Smart Suggestions learns from the company's own books (lib/bankFeeds/history.ts):
+  // read when the page opens if the last read is over a day old; the lines
+  // reload when new history came in, since their suggestions changed.
+  useEffect(() => {
+    if (!qbConnectionId || !canPost) return;
+    let cancelled = false;
+    void requestHistoryRead(qbConnectionId).then((r) => {
+      if (!cancelled && r.imported) dispatch(fetchBankTransactions());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId, canPost]);
   const linkFound = async (id: string, key: string) => {
     const result = await dispatch(linkFoundEntry({ id, key }));
     if (linkFoundEntry.fulfilled.match(result)) showToast(`Linked to the entry in ${provider.name}. Moved to Matched.`, "success");

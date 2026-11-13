@@ -30,10 +30,11 @@
 import type { AnyBulkWriteOperation } from "mongodb";
 
 import { payeeKey, ruleFor, ruleSubject, type AutoClassification } from "@/lib/suggestions/match";
-import { historyPicks, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
+import { HISTORY_LABEL, historyPicks, isHistory, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
-import type { PayeeLinkDoc, RuleDoc, RuleMatch, TxnDoc } from "./schema";
+import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
+import type { HistoryDoc, PayeeLinkDoc, RuleDoc, RuleMatch, TxnDoc } from "./schema";
 import { logEvent } from "./store";
 
 // The payee key and rule matching live in lib/suggestions/match.ts, shared
@@ -55,6 +56,24 @@ export interface Vote {
   decidedAt: string;
   /** The past line itself, shown as evidence. */
   evidence?: Evidence;
+  /** History rows only: money out (true) or in, so a vendor's bills don't speak for its refunds. */
+  out?: boolean;
+}
+
+/** A coded line from the company's books, as a past decision (history.ts). */
+export function historyVote(h: Pick<HistoryDoc, "entity" | "glAccountId" | "taxCodeId" | "vendorId" | "vendorName" | "date" | "amountCents" | "credit" | "source">): Vote {
+  const label = h.vendorName?.trim() || `${HISTORY_LABEL[h.source]} entry`;
+  return {
+    kind: h.entity === "BillPayment" ? "bill" : "expense",
+    glAccountId: h.entity === "BillPayment" ? null : h.glAccountId,
+    taxCodeId: h.entity === "BillPayment" ? null : h.taxCodeId,
+    vendorId: h.vendorId,
+    payee: h.vendorName?.trim() || null,
+    transferLabel: null,
+    decidedAt: `${h.date}T12:00:00.000Z`,
+    evidence: { label, date: h.date, amountCents: h.amountCents, source: h.source },
+    out: h.entity === "Deposit" ? false : h.entity === "Purchase" ? !h.credit : true,
+  };
 }
 
 export interface CheckResult {
@@ -172,9 +191,12 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
 
   const agreement = total > 0 ? top.weight / total : 0;
   const historyOk = top.weight >= MIN_AGREEING_WEIGHT && agreement >= MIN_AGREEMENT;
+  // How many of the agreeing lines came from the company's own books.
+  const topBooks = weighted.filter((x) => groupKey(x.v) === groupKey(top.vote) && x.v.evidence && isHistory(x.v.evidence)).map((x) => x.v.evidence!.source as keyof typeof HISTORY_LABEL);
+  const booksNote = topBooks.length === 0 ? "" : topBooks.length === top.lines ? ` in your ${HISTORY_LABEL[topBooks[0]]} history` : ` (${topBooks.length} of them in your ${HISTORY_LABEL[topBooks[0]]} history)`;
   const others = ranked.slice(1, 3).map((g) => `${describe(g.vote)} ${g.lines}×`);
   const historyDetail = historyOk
-    ? `${plural(top.lines, "earlier line")} for this payee were coded the same way.`
+    ? `${plural(top.lines, "earlier line")} for this payee${booksNote} were coded the same way.`
     : top.weight < MIN_AGREEING_WEIGHT
       ? `Only ${fmt(top.weight)} recent agreeing ${top.weight === 1 ? "decision" : "decisions"} — at least 3 are needed.`
       : `Earlier lines for this payee were coded differently (${[`${describe(top.vote)} ${top.lines}×`, ...others].join(", ")}).`;
@@ -372,6 +394,32 @@ export async function refreshSuggestions(
   ]);
   const vendorByKey = new Map(links.map((l) => [l.payeeKey, l]));
 
+  // History: the company's own coding in QuickBooks/Xero counts like past
+  // decisions, matched to a payee by the cleaned-up vendor name or through the
+  // vendor a person linked to the payee (history.ts).
+  const history = mode !== "off" && (await readLearnFromHistory(db, qbConnectionId)) ? await loadHistory(db, qbConnectionId, "bank") : [];
+  const historyByName = new Map<string, Vote[]>();
+  const historyByVendor = new Map<string, Vote[]>();
+  for (const h of history) {
+    const v = historyVote(h);
+    if (h.nameKey) historyByName.set(h.nameKey, [...(historyByName.get(h.nameKey) ?? []), v]);
+    if (h.vendorId) historyByVendor.set(h.vendorId, [...(historyByVendor.get(h.vendorId) ?? []), v]);
+  }
+  const historyNames = [...historyByName.keys()];
+  const historyCache = new Map<string, Vote[]>();
+  const historyVotesFor = (lineKey: string, linkedVendorId: string | null, out: boolean): Vote[] => {
+    if (history.length === 0) return [];
+    const cacheKey = `${lineKey}|${linkedVendorId ?? ""}|${out}`;
+    const cached = historyCache.get(cacheKey);
+    if (cached) return cached;
+    const found = new Set<Vote>();
+    for (const n of historyNames) if (historyMatches(lineKey, n)) for (const v of historyByName.get(n) ?? []) found.add(v);
+    if (linkedVendorId) for (const v of historyByVendor.get(linkedVendorId) ?? []) found.add(v);
+    const votes = [...found].filter((v) => v.out === out);
+    historyCache.set(cacheKey, votes);
+    return votes;
+  };
+
   let autoCoded = 0;
   const byRule: Record<string, number> = {};
   const now = Date.now();
@@ -408,7 +456,8 @@ export async function refreshSuggestions(
     const lineKey = c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description);
     // A payee a person linked to a vendor gets that vendor, even with no coding history yet.
     const link = vendorByKey.get(lineKey) ?? null;
-    const fromHistory = score(facts, key ? (votesByKey.get(key) ?? []) : [], now, link);
+    const pastVotes = [...(key ? (votesByKey.get(key) ?? []) : []), ...historyVotesFor(lineKey, link?.vendorId ?? null, c.amountCents < 0)];
+    const fromHistory = score(facts, pastVotes, now, link);
     const rule = ruleFor(rules, { ...c, payeeKey: lineKey });
     const found = rule ? withLinkedVendor(scoreWithRule(facts, rule, fromHistory, now), link) : fromHistory;
     const s = mode === "suggest" ? suggestOnly(found) : found;
@@ -452,8 +501,9 @@ export async function refreshSuggestions(
 }
 
 /**
- * Company memory for one vendor from bank lines: the accounts people coded
- * this vendor's lines to in the last year. Only a person's decisions count
+ * Company memory for one vendor from bank lines (and, when "Learn from
+ * QuickBooks or Xero history" is on, its entries in the books): the accounts
+ * people coded this vendor's lines to in the last year. Only a person's decisions count
  * (a line Scantrix filled in counts once a person posts it).
  */
 export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: string): Promise<MemoryVote[]> {
@@ -472,7 +522,10 @@ export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: str
     .sort({ decidedAt: -1 })
     .limit(500)
     .toArray();
-  return memoryVotes(rows.map(toVote).filter((v): v is Vote => v !== null), "Bank line");
+  const fromBank = rows.map(toVote).filter((v): v is Vote => v !== null);
+  // Plus the vendor's bills and expenses in the company's own books (history.ts).
+  const fromBooks = (await readLearnFromHistory(db, qbConnectionId)) ? (await loadHistory(db, qbConnectionId, "invoice", { vendorId })).map(historyVote) : [];
+  return memoryVotes([...fromBank, ...fromBooks], "Bank line");
 }
 
 /** A rule names only the coding; the vendor a person linked this payee to fills the vendor. */

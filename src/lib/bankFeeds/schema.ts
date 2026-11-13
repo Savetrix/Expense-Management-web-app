@@ -262,8 +262,55 @@ export interface PayeeLinkDoc {
 export interface SuggestionSettingsDoc {
   _id: string;
   autoClassification: AutoClassification;
+  /** "Learn from QuickBooks or Xero history": on unless someone turned it off. */
+  learnFromHistory?: boolean;
+  /** The last read of the company's books (history.ts). */
+  historyImport?: HistoryImportStatus | null;
   updatedBy: string;
   updatedAt: Date;
+}
+
+export interface HistoryImportStatus {
+  at: Date;
+  provider: string;
+  /** "done", or why nothing was read: "real_company" (not switched on for real companies yet), "provider_terms", "error". */
+  outcome: "done" | "real_company" | "provider_terms" | "error";
+  from: string | null;
+  to: string | null;
+  /** Coded lines saved, and the entries they came from. */
+  lines: number;
+  entries: number;
+  /** Entries left out because Scantrix posted them itself. */
+  skippedScantrix: number;
+  error?: string | null;
+}
+
+/**
+ * One coded line from the company's own books in QuickBooks/Xero (Smart
+ * Suggestions, history): counted like a past decision a person made. Removed
+ * when the setting is switched off. _id = `${qbConnectionId}:${entity}:${entryId}:${line}`.
+ */
+export interface HistoryDoc {
+  _id: string;
+  qbConnectionId: string;
+  source: "quickbooks" | "xero";
+  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment";
+  entryId: string;
+  line: number;
+  date: string;
+  amountCents: number;
+  /** The vendor (or customer) in QuickBooks/Xero, and the Scantrix vendor it is, when known. */
+  vendorExternalId: string | null;
+  vendorId: string | null;
+  vendorName: string | null;
+  /** The vendor's name, cleaned for matching bank payees (history.ts nameKey). */
+  nameKey: string | null;
+  glAccountId: string | null;
+  taxCodeId: string | null;
+  bankAccountId: string | null;
+  credit: boolean;
+  dominant: boolean;
+  importedAt: Date;
 }
 
 /** What Scantrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
@@ -305,6 +352,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.ledgerMappings.createIndex({ qbConnectionId: 1 }),
     db.rules.createIndex({ qbConnectionId: 1, updatedAt: -1 }),
     db.payeeLinks.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
+    db.history.createIndex({ qbConnectionId: 1, nameKey: 1 }),
+    db.history.createIndex({ qbConnectionId: 1, vendorId: 1 }),
     db.txns.createIndex({ qbConnectionId: 1, vendorId: 1, decidedAt: -1 }),
   ]);
 }

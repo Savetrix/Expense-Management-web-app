@@ -33,8 +33,13 @@ export interface Evidence {
   date: string;
   /** Size of the amount, in cents; null when unknown. */
   amountCents: number | null;
-  source: "bank" | "invoice";
+  /** A Scantrix bank line or bill, or a line from the company's own books (history). */
+  source: "bank" | "invoice" | HistorySource;
 }
+
+export type HistorySource = "quickbooks" | "xero";
+export const isHistory = (e: Pick<Evidence, "source">): e is Evidence & { source: HistorySource } => e.source === "quickbooks" || e.source === "xero";
+export const HISTORY_LABEL: Record<HistorySource, string> = { quickbooks: "QuickBooks", xero: "Xero" };
 
 /** One decision a person made: the account (and tax code) an item went to. */
 export interface MemoryVote {
@@ -55,6 +60,9 @@ export interface SuggestionPick {
   subject: string;
   /** How many past items chose this account (history only). */
   lines: number;
+  /** Of those, how many came from the company's QuickBooks/Xero books, and from which. */
+  historyLines?: number;
+  historySource?: HistorySource;
   /** Their weight (recent count 1, older ½). */
   weight: number;
   /** The most recent past items behind it, newest first (at most 3). */
@@ -92,7 +100,9 @@ export function historyPicks(votes: MemoryVote[], subject: string, now = Date.no
       const share = total > 0 ? g.weight / total : 0;
       const confidence: Confidence = g.weight >= MIN_AGREEING_WEIGHT && share >= MIN_AGREEMENT ? "high" : share >= MEDIUM_SHARE ? "medium" : "low";
       const evidence = [...g.votes].sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1)).slice(0, MAX_EVIDENCE).map((v) => v.evidence);
-      return { glAccountId, ...(tax ? { taxCodeId: tax } : {}), confidence, step: "history" as const, subject, lines: g.lines, weight: g.weight, evidence };
+      const fromBooks = g.votes.filter((v) => isHistory(v.evidence));
+      const history = fromBooks.length ? { historyLines: fromBooks.length, historySource: fromBooks[0].evidence.source as HistorySource } : {};
+      return { glAccountId, ...(tax ? { taxCodeId: tax } : {}), confidence, step: "history" as const, subject, lines: g.lines, weight: g.weight, evidence, ...history };
     });
 }
 
@@ -113,10 +123,28 @@ export function topPicks(...lists: SuggestionPick[][]): SuggestionPick[] {
 
 const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
 
-/** The reason shown next to a pick: "You coded Petro Canada to Travel 4 times". */
-export function pickReason(pick: Pick<SuggestionPick, "step" | "subject" | "lines">, accountName: string): string {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-10-12" → "12 Oct". */
+export const shortDate = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}` : iso);
+
+/**
+ * The reason shown next to a pick: "You coded Petro Canada to Travel 4 times",
+ * or, when the company's own books are behind it, "From your QuickBooks
+ * history: Petro Canada, 12 Oct".
+ */
+export function pickReason(pick: Pick<SuggestionPick, "step" | "subject" | "lines"> & Partial<Pick<SuggestionPick, "historyLines" | "historySource" | "evidence">>, accountName: string): string {
   if (pick.step === "rule") return `Your company rule for ${pick.subject}`;
   if (pick.step === "vendor_default") return pick.lines > 0 ? `Vendor default for ${pick.subject}, used ${times(pick.lines)} before` : `Vendor default for ${pick.subject}`;
+  const fromBooks = pick.historyLines ?? 0;
+  if (fromBooks > 0 && pick.historySource) {
+    const books = HISTORY_LABEL[pick.historySource];
+    if (fromBooks >= pick.lines) {
+      const latest = pick.evidence?.find(isHistory);
+      const more = pick.lines > 1 ? ` (${times(pick.lines)} in all)` : "";
+      return latest ? `From your ${books} history: ${latest.label}, ${shortDate(latest.date)}${more}` : `From your ${books} history: ${pick.subject}${more}`;
+    }
+    return `You coded ${pick.subject} to ${accountName} ${times(pick.lines - fromBooks)}, and ${times(fromBooks)} in ${books}`;
+  }
   return `You coded ${pick.subject} to ${accountName} ${times(pick.lines)}`;
 }
 

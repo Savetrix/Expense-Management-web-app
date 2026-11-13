@@ -101,10 +101,41 @@ export interface LedgerEntry {
   url: string | null;
 }
 
+/**
+ * One coded line of an entry already in the books, for learning how the company
+ * codes (Smart Suggestions, history): a bill or expense line with its vendor,
+ * account and tax code, a deposit line, or a bill payment.
+ */
+export interface HistoryLine {
+  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment";
+  /** The provider's id of the entry. */
+  id: string;
+  /** The line's position in the entry (0 for an entry with one line). */
+  line: number;
+  /** "YYYY-MM-DD". */
+  date: string;
+  /** The line's amount in cents, positive. */
+  amountCents: number;
+  /** Who was paid or who paid: the provider's vendor (or customer) id and name. */
+  vendorId: string | null;
+  vendorName: string | null;
+  /** The GL account the line was coded to (null for a bill payment). */
+  accountId: string | null;
+  taxCodeId: string | null;
+  /** The bank or card account the money moved in (expenses, deposits, bill payments). */
+  bankAccountId: string | null;
+  /** Money back onto a card (a refund) rather than money out. */
+  credit: boolean;
+  /** The biggest line of its entry: the one that speaks for the entry when counting. */
+  dominant: boolean;
+}
+
 export interface LedgerAdapter {
   listAccounts(ctx: LedgerContext): Promise<LedgerAccount[]>;
   /** Entries dated from..to ("YYYY-MM-DD", inclusive) that moved money in a bank or card account. */
   entriesBetween(ctx: LedgerContext, from: string, to: string): Promise<LedgerEntry[]>;
+  /** The coded lines of bills, expenses, deposits and bill payments dated from..to. Absent where the provider's terms don't allow it. */
+  historyBetween?(ctx: LedgerContext, from: string, to: string): Promise<HistoryLine[]>;
   /** Of these bills (the provider's own ids), the ones with nothing left to pay. Unknown ids are left out. */
   paidBills(ctx: LedgerContext, billIds: string[]): Promise<string[]>;
   post(ctx: LedgerContext, posting: Posting, idempotencyKey: string): Promise<PostedEntry>;

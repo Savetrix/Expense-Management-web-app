@@ -15,7 +15,7 @@
 // before the first read or write.
 import { MongoClient, MongoError, type Collection, type Db as MongoDatabase } from "mongodb";
 
-import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, PayeeLinkDoc, RuleDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
+import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, RuleDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
 import { ensureIndexes } from "./schema";
 
 export interface Db {
@@ -30,6 +30,7 @@ export interface Db {
   rules: Collection<RuleDoc>;
   suggestionSettings: Collection<SuggestionSettingsDoc>;
   payeeLinks: Collection<PayeeLinkDoc>;
+  history: Collection<HistoryDoc>;
 }
 
 /** Thrown when the database can't be reached; routes map it to 503. */
@@ -81,6 +82,7 @@ export function openDb(uri: string, dbName: string): Db {
     rules: database.collection<RuleDoc>("suggestion_rules"),
     suggestionSettings: database.collection<SuggestionSettingsDoc>("suggestion_settings"),
     payeeLinks: database.collection<PayeeLinkDoc>("suggestion_payee_links"),
+    history: database.collection<HistoryDoc>("suggestion_history"),
   };
 }
 

@@ -99,3 +99,25 @@ export async function postedBill(userToken: string, qbConnectionId: string, invo
   const q = result.invoice.quickbooks;
   return q?.billId && q?.vendorId ? { billId: q.billId, vendorId: q.vendorId } : null;
 }
+
+/**
+ * The QuickBooks/Xero ids of the bills Scantrix posted for this company, from
+ * the backend's invoice list (all pages). History leaves these out, because
+ * Scantrix already counts them as its own.
+ */
+export async function scantrixBillIds(userToken: string, qbConnectionId: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (let page = 1, pages = 1; page <= pages && page <= 200; page++) {
+    let res: Response;
+    try {
+      res = await fetch(`${SAVETRIX_API_BASE_URL}/invoices?page=${page}&limit=100`, { headers: headers(userToken, qbConnectionId), signal: AbortSignal.timeout(20_000), cache: "no-store" });
+    } catch {
+      throw new LedgerError("Scantrix couldn't load its own bills just now. Try again.", "definite", "unavailable");
+    }
+    if (!res.ok) throw new LedgerError(`Scantrix couldn't load its own bills (${res.status}). Try again.`, "definite", "unavailable");
+    const body = (await res.json().catch(() => null)) as { data?: { invoices?: { quickbooks?: { billId?: string | null } }[]; pagination?: { totalPages?: number } } } | null;
+    for (const inv of body?.data?.invoices ?? []) if (inv.quickbooks?.billId) ids.add(String(inv.quickbooks.billId));
+    pages = Math.max(1, Number(body?.data?.pagination?.totalPages) || 1);
+  }
+  return ids;
+}

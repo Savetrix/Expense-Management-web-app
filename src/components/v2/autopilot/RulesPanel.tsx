@@ -10,6 +10,8 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { useBankLookups } from "@/components/v2/bankTransactions/coding";
 import { RuleModal, type RuleDraft } from "@/components/v2/bankTransactions/RuleModal";
 import { RoleInfoBanner } from "@/components/v2/ui";
+
+import { HistorySetting } from "./HistorySetting";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { formatPlainDate } from "@/lib/plainDate";
 import { taxCodeLabel } from "@/lib/quickbooks/taxCode";
@@ -196,6 +198,8 @@ export function RulesPanel({ providerName }: { providerName: string }) {
         )}
         {settings && !settings.canChange && <p className="mt-[var(--space-xs)] text-caption text-content-secondary">Only an Owner or Admin can change this.</p>}
       </section>
+
+      <HistorySetting providerName={providerName} />
 
       <div className="flex flex-wrap items-start justify-between gap-[var(--space-md)]">
         <p className="max-w-2xl text-body-sm text-content-secondary">
