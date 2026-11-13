@@ -30,8 +30,21 @@ export interface BankTransaction {
   currency?: string | null;
   suggestion?: unknown;
   postingStatus?: "processing" | "posted" | "failed";
-  /** The entry in QuickBooks/Xero once sent, or the last error. */
-  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null };
+  /** The entry in QuickBooks/Xero once sent, or the last error. `found`: someone entered it there directly. */
+  posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: LedgerFoundEntry & { auto: boolean } };
+  /** Entries already in QuickBooks/Xero that could be this line; a person picks. */
+  ledgerCandidates?: LedgerFoundEntry[];
+}
+
+/** An entry already in QuickBooks/Xero (an expense, deposit, transfer or payment). */
+export interface LedgerFoundEntry {
+  key: string;
+  /** "Expense", "Deposit", "Transfer", "Bill payment"... */
+  label: string;
+  name: string | null;
+  date: string;
+  amount: number;
+  url: string | null;
 }
 
 export interface BankAccount {

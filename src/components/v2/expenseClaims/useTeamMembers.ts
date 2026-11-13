@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { canOpenPage } from "@/lib/pageAccess";
 import { fetchQBMembers } from "@/store/quickBooks/quickBooksApi";
 
 import type { CompanyRole } from "./shared";
@@ -100,5 +101,7 @@ export function useTeamMembers() {
     activeId,
     role,
     selfId,
+    // A contributor kept off the Invoices page can't open a receipt there either.
+    canOpenInvoices: canOpenPage(role, activeConnection?.pageAccess, "invoices"),
   };
 }

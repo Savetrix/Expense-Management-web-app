@@ -105,6 +105,7 @@ export function ExpenseClaimsContentV2() {
           role={team.role}
           selfId={team.selfId}
           allowSelfApproval={settings?.allowSelfApproval ?? false}
+          canOpenInvoices={team.canOpenInvoices}
           onNewClaim={() => setWizardOpen(true)}
         />
       )}
@@ -140,7 +141,6 @@ export function ExpenseClaimsContentV2() {
         contacts={contacts}
         role={team.role}
         selfId={team.selfId}
-        allowSelfApproval={settings?.allowSelfApproval ?? false}
         onCreated={() => {
           setTab("claims");
           // A claimant typed by name has just become a contact.

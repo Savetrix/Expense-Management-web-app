@@ -22,6 +22,7 @@ import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import { BrandIcon, type BrandName } from "@/components/icons/BrandIcon";
 import { Badge } from "@/components/ui/Badge";
+import { BetaBadge } from "@/components/ui/BetaBadge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
@@ -147,6 +148,8 @@ function SectionHeading({ label, count, meta }: SectionHeadingProps) {
 interface IntegrationRowProps {
   icon: ReactNode;
   name: string;
+  /** Shown inline right after the name (e.g. a Beta tag). */
+  nameBadge?: ReactNode;
   description: string;
   /** Right-aligned controls (toggle, Sync now, Connect, Coming Soon pill). */
   actions?: ReactNode;
@@ -190,6 +193,7 @@ function ConnectCompanyPrompt() {
 function IntegrationRow({
   icon,
   name,
+  nameBadge,
   description,
   actions,
   onOpen,
@@ -219,7 +223,10 @@ function IntegrationRow({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body-sm font-semibold text-content-primary">{name}</p>
+        <p className="flex items-center gap-[var(--space-xs)] text-body-sm font-semibold text-content-primary">
+          <span className="truncate">{name}</span>
+          {nameBadge}
+        </p>
         <p className="truncate text-caption text-content-secondary">{description}</p>
       </div>
       {actions && <div className="integration-row-action flex shrink-0 items-center gap-[var(--space-sm)]">{actions}</div>}
@@ -703,7 +710,8 @@ export function AccountingSoftwaresContentV2() {
                 <IntegrationRow
                   icon={<BrandIcon name="claude" size={22} />}
                   name="Claude MCP"
-                  description="Ask Claude about your invoices and vendors from Scantrix."
+                  nameBadge={<BetaBadge />}
+                  description="Ask Claude about your invoices and vendors from Scantrix. Still in testing."
                   actions={
                     <Button
                       type="button"
@@ -995,7 +1003,10 @@ export function AccountingSoftwaresContentV2() {
             </span>
             <span className="flex min-w-0 flex-col">
               <span className="text-tiny font-bold uppercase tracking-[0.08em] text-content-secondary">Setup guide</span>
-              <span className="truncate text-h3 font-bold text-content-primary">Claude MCP</span>
+              <span className="flex min-w-0 items-center gap-[var(--space-xs)]">
+                <span className="truncate text-h3 font-bold text-content-primary">Claude MCP</span>
+                <BetaBadge />
+              </span>
             </span>
           </span>
         }

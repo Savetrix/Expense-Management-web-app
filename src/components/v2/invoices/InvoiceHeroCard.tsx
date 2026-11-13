@@ -51,6 +51,9 @@ export interface InvoiceHeroReason {
   raw: string;
   showTechnicalReason: boolean;
   onToggleTechnicalReason: () => void;
+  /** Every problem found with the invoice, one per line. When present it replaces
+   *  `message`; an empty list reads as "nothing outstanding". */
+  issues?: string[];
 }
 
 interface InvoiceHeroCardProps {
@@ -155,7 +158,24 @@ export function InvoiceHeroCard({
               <AlertTriangle size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-status-danger-text" />
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-content-primary">{reason.title}</p>
-                <p className="mt-1 text-body-sm font-medium text-status-danger-text">{reason.message}</p>
+                {reason.issues ? (
+                  reason.issues.length > 0 ? (
+                    <ul className="mt-1 flex flex-col gap-1">
+                      {reason.issues.map((issue) => (
+                        <li key={issue} className="flex items-start gap-[var(--space-xs)] text-body-sm font-medium text-status-danger-text">
+                          <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-status-danger-text" />
+                          <span className="min-w-0 flex-1">{issue}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-body-sm font-medium text-status-success-text">
+                      No outstanding issues found. This invoice is ready to post.
+                    </p>
+                  )
+                ) : (
+                  <p className="mt-1 text-body-sm font-medium text-status-danger-text">{reason.message}</p>
+                )}
                 {reason.isTranslated && (
                   <>
                     <button

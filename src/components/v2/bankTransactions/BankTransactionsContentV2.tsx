@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, FileUp, Landmark } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { PageHeader, Tabs } from "@/components/v2/ui";
@@ -9,6 +9,9 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { showToast } from "@/lib/dialogManager";
 import {
   bulkUpdateBankTransactions,
+  checkFoundInLedger,
+  linkFoundEntry,
+  unlinkFoundEntry,
   fetchBankAccounts,
   fetchBankTransactions,
   fetchLedgerAccounts,
@@ -211,6 +214,33 @@ export function BankTransactionsContentV2() {
       "match",
     );
   const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
+  // Lines someone entered straight into QuickBooks/Xero leave To review by
+  // themselves (lib/bankFeeds/foundInLedger.ts): checked when the page opens,
+  // every 5 minutes while it is visible, and after an import.
+  const checkLedger = useCallback(async () => {
+    if (!qbConnectionId || !canPost || document.visibilityState !== "visible") return;
+    const result = await dispatch(checkFoundInLedger());
+    if (!checkFoundInLedger.fulfilled.match(result) || result.payload.skipped) return;
+    const { linked = 0, possible = 0 } = result.payload;
+    if (linked > 0 || possible > 0) dispatch(fetchBankTransactions());
+    if (linked > 0) showToast(`${linked} line${linked === 1 ? " was" : "s were"} already entered in ${provider.name}: moved to Matched.`, "info");
+  }, [dispatch, qbConnectionId, canPost, provider.name]);
+  useEffect(() => {
+    if (!qbConnectionId || !canPost) return;
+    void checkLedger();
+    const timer = window.setInterval(() => void checkLedger(), 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [checkLedger, qbConnectionId, canPost]);
+  const linkFound = async (id: string, key: string) => {
+    const result = await dispatch(linkFoundEntry({ id, key }));
+    if (linkFoundEntry.fulfilled.match(result)) showToast(`Linked to the entry in ${provider.name}. Moved to Matched.`, "success");
+    else showToast(result.payload?.message ?? "Couldn't link that entry.", "error");
+  };
+  const unlinkFound = async (id: string) => {
+    const result = await dispatch(unlinkFoundEntry(id));
+    if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. Scantrix won't link that ${provider.name} entry to this line again.`, "info");
+    else showToast(result.payload?.message ?? "Couldn't put that line back.", "error");
+  };
   const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
 
@@ -304,6 +334,7 @@ export function BankTransactionsContentV2() {
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
             ledger={ledger}
             onAcceptMatches={acceptMatches}
+            onUnlinkFound={unlinkFound}
             onSend={canPost ? sendLines : undefined}
             sendingIds={sendingIds}
           />
@@ -353,6 +384,7 @@ export function BankTransactionsContentV2() {
               const { added: n, duplicates } = result.payload;
               showToast(`${n} transaction${n === 1 ? "" : "s"} imported${duplicates ? `, ${duplicates} already here` : ""}.`, "success");
               setTab("transactions");
+              void checkLedger();
               return true;
             }
             showToast(result.payload?.message ?? "Couldn't save the imported rows.", "error");
@@ -374,6 +406,8 @@ export function BankTransactionsContentV2() {
           onUpdate={patchOne}
           onPost={(patch) => postLines([{ txn: openTxn, patch }])}
           onRuleSaved={() => dispatch(fetchBankTransactions())}
+          onLinkFound={(key) => linkFound(openTxn.id, key)}
+          onUnlinkFound={() => unlinkFound(openTxn.id)}
         />
       )}
     </div>

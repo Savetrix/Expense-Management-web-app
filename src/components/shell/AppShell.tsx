@@ -45,6 +45,7 @@ import { useLogout } from "@/store/useLogout";
 import { connectQuickBooks, getMyQBConnections, getQuickBooksStatus } from "@/store/quickBooks/quickBooksApi";
 import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 import { fetchClaimSummary } from "@/store/expenseClaims/expenseClaimsApi";
+import { canOpenPage, pageKeyOf } from "@/lib/pageAccess";
 import type { QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
 
 // QuickBooks connection management now lives entirely under Integrations
@@ -307,6 +308,22 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (activeConnectionId) dispatch(fetchClaimSummary());
   }, [activeConnectionId, pathname, dispatch]);
 
+  // A contributor sees only the pages they were given (Team page); opening
+  // another one — a bookmark, the /dashboard every login lands on — moves
+  // them to the first page they have.
+  const memberRole = activeConnection?.role;
+  const pageAccess = activeConnection?.pageAccess ?? null;
+  const visibleNavItems = navItems.filter((item) => canOpenPage(memberRole, pageAccess, pageKeyOf(item.href)));
+  const pageBlocked = !canOpenPage(memberRole, pageAccess, pageKeyOf(pathname));
+  // The companies list isn't kept across reloads, so until it's back the
+  // role (and any page limit) is unknown — hold the page instead of letting
+  // it render and load data for a contributor who may not have it.
+  const accessUnknown = !!accessToken && !connectionsLoaded && pageKeyOf(pathname) !== null;
+  const firstOpenPage = visibleNavItems[0]?.href ?? "/profile";
+  useEffect(() => {
+    if (pageBlocked) router.replace(firstOpenPage);
+  }, [pageBlocked, firstOpenPage, router]);
+
   const handleSwitch = async (connection: QBConnection) => {
     setSwitcherOpen(false);
     if (!accessToken || connection._id === qbConnectionId) return;
@@ -469,7 +486,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className={`flex flex-1 mt-4 flex-col gap-[var(--space-xs)] ${collapsed ? "px-[var(--space-xs)]" : "px-[var(--space-sm)] overflow-y-auto"}`}>
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} badge={item.href === CLAIMS_HREF ? claimsWaiting : 0} />
           ))}
         </nav>
@@ -635,7 +652,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto">
+          {/* Never flash a page the contributor wasn't given while moving them on. */}
+          {pageBlocked || accessUnknown ? null : children}
+        </main>
         <ExpandTransitionOverlay targetRef={mainRef} />
       </div>
 
@@ -685,7 +705,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
 
             <nav className="flex flex-1 flex-col gap-[var(--space-xs)] overflow-y-auto px-[var(--space-sm)]">
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <NavLink key={item.href} item={item} pathname={pathname} collapsed={false} badge={item.href === CLAIMS_HREF ? claimsWaiting : 0} />
               ))}
             </nav>

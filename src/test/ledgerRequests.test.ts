@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildQbBillBalanceQueries, buildQbRequest, paidFromQbAnswer } from "../lib/bankFeeds/ledger/quickbooks";
+import { buildQbBillBalanceQueries, buildQbEntryQuery, buildQbRequest, entriesFromQbAnswer, paidFromQbAnswer } from "../lib/bankFeeds/ledger/quickbooks";
 import type { Posting } from "../lib/bankFeeds/ledger/types";
-import { buildXeroBillRequests, buildXeroRequest, paidFromXeroAnswer } from "../lib/bankFeeds/ledger/xero";
+import { buildXeroBillRequests, buildXeroEntryRequest, buildXeroRequest, entriesFromXeroAnswer, paidFromXeroAnswer, xeroDay } from "../lib/bankFeeds/ledger/xero";
 
 /** A JSON body, read loosely in assertions. */
 type Json = { [key: string]: Json } & { [index: number]: Json };
@@ -148,5 +148,96 @@ describe("Reading which bills are paid", () => {
       ],
     };
     assert.deepEqual(paidFromXeroAnswer(answer), ["a", "c", "d"]);
+  });
+});
+
+describe("reading entries already in the books", () => {
+  const APP = "https://app.sandbox.qbo.intuit.com/app";
+
+  it("QuickBooks: one dated query per entity, and bad dates are refused", () => {
+    const q = buildQbEntryQuery("Purchase", "2026-11-01", "2026-11-14", 1001);
+    assert.equal(q.path, "/query");
+    assert.equal(q.query?.query, "select * from Purchase where TxnDate >= '2026-11-01' and TxnDate <= '2026-11-14' STARTPOSITION 1001 MAXRESULTS 1000");
+    assert.throws(() => buildQbEntryQuery("Purchase", "2026-11-01' or 1=1", "2026-11-14"));
+  });
+
+  it("QuickBooks: an expense is money out of its account, a card credit is money in", () => {
+    const rows = entriesFromQbAnswer(
+      "Purchase",
+      {
+        QueryResponse: {
+          Purchase: [
+            { Id: "301", TxnDate: "2026-11-04", TotalAmt: 54.2, AccountRef: { value: "35" }, PaymentType: "Cash", EntityRef: { name: "Petro-Canada" } },
+            { Id: "302", TxnDate: "2026-11-05", TotalAmt: 20, AccountRef: { value: "41" }, PaymentType: "CreditCard", Credit: true },
+            { Id: "303", TxnDate: "2026-11-05", TotalAmt: 0, AccountRef: { value: "35" } },
+          ],
+        },
+      },
+      APP,
+    );
+    assert.equal(rows.length, 2, "a zero entry is left out");
+    assert.deepEqual(rows[0], { key: "Purchase:301", entity: "Purchase", id: "301", accountId: "35", date: "2026-11-04", amountCents: -5420, label: "Expense", name: "Petro-Canada", url: `${APP}/expense?txnId=301` });
+    assert.equal(rows[1].amountCents, 2000);
+    assert.equal(rows[1].label, "Card credit");
+  });
+
+  it("QuickBooks: a transfer is two sides, a bill payment is money out of its bank or card", () => {
+    const transfer = entriesFromQbAnswer("Transfer", { QueryResponse: { Transfer: [{ Id: "9", TxnDate: "2026-11-02", Amount: 500, FromAccountRef: { value: "35", name: "Chequing" }, ToAccountRef: { value: "36", name: "Savings" } }] } }, APP);
+    assert.deepEqual(
+      transfer.map((e) => [e.key, e.accountId, e.amountCents, e.name]),
+      [
+        ["Transfer:9:from", "35", -50000, "To Savings"],
+        ["Transfer:9:to", "36", 50000, "From Chequing"],
+      ],
+    );
+    const paid = entriesFromQbAnswer("BillPayment", { QueryResponse: { BillPayment: [{ Id: "77", TxnDate: "2026-11-03", TotalAmt: 99.99, PayType: "CreditCard", CreditCardPayment: { CCAccountRef: { value: "41" } }, VendorRef: { name: "Staples" } }] } }, APP);
+    assert.deepEqual([paid[0].accountId, paid[0].amountCents, paid[0].label], ["41", -9999, "Bill payment"]);
+    const deposit = entriesFromQbAnswer("Deposit", { QueryResponse: { Deposit: [{ Id: "5", TxnDate: "2026-11-03", TotalAmt: 1200, DepositToAccountRef: { value: "35" } }] } }, APP);
+    assert.equal(deposit[0].amountCents, 120000);
+  });
+
+  it("Xero: dated filters, both date formats, and the right direction for each kind", () => {
+    const req = buildXeroEntryRequest("BankTransactions", "2026-11-01", "2026-11-14", 2);
+    assert.equal(req.path, "/BankTransactions");
+    assert.deepEqual(req.query, { where: "Date >= DateTime(2026,11,1) && Date <= DateTime(2026,11,14)", page: "2" });
+    assert.equal(xeroDay(undefined, "/Date(1762214400000+0000)/"), "2025-11-04");
+    assert.equal(xeroDay("2026-11-04T00:00:00", "/Date(0)/"), "2026-11-04");
+
+    const link = (path: string) => `https://go.xero.com${path}`;
+    const bank = entriesFromXeroAnswer(
+      "BankTransactions",
+      {
+        BankTransactions: [
+          { BankTransactionID: "a1", Type: "SPEND", Status: "AUTHORISED", DateString: "2026-11-04T00:00:00", Total: 54.2, BankAccount: { AccountID: "acc-1" }, Contact: { Name: "Petro-Canada" } },
+          { BankTransactionID: "a2", Type: "RECEIVE", Status: "AUTHORISED", DateString: "2026-11-05T00:00:00", Total: 10, BankAccount: { AccountID: "acc-1" } },
+          { BankTransactionID: "a3", Type: "SPEND-TRANSFER", Status: "AUTHORISED", DateString: "2026-11-05T00:00:00", Total: 10, BankAccount: { AccountID: "acc-1" } },
+          { BankTransactionID: "a4", Type: "SPEND", Status: "DELETED", DateString: "2026-11-05T00:00:00", Total: 10, BankAccount: { AccountID: "acc-1" } },
+        ],
+      },
+      link,
+    );
+    assert.deepEqual(bank.map((e) => [e.key, e.amountCents, e.label]), [
+      ["BankTransaction:a1", -5420, "Spend money"],
+      ["BankTransaction:a2", 1000, "Receive money"],
+    ]);
+    const payments = entriesFromXeroAnswer(
+      "Payments",
+      {
+        Payments: [
+          { PaymentID: "p1", PaymentType: "ACCPAYPAYMENT", Status: "AUTHORISED", DateString: "2026-11-03T00:00:00", Amount: 99.99, Account: { AccountID: "acc-1" }, Invoice: { Contact: { Name: "Staples" } } },
+          { PaymentID: "p2", PaymentType: "ACCRECPAYMENT", Status: "AUTHORISED", DateString: "2026-11-03T00:00:00", Amount: 40, Account: { AccountID: "acc-1" } },
+        ],
+      },
+      link,
+    );
+    assert.deepEqual(payments.map((e) => [e.amountCents, e.label]), [
+      [-9999, "Bill payment"],
+      [4000, "Payment"],
+    ]);
+    const transfers = entriesFromXeroAnswer("BankTransfers", { BankTransfers: [{ BankTransferID: "t1", DateString: "2026-11-02T00:00:00", Amount: 500, FromBankAccount: { AccountID: "acc-1", Name: "Chequing" }, ToBankAccount: { AccountID: "acc-2", Name: "Savings" } }] }, link);
+    assert.deepEqual(transfers.map((e) => [e.key, e.accountId, e.amountCents]), [
+      ["BankTransfer:t1:from", "acc-1", -50000],
+      ["BankTransfer:t1:to", "acc-2", 50000],
+    ]);
   });
 });

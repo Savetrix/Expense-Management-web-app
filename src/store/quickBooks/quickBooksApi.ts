@@ -733,6 +733,10 @@ interface InviteQBMemberPayload {
   role: QBMemberRole;
   /** Whether invoices they upload may auto-post. Left out (e.g. a resend), the backend keeps what's stored, or the role default. */
   autoPostAllowed?: boolean;
+  /** Who approves their expense claims and trips (owner/admin/accountant user id); null = none. */
+  managerId?: string | null;
+  /** Contributors: the sidebar pages they can open (see lib/pageAccess.ts); null = all. */
+  pageAccess?: string[] | null;
 }
 
 export const inviteQBMember = createAsyncThunk(
@@ -750,6 +754,8 @@ export const inviteQBMember = createAsyncThunk(
           email: data.email,
           role: data.role,
           ...(data.autoPostAllowed !== undefined && { autoPostAllowed: data.autoPostAllowed }),
+          ...(data.managerId !== undefined && { managerId: data.managerId }),
+          ...(data.pageAccess !== undefined && { pageAccess: data.pageAccess }),
         },
         {
           headers: {
@@ -811,12 +817,15 @@ export const fetchQBMembers = createAsyncThunk(
 );
 
 // ================================
-// TEAM — UPDATE MEMBER (whether their uploads may auto-post)
+// TEAM — UPDATE MEMBER (auto-post, manager, a contributor's pages)
 // ================================
 interface UpdateQBMemberPayload {
   qbId: string;
   memberId: string;
-  autoPostAllowed: boolean;
+  /** Only the fields sent change. */
+  autoPostAllowed?: boolean;
+  managerId?: string | null;
+  pageAccess?: string[] | null;
 }
 
 export const updateQBMember = createAsyncThunk(
@@ -825,7 +834,11 @@ export const updateQBMember = createAsyncThunk(
     try {
       const response = await api.patch(
         `/qb-connections/${data.qbId}/members/${data.memberId}`,
-        { autoPostAllowed: data.autoPostAllowed },
+        {
+          ...(data.autoPostAllowed !== undefined && { autoPostAllowed: data.autoPostAllowed }),
+          ...(data.managerId !== undefined && { managerId: data.managerId }),
+          ...(data.pageAccess !== undefined && { pageAccess: data.pageAccess }),
+        },
         { headers: { "X-QB-Id": data.qbId } },
       );
       return response.data;

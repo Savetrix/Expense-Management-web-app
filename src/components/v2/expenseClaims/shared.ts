@@ -44,24 +44,5 @@ export const isApprover = (role: CompanyRole) => role === "owner" || role === "a
 /** Expense settings (mileage rate, mileage account, self-approval) are owner/admin decisions. */
 export const canEditSettings = (role: CompanyRole) => role === "owner" || role === "admin";
 
-// Team roles (as useTeamMembers labels them) that can approve claims and trips.
-const APPROVER_ROLES = new Set(["Owner", "Admin", "Accountant"]);
-
-/**
- * Who a claim or trip can be sent to: anyone who approves, but not the
- * submitter or the person it's for (claimant / driver) unless the company
- * allows self-approval. The backend applies the same rule.
- */
-export function approverOptionsFor<T extends { userId: string; role: string }>(
-  members: T[],
-  { selfId, subjectUserId, allowSelfApproval }: { selfId: string; subjectUserId: string; allowSelfApproval: boolean },
-): T[] {
-  return members.filter((m) => APPROVER_ROLES.has(m.role) && (allowSelfApproval || (m.userId !== selfId && m.userId !== subjectUserId)));
-}
-
-/** A pick that's no longer allowed doesn't count; a single possible approver is picked for you. */
-export const effectiveApprover = (options: { userId: string }[], picked: string) =>
-  options.length === 1 ? options[0].userId : options.some((m) => m.userId === picked) ? picked : "";
-
 export const errorMessage = (payload: unknown, fallback: string) =>
   (payload as ExpenseRequestError | undefined)?.message || fallback;
