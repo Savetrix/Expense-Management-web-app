@@ -317,7 +317,7 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
   );
 
   return (
-    <Modal open={open} onClose={close} title="New expense claim" widthClassName="max-w-lg" footer={footer}>
+    <Modal open={open} onClose={close} title="New reimbursement" widthClassName="max-w-lg" footer={footer}>
       <div className="flex flex-col gap-[var(--space-md)]">
         <div>
           <div className="flex items-center justify-between text-caption font-semibold text-content-secondary">

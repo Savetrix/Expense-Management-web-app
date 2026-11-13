@@ -349,7 +349,7 @@ export function TeamMembersContentV2() {
       member,
       { managerId: managerId || null },
       managerId
-        ? `${managerName(managerId)} now approves ${memberDisplayName(member)}'s expense claims and trips.`
+        ? `${managerName(managerId)} now approves ${memberDisplayName(member)}'s reimbursements and trips.`
         : `${memberDisplayName(member)} has no manager now — they can't send claims or trips until they get one.`,
     );
 
@@ -763,11 +763,11 @@ export function TeamMembersContentV2() {
                           <p className="text-body-sm font-semibold text-text-primary">Manager</p>
                           <p className="text-caption text-text-secondary">
                             {managerName(member.managerUserId)
-                              ? `${managerName(member.managerUserId)} approves their expense claims and trips.`
+                              ? `${managerName(member.managerUserId)} approves their reimbursements and trips.`
                               : member.managerUserId
                                 ? // Left the company or can't approve any more — the server treats them as no manager.
-                                  "Their manager left or can't approve any more — they can't send expense claims or trips until they get a new one."
-                                : "Not set — they can't send expense claims or trips until they have one."}
+                                  "Their manager left or can't approve any more — they can't send reimbursements or trips until they get a new one."
+                                : "Not set — they can't send reimbursements or trips until they have one."}
                           </p>
                         </div>
                         {canEditAutoPost(member) && (
@@ -1040,7 +1040,7 @@ export function TeamMembersContentV2() {
                 ))}
               </SelectDropdown>
               <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
-                Approves their expense claims and mileage trips. Without one they can&apos;t send any. You can change this later.
+                Approves their reimbursements and mileage trips. Without one they can&apos;t send any. You can change this later.
               </p>
             </div>
 

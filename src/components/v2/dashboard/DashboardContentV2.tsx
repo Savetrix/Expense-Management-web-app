@@ -754,7 +754,7 @@ export function DashboardContentV2() {
               count={manualPostedInvoices.length}
               label="Manually Posted"
               href="/invoices?type=manual"
-              colorClass="text-status-warning-text"
+              colorClass="text-status-info-text"
             />
             <StatRowV2
               count={failedInvoices.length}
@@ -1059,7 +1059,7 @@ export function DashboardContentV2() {
 function ExpenseClaimTag() {
   return (
     <span className="inline-flex w-fit shrink-0 items-center rounded-pill bg-status-info-bg px-[var(--space-xs)] py-[1px] text-tiny font-bold text-status-info-text">
-      Expense claim
+      Reimbursement
     </span>
   );
 }

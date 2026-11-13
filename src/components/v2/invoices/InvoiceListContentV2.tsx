@@ -72,10 +72,6 @@ function invoiceTimestamp(invoice: InvoiceRecord): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function sumTotals(list: InvoiceRecord[]): number {
-  return list.reduce((sum, invoice) => sum + (invoice.extractedData?.totalAmount || 0), 0);
-}
-
 // Always two decimals — rounding to whole units hid the cents, so a tile read
 // 52 for invoices adding up to 51.95.
 function formatAmount(total: number): string {
@@ -210,16 +206,6 @@ export function InvoiceListContentV2() {
     failed: failedInvoices.length,
   };
 
-  const totals = useMemo(
-    () => ({
-      total: sumTotals(combinedInvoices),
-      auto: sumTotals(autoPostedInvoices),
-      manual: sumTotals(manualPostedInvoices),
-      failed: sumTotals(failedInvoices),
-    }),
-    [combinedInvoices, autoPostedInvoices, manualPostedInvoices, failedInvoices],
-  );
-
   const meta = STATUS_META[statusFilter];
 
   const columns: DataTableColumn<InvoiceRecord>[] = [
@@ -238,7 +224,7 @@ export function InvoiceListContentV2() {
         const fromEmail = emailSourced.has(invoice._id);
         const claimTag = (invoice.expenseClaimId || invoice.claimReceipt) && (
           <span className="inline-flex w-fit shrink-0 items-center rounded-pill bg-status-info-bg px-[var(--space-xs)] py-[1px] text-tiny font-bold text-status-info-text">
-            Expense claim
+            Reimbursement
           </span>
         );
         // Right after the invoice number when there is one; on its own line otherwise.
@@ -331,7 +317,7 @@ export function InvoiceListContentV2() {
           a single column below lg. */}
       <div className="grid grid-cols-1 gap-[var(--space-md)] sm:gap-[var(--space-lg)] lg:grid-cols-6 lg:items-start">
         <div className="flex min-w-0 flex-col gap-[var(--space-md)] lg:col-span-4">
-          {/* Stat tiles — real per-status dollar totals, doubling as status
+          {/* Stat tiles — per-status invoice counts, doubling as status
               shortcuts (click to filter), matching the reference design's
               dark "Total" hero tile + 3 status-tinted tiles. */}
           <div className="grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-4">
@@ -342,11 +328,9 @@ export function InvoiceListContentV2() {
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
               <div className="my-[2px]">
-                <p className="text-h3 font-bold tracking-tight text-white">{formatAmount(totals.total)}</p>
+                <p className="text-h3 font-bold tracking-tight text-white">{combinedInvoices.length}</p>
               </div>
-              <p className="text-tiny text-nav-muted">
-                {combinedInvoices.length} invoice{combinedInvoices.length === 1 ? "" : "s"}
-              </p>
+              <p className="text-tiny text-nav-muted">invoice{combinedInvoices.length === 1 ? "" : "s"}</p>
             </button>
             {TAB_ORDER.map((t) => {
               const tileTheme = INVOICE_STATUS_THEME[t];
@@ -368,12 +352,10 @@ export function InvoiceListContentV2() {
                   </p>
                   <div className="my-[2px]">
                     <p className={`text-h3 font-bold tracking-tight ${tileTheme.accentTextClass}`}>
-                      {formatAmount(totals[t])}
+                      {tabCounts[t]}
                     </p>
                   </div>
-                  <p className={`text-tiny ${tileTheme.accentTextClass}`}>
-                    {tabCounts[t]} invoice{tabCounts[t] === 1 ? "" : "s"}
-                  </p>
+                  <p className={`text-tiny ${tileTheme.accentTextClass}`}>invoice{tabCounts[t] === 1 ? "" : "s"}</p>
                 </button>
               );
             })}

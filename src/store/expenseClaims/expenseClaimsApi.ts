@@ -155,7 +155,7 @@ export const fetchExpenseClaims = createAsyncThunk<
     const { data } = await api.get("/expense-claims");
     return { claims: data?.data?.claims ?? [], qbConnectionId };
   } catch (error) {
-    return rejectWithValue(toError(error, "Couldn't load expense claims."));
+    return rejectWithValue(toError(error, "Couldn't load reimbursements."));
   }
 });
 

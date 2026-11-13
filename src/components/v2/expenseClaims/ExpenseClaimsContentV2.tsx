@@ -59,11 +59,11 @@ export function ExpenseClaimsContentV2() {
   if (!team.hasCompany) {
     return (
       <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
-        <PageHeader title="Expense Claims" subtitle="Reimburse employees for out-of-pocket receipts and business trips." />
+        <PageHeader title="Reimbursements" subtitle="Reimburse employees for out-of-pocket receipts and business trips." />
         <EmptyState
           icon={<Receipt size={28} strokeWidth={1.75} />}
           title="Pick a company"
-          description="Choose a company in the header to see its expense claims."
+          description="Choose a company in the header to see its reimbursements."
         />
       </div>
     );
@@ -72,13 +72,13 @@ export function ExpenseClaimsContentV2() {
   return (
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <PageHeader
-        title="Expense Claims"
+        title="Reimbursements"
         subtitle="Reimburse employees for out-of-pocket receipts and business trips."
         action={
           tab === "claims" ? (
             <Button size="sm" onClick={() => setWizardOpen(true)} className="shrink-0">
               <Plus size={16} strokeWidth={2.5} />
-              New expense claim
+              New reimbursement
             </Button>
           ) : undefined
         }

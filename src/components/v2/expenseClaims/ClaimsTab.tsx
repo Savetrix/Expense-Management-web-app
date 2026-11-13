@@ -111,7 +111,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
   const handleApprove = async (claim: ExpenseClaimDto) => {
     const ok = await confirmDialog({
       title: `Approve and post to ${provider.name}?`,
-      message: `This creates one bill in ${provider.name} payable to ${claim.claimant.name} for ${money(claim.total, claim.currency)}, with every receipt attached (they're added as a vendor there if they aren't one yet). The receipts then show in your invoices, tagged as an expense claim.`,
+      message: `This creates one bill in ${provider.name} payable to ${claim.claimant.name} for ${money(claim.total, claim.currency)}, with every receipt attached (they're added as a vendor there if they aren't one yet). The receipts then show in your invoices, tagged as a reimbursement.`,
       confirmLabel: "Approve & post",
     });
     if (!ok) return;
@@ -262,7 +262,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
       <div className="mt-[var(--space-md)]">
         <RoleInfoBanner>
           {approver
-            ? `Expense claims never post on their own — approving a claim posts it to ${provider.name} as one bill payable to the employee; rejecting keeps it out.`
+            ? `Reimbursements never post on their own — approving a claim posts it to ${provider.name} as one bill payable to the employee; rejecting keeps it out.`
             : "You see the claims you created or that are yours. Someone with approval rights approves or rejects them, and reimburses you."}
         </RoleInfoBanner>
       </div>
@@ -303,7 +303,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
               icon={<Receipt size={28} strokeWidth={1.75} />}
               title={emptyCopy[status].title}
               description={emptyCopy[status].description}
-              actionLabel={status === "awaiting_review" && !approver ? "New expense claim" : undefined}
+              actionLabel={status === "awaiting_review" && !approver ? "New reimbursement" : undefined}
               onAction={status === "awaiting_review" && !approver ? onNewClaim : undefined}
             />
           )

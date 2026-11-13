@@ -57,13 +57,13 @@ interface NavItem {
 }
 
 // The link to the claims page counts claims waiting on your approval.
-const CLAIMS_HREF = "/expense-claims";
+const CLAIMS_HREF = "/reimbursements";
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
-  { href: CLAIMS_HREF, label: "Expense Claims", icon: Car },
+  { href: CLAIMS_HREF, label: "Reimbursements", icon: Car },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },
   { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },

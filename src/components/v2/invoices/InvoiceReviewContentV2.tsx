@@ -1515,10 +1515,10 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {onExpenseClaim && (
             <div className="rounded-md border border-status-info-border bg-status-info-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-info-text">
-              This is an expense claim receipt. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved —
+              This is a reimbursement receipt. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved —
               not on its own. You can still fix its details here while the claim is awaiting review.{" "}
-              <Link href="/expense-claims" className="font-bold underline">
-                View expense claims
+              <Link href="/reimbursements" className="font-bold underline">
+                View reimbursements
               </Link>
             </div>
           )}
