@@ -42,6 +42,7 @@ import {
   updateQuickBooksSettings,
 } from "@/store/quickBooks/quickBooksApi";
 import { useQuickBooksConnections, QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
+import { useAutoPostLock } from "@/components/v2/preferences/useAutoPostLock";
 import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 
 // The connection/Drive/MCP detail lives in ONE modal slot — only one can be
@@ -280,6 +281,7 @@ export function AccountingSoftwaresContentV2() {
   // Server-side per-connection setting, loaded by getQuickBooksStatus for
   // whichever connection is active — see quickBooksSlice.
   const autoPostEnabled = useAppSelector((state) => state.quickBooks.autoPostEnabled);
+  const autoPostLockState = useAutoPostLock();
 
   const [detail, setDetail] = useState<DetailView>(null);
   const [disconnectedExpanded, setDisconnectedExpanded] = useState(false);
@@ -842,13 +844,18 @@ export function AccountingSoftwaresContentV2() {
                   <p className="text-caption text-content-secondary">
                     Push reviewed invoices to {selectedProvider.name} without a second confirmation.
                   </p>
+                  {autoPostLockState.locked && !autoPostEnabled && autoPostLockState.note && (
+                    <p className="mt-[var(--space-xs)] text-caption font-semibold text-status-warning-text">{autoPostLockState.note}</p>
+                  )}
                 </div>
-                <Switch
-                  checked={autoPostEnabled}
-                  onChange={handleToggleAutoPost}
-                  disabled={savingAutoPost || !accessToken}
-                  label="Auto-post approved invoices"
-                />
+                <span title={autoPostLockState.locked && !autoPostEnabled ? (autoPostLockState.note ?? undefined) : undefined}>
+                  <Switch
+                    checked={autoPostEnabled}
+                    onChange={handleToggleAutoPost}
+                    disabled={savingAutoPost || !accessToken || (autoPostLockState.locked && !autoPostEnabled)}
+                    label="Auto-post approved invoices"
+                  />
+                </span>
               </div>
             )}
 

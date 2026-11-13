@@ -105,12 +105,15 @@ export function TransactionModal({
   const coding = codingFor(txn);
   const suggestion = coding.suggestion;
   const linePicks = picksFor(txn, lookups);
-  const pendingSuggestion = coding.source === "suggested";
+  // A suggestion Scantrix didn't fill in (not sure enough, or "Suggest only").
+  const offered = coding.offered;
+  const pendingSuggestion = Boolean(offered);
   const useSuggestion = () => {
-    const vendorName = coding.vendorId ? lookups.vendorById.get(coding.vendorId)?.displayName : undefined;
-    const nextPayee = coding.payee ?? vendorName;
+    if (!offered) return;
+    const vendorName = offered.vendorId ? lookups.vendorById.get(offered.vendorId)?.displayName : undefined;
+    const nextPayee = offered.payee ?? vendorName;
     if (nextPayee) setPayee(nextPayee);
-    onUpdate(txn.id, { vendorId: coding.vendorId, categoryId: coding.glAccountId, taxCodeId: coding.taxCodeId, payee: nextPayee });
+    onUpdate(txn.id, { vendorId: offered.vendorId, categoryId: offered.glAccountId, taxCodeId: offered.taxCodeId, payee: nextPayee });
   };
 
   return (
@@ -376,7 +379,7 @@ export function TransactionModal({
                         <span className="font-semibold">
                           {coding.source === "autopilot" ? "Coded by Scantrix" : pendingSuggestion ? "Scantrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
                         </span>
-                        {pendingSuggestion && codingLabel(coding, lookups) && <> · {codingLabel(coding, lookups)}</>}
+                        {offered && codingLabel({ ...offered, source: "none", reason: null, suggestion, offered }, lookups) && <> · {codingLabel({ ...offered, source: "none", reason: null, suggestion, offered }, lookups)}</>}
                         {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by Scantrix — /, "")}</span>}
                         {suggestion?.step === "rule" && (
                           <Link href="/autopilot?tab=rules" className="text-caption font-semibold text-accent hover:underline">
@@ -387,7 +390,7 @@ export function TransactionModal({
                     </p>
                     {pendingSuggestion && (
                       <Button size="sm" onClick={useSuggestion}>
-                        Use suggestion
+                        Use this
                       </Button>
                     )}
                     {coding.source === "none" && suggestion?.kind === "exclude" && (

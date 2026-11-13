@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowLeftRight, ExternalLink, EyeOff, Landmark, Paperclip, Send, Sparkles, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ExternalLink, EyeOff, Landmark, Paperclip, Send, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -17,10 +17,11 @@ import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
 import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
 
-import { codingFor, isSuggestedField, picksFor, type Lookups } from "./coding";
+import { codingFor, isSuggestedField, isSureLine, picksFor, surePatch, type Lookups } from "./coding";
 import { formatAmount } from "./format";
 import { findStrongSuggestions, type StrongSuggestion } from "./matching";
 import { LINE_COLUMN_WIDTH, SuggestedMatches } from "./SuggestedMatches";
+import { SureLines } from "./SureLines";
 import { STATUS_LABEL } from "./TransactionModal";
 import type { LedgerAccountDto } from "@/store/bankFeeds/bankFeedsApi";
 
@@ -148,6 +149,19 @@ export function TransactionsTab({
       .filter((t) => !q || `${t.description} ${t.accountName} ${t.payee ?? ""} ${t.merchantName ?? ""}`.toLowerCase().includes(q))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }, [txns, status, account, from, to, search]);
+  // "Scantrix is sure": lines to review it filled in, or would ("Suggest only"),
+  // shown in their own section on top and not again below. A line in the
+  // suggested bill matches stays there instead.
+  const sureLines = useMemo(() => {
+    if (status !== "review") return [];
+    const matching = new Set(suggestions.map((s) => s.txn.id));
+    return rows.filter((t) => isSureLine(t) && !matching.has(t.id));
+  }, [rows, status, suggestions]);
+  const listRows = useMemo(() => {
+    if (sureLines.length === 0) return rows;
+    const sure = new Set(sureLines.map((t) => t.id));
+    return rows.filter((t) => !sure.has(t.id));
+  }, [rows, sureLines]);
 
   if (txns.length === 0 && loading) {
     return (
@@ -242,7 +256,8 @@ export function TransactionsTab({
   };
 
   const editable = (t: BankTransaction) => t.status === "review";
-  const fieldTone = (t: BankTransaction, field: "vendorId" | "categoryId" | "taxCodeId") => (isSuggestedField(t, field) ? "suggested" : "default");
+  // Dashed outline: Scantrix filled it in and no person has confirmed it yet.
+  const fieldTone = (t: BankTransaction) => (isSuggestedField(t) ? "suggested" : "default");
 
   const columns: DataTableColumn<BankTransaction>[] = [
     { key: "date", header: "Date", width: LINE_COLUMN_WIDTH.date, render: (t) => <span className="whitespace-nowrap">{t.date}</span> },
@@ -285,7 +300,12 @@ export function TransactionsTab({
             ariaLabel={`Vendor for ${t.description}`}
             value={c.vendorId ?? ""}
             valueLabel={!c.vendorId ? c.payee : undefined}
-            tone={fieldTone(t, "vendorId")}
+            picks={
+              !c.vendorId && c.offered?.vendorId
+                ? [{ id: c.offered.vendorId, reason: c.suggestion?.linkedVendor ? "Picked for this payee before" : "From earlier lines for this payee" }]
+                : undefined
+            }
+            tone={fieldTone(t)}
             title={c.reason ?? undefined}
             placeholder="Vendor"
             clearLabel="No vendor"
@@ -318,7 +338,7 @@ export function TransactionsTab({
             noun="GL account"
             ariaLabel={`GL account for ${t.description}`}
             value={c.glAccountId ?? ""}
-            tone={fieldTone(t, "categoryId")}
+            tone={fieldTone(t)}
             title={c.reason ?? undefined}
             placeholder="GL account"
             clearLabel="No GL account"
@@ -345,7 +365,7 @@ export function TransactionsTab({
             noun="tax code"
             ariaLabel={`Tax code for ${t.description}`}
             value={c.taxCodeId ?? ""}
-            tone={fieldTone(t, "taxCodeId")}
+            tone={fieldTone(t)}
             placeholder="Tax"
             clearLabel="No tax code"
             onSelect={(id) => onUpdate(t.id, { taxCodeId: id || undefined })}
@@ -459,7 +479,22 @@ export function TransactionsTab({
     },
   ];
 
-  const anySuggested = rows.some((t) => t.status === "review" && (isSuggestedField(t, "categoryId") || isSuggestedField(t, "vendorId")));
+  const postSure = async (lines: BankTransaction[]) => {
+    const items = lines.flatMap((t) => {
+      const patch = surePatch(t);
+      return patch ? [{ txn: t, patch }] : [];
+    });
+    if (items.length === 0) return;
+    if (items.length > 1) {
+      const ok = await confirmDialog({
+        title: `Post ${items.length} lines${sendsNow ? ` to ${providerName}` : ""}?`,
+        message: `Each line is posted with the vendor, GL account and tax code shown.${sendsNow ? ` A sent line can only be changed in ${providerName}.` : ""}`,
+        confirmLabel: `Post ${items.length}`,
+      });
+      if (!ok) return;
+    }
+    onPost(items);
+  };
 
   // The line a vendor or GL account is being added from, as it is shown now.
   const addingTxn = adding ? txns.find((x) => x.id === adding.txnId) : undefined;
@@ -518,12 +553,6 @@ export function TransactionsTab({
             </Button>
           </div>
         )}
-        {status === "review" && anySuggested && (
-          <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-secondary">
-            <Sparkles size={13} strokeWidth={2.25} className="text-accent" />
-            Fields with a dashed outline are filled in by one of your company rules or from earlier lines for the same payee. Post confirms them, or change any of them first.
-          </p>
-        )}
       </div>
 
       {selectedIds.length > 0 && (
@@ -562,6 +591,19 @@ export function TransactionsTab({
       )}
 
       {status === "review" && (
+        <SureLines
+          lines={sureLines}
+          lookups={lookups}
+          providerName={providerName}
+          sends={sendsNow}
+          glName={glName}
+          onPost={(t) => void postSure([t])}
+          onPostAll={() => void postSure(sureLines)}
+          onOpen={(id) => onOpen(id)}
+        />
+      )}
+
+      {status === "review" && (
         <SuggestedMatches
           suggestions={suggestions}
           lookups={lookups}
@@ -573,12 +615,14 @@ export function TransactionsTab({
         />
       )}
 
-      {rows.length === 0 ? (
-        <div className="p-[var(--space-lg)] text-center text-body-sm text-content-secondary">No transactions match these filters.</div>
+      {listRows.length === 0 ? (
+        <div className="p-[var(--space-lg)] text-center text-body-sm text-content-secondary">
+          {rows.length > 0 ? "Every line here is in the section above." : "No transactions match these filters."}
+        </div>
       ) : (
         <DataTable
           columns={columns}
-          rows={rows}
+          rows={listRows}
           getRowKey={(t) => t.id}
           bordered={false}
           maxHeightClassName="max-h-[640px]"

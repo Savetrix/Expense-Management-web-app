@@ -38,11 +38,15 @@ const KIND_LABEL: Record<SuggestionRuleDto["match"], string> = {
 
 const MODES: { value: AutoClassification; label: string; detail: string }[] = [
   { value: "off", label: "Off", detail: "No suggestions on bank lines or invoices." },
-  { value: "suggest", label: "Suggest only", detail: "Suggestions are shown, but never filled in." },
+  {
+    value: "suggest",
+    label: "Suggest only",
+    detail: "The vendor, GL and tax boxes stay empty. Sure lines are listed at the top of Bank Transactions, and other ideas appear in each box's dropdown under \"Suggested\".",
+  },
   {
     value: "fill",
     label: "Fill in when sure",
-    detail: "Only sure suggestions are filled in: a rule, or 3 agreeing decisions for the same payee. A person still presses Post.",
+    detail: "Sure lines (a rule, or 3 past lines with the same GL and tax) get their vendor, GL and tax filled in, shown with a dashed outline. Nothing is posted until a person clicks Post.",
   },
 ];
 

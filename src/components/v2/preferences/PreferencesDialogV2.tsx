@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Modal, RoleInfoBanner } from "@/components/v2/ui";
 import { PreferenceRow } from "./PreferenceRow";
 import { usePreferencesSettings } from "./usePreferencesSettings";
+import { useAutoPostLock } from "./useAutoPostLock";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 import { useRouter } from "next/navigation";
 
@@ -33,6 +34,7 @@ export function PreferencesDialogV2({ open, onClose }: { open: boolean; onClose:
     toggleAutoPost,
     toggleAttachInvoiceCopy,
   } = usePreferencesSettings();
+  const autoPostLockState = useAutoPostLock();
 
   return (
     <Modal open={open} onClose={onClose} title="Preferences" widthClassName="max-w-2xl">
@@ -83,6 +85,7 @@ export function PreferencesDialogV2({ open, onClose }: { open: boolean; onClose:
               saving={savingAutoPost}
               disabled={!canManage}
               onToggle={toggleAutoPost}
+              lockNote={autoPostLockState.note}
             />
             <PreferenceRow
               icon={<Paperclip size={18} strokeWidth={2} />}
