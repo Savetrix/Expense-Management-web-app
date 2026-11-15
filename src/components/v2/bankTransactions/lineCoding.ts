@@ -23,9 +23,8 @@ export interface LineSuggestion {
   checks: Record<"legibility" | "completeness" | "history", { ok: boolean; detail: string }>;
   autoCoded: boolean;
   basis: { agreeing: number; total: number; lines: number };
-  /** Which step found it: a company rule, or this payee's history. Absent on lines scored before rules existed. */
-  step?: "rule" | "history";
-  rule?: { id: string; match: "payee" | "description" | "category"; label: string };
+  /** Which step found it: this payee's history (here or in the books), or similar past items (step 3). */
+  step?: "history" | "similar";
   /** Step 2: the top 3 accounts, best first. Absent on lines scored before step 2. */
   picks?: SuggestionPick[];
   /** The vendor comes from the payee's link to a vendor a person picked. */

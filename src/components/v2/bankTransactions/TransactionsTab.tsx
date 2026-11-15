@@ -157,7 +157,8 @@ export function TransactionsTab({
     return rows.filter((t) => isSureLine(t) && !matching.has(t.id));
   }, [rows, status, suggestions]);
   const sureIds = useMemo(() => new Set(sureLines.map((t) => t.id)), [sureLines]);
-  const listRows = useMemo(() => (sureIds.size === 0 ? rows : rows.filter((t) => !sureIds.has(t.id))), [rows, sureIds]);
+  // One list: the lines Scantrix picked first, lightly highlighted, then the rest (Saurabh, 13 Nov).
+  const listRows = useMemo(() => (sureIds.size === 0 ? rows : [...sureLines, ...rows.filter((t) => !sureIds.has(t.id))]), [rows, sureIds, sureLines]);
 
   if (txns.length === 0 && loading) {
     return (
@@ -636,51 +637,25 @@ export function TransactionsTab({
         />
       )}
 
+      {sureLines.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)] border-b border-border bg-status-success-bg/40 px-[var(--space-md)] py-[var(--space-xs)]">
+          <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-primary">
+            <CheckCircle2 size={14} strokeWidth={2.25} className="text-status-success-text" />
+            Scantrix picked {sureLines.length} line{sureLines.length === 1 ? "" : "s"} (highlighted, at the top): 3 past lines on the same vendor, GL and tax. Check, then post.
+          </p>
+          <Button size="sm" onClick={() => void postSure(sureLines)}>
+            Post all {sureLines.length}
+          </Button>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div className="p-[var(--space-lg)] text-center text-body-sm text-content-secondary">No transactions match these filters.</div>
       ) : (
         <DataTable
           columns={columns}
           rows={listRows}
-          sections={
-            sureLines.length > 0
-              ? [
-                  {
-                    key: "sure",
-                    rowClassName: "bg-status-success-bg/40",
-                    header: (
-                      <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-[var(--space-xs)] text-body-sm font-bold text-content-primary">
-                            <CheckCircle2 size={16} strokeWidth={2.25} className="text-status-success-text" />
-                            Scantrix is sure · {sureLines.length}
-                          </p>
-                          <p className="text-caption text-content-secondary">
-                            Coded by a company rule or 3 matching past lines. Check the vendor, GL account and tax, then post.
-                          </p>
-                        </div>
-                        <Button size="sm" onClick={() => void postSure(sureLines)}>
-                          Post all {sureLines.length}
-                        </Button>
-                      </div>
-                    ),
-                    rows: sureLines,
-                  },
-                  {
-                    key: "rest",
-                    header: (
-                      <div>
-                        <p className="text-body-sm font-bold text-content-primary">To code · {listRows.length}</p>
-                        <p className="text-caption text-content-secondary">
-                          {listRows.length > 0 ? "Pick a vendor, GL account and tax for each line, then post." : "Nothing left to code here."}
-                        </p>
-                      </div>
-                    ),
-                    rows: listRows,
-                  },
-                ]
-              : undefined
-          }
+          getRowClassName={(t) => (sureIds.has(t.id) ? "bg-status-success-bg/40" : "")}
           getRowKey={(t) => t.id}
           bordered={false}
           maxHeightClassName="max-h-[640px]"

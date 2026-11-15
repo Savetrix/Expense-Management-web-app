@@ -419,7 +419,6 @@ export function BankTransactionsContentV2() {
           onClose={() => setOpenId(null)}
           onUpdate={patchOne}
           onPost={(patch) => postLines([{ txn: openTxn, patch }])}
-          onRuleSaved={() => dispatch(fetchBankTransactions())}
           onLinkFound={(key) => linkFound(openTxn.id, key)}
           onUnlinkFound={() => unlinkFound(openTxn.id)}
         />

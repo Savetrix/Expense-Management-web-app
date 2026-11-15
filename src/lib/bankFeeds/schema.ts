@@ -11,11 +11,10 @@
 // POSITIVE amount, so sync inverts it once, on the way in (plaidMap.ts).
 // Dates of bank lines are calendar dates kept as "YYYY-MM-DD" strings, never
 // Date objects, so no time zone can move them a day.
-import type { AutoClassification, RuleMatch } from "@/lib/suggestions/match";
+import type { AutoClassification } from "@/lib/suggestions/match";
 
 import type { Db } from "./db";
 
-export type { RuleMatch } from "@/lib/suggestions/match";
 
 export type ItemStatus = "active" | "login_required" | "pending_expiration" | "pending_disconnect" | "revoked" | "error";
 /**
@@ -213,32 +212,6 @@ export interface FoundEntry {
 }
 
 /**
- * A company rule (Smart Suggestions, step 1): "Always code Esso to Vehicle
- * expense". It beats the company's history, so a line it matches is filled in
- * even for a payee seen for the first time. A person still presses Post.
- *   payee       — `value` is a payee key (suggest.ts payeeKey).
- *   description — `value` is words that must appear in the bank description.
- *   category    — `value` is Plaid's category, e.g. GAS_STATIONS.
- * Accounts are kept by their id in QuickBooks/Xero, never by name.
- */
-export interface RuleDoc {
-  _id: string;
-  qbConnectionId: string;
-  match: RuleMatch;
-  value: string;
-  /** What the person saw or typed ("Esso"), for the sentence on screen. */
-  label: string;
-  glAccountId: string;
-  taxCodeId: string | null;
-  /** Set when the GL account is no longer active in QuickBooks/Xero: the rule is skipped until it is fixed. */
-  brokenAt?: Date | null;
-  createdBy: string;
-  createdAt: Date;
-  updatedBy: string;
-  updatedAt: Date;
-}
-
-/**
  * A company's Smart Suggestions settings. _id = qbConnectionId.
  * Auto-classification: off (no suggestions), suggest (shown, never filled in)
  * or fill (only sure suggestions are filled in; the default).
@@ -350,7 +323,6 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.events.createIndex({ transactionId: 1 }),
     db.webhooks.createIndex({ receivedAt: -1 }),
     db.ledgerMappings.createIndex({ qbConnectionId: 1 }),
-    db.rules.createIndex({ qbConnectionId: 1, updatedAt: -1 }),
     db.payeeLinks.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
     db.history.createIndex({ qbConnectionId: 1, nameKey: 1 }),
     db.history.createIndex({ qbConnectionId: 1, vendorId: 1 }),

@@ -18,12 +18,12 @@ import type { DataTableColumn } from "@/components/v2/ui";
 import { DecisionTrailModal, formatShortDate } from "./DecisionTrailModal";
 import { toAutopilotDocument } from "./documents";
 import { OverviewPanel } from "./OverviewPanel";
-import { RulesPanel } from "./RulesPanel";
+import { SettingsPanel } from "./SettingsPanel";
 import { UsagePanel } from "./UsagePanel";
 import type { AutopilotDocument } from "./types";
 import { useEnsureInvoices } from "./useEnsureInvoices";
 
-type AutopilotTab = "overview" | "review" | "published" | "rules" | "usage";
+type AutopilotTab = "overview" | "review" | "published" | "settings" | "usage";
 type PublishedFilter = "all" | "autopilot" | "people";
 
 export function AutopilotContentV2() {
@@ -40,9 +40,9 @@ export function AutopilotContentV2() {
   const companyName = activeConnection?.name || "this company";
 
   const [activeTab, setActiveTab] = useState<AutopilotTab>("overview");
-  // "/autopilot?tab=rules" (from a bank line coded by a rule) opens the Rules tab.
+  // "/autopilot?tab=settings" opens the Smart Suggestions settings.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("tab") === "rules") setActiveTab("rules");
+    if (new URLSearchParams(window.location.search).get("tab") === "settings") setActiveTab("settings");
   }, []);
   const [enabled, setEnabled] = useState(true);
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>("all");
@@ -162,7 +162,7 @@ export function AutopilotContentV2() {
                 { value: "overview", label: "Overview" },
                 { value: "review", label: "Needs review", count: needsReview.length },
                 { value: "published", label: "Autopublished", count: published.length },
-                { value: "rules", label: "Rules" },
+                { value: "settings", label: "Settings" },
                 { value: "usage", label: "Usage" },
               ]}
               value={activeTab}
@@ -264,8 +264,8 @@ export function AutopilotContentV2() {
               </div>
             )}
           </>
-        ) : activeTab === "rules" ? (
-          <RulesPanel providerName={provider.name} />
+        ) : activeTab === "settings" ? (
+          <SettingsPanel providerName={provider.name} />
         ) : (
           <UsagePanel />
         )}

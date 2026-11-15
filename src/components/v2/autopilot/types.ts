@@ -1,6 +1,5 @@
 // Autopilot types and fixed configuration. No records live here: Needs review
-// and Autopublished are derived from the real invoice slice, rules come from
-// /api/suggestion-rules, and usage rows arrive from the backend once that
+// and Autopublished are derived from the real invoice slice, and usage rows arrive from the backend once that
 // endpoint exists.
 
 export type PublishedBy = "autopilot" | "person";

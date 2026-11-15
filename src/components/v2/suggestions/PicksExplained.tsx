@@ -7,9 +7,9 @@ import { ConfidenceLabel } from "./ConfidenceLabel";
 // accounts, and the past items each one is based on.
 
 const STEP_LABEL: Record<PickStep, string> = {
-  rule: "Company rule",
   history: "Same vendor or payee before",
   vendor_default: "Vendor default",
+  similar: "Similar past items",
 };
 
 const money = (cents: number | null) =>

@@ -3,22 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { billVotes, invoicePicks, sameVendorName, type PastBill } from "@/lib/suggestions/invoicePicks";
-import { ruleForVendor } from "@/lib/suggestions/match";
 import { pickReason, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
-import {
-  fetchSuggestionRules,
-  fetchSuggestionSettings,
-  fetchVendorMemory,
-  type AutoClassification,
-  type SuggestionRuleDto,
-} from "@/store/bankFeeds/bankFeedsApi";
+import { fetchSuggestionSettings, fetchVendorMemory, type AutoClassification } from "@/store/bankFeeds/bankFeedsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import type { GLAccount } from "@/store/quickBooks/quickBooksSlice";
 
-// Smart Suggestions on the invoice review screen: the company's rules and
-// Auto-classification setting (for InvoiceRuleHint), and the top 3 GL
-// accounts for the account dropdown (lib/suggestions/invoicePicks.ts).
+// Smart Suggestions on the invoice review screen: the company's
+// Auto-classification setting, and the top 3 GL accounts for the account
+// dropdown (lib/suggestions/invoicePicks.ts).
 // With Auto-classification Off, or without bank feeds on the server, there
 // are no picks; the vendor default the API fills in stays as it is.
 
@@ -38,7 +31,6 @@ function pastBill(inv: InvoiceRecord): PastBill {
 }
 
 export interface InvoiceSuggestions {
-  rules: SuggestionRuleDto[];
   mode: AutoClassification;
   picks: { pick: SuggestionPick; name: string; reason: string }[];
 }
@@ -50,17 +42,14 @@ export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: strin
   const vendors = useAppSelector((s) => s.quickBooks.vendors);
   // Bills a person posted: postedStatus "manual". Auto-posted ones were never a person's choice.
   const posted = useAppSelector((s) => s.invoice.manualPostedInvoices);
-  const [rules, setRules] = useState<SuggestionRuleDto[]>([]);
   const [mode, setMode] = useState<AutoClassification>("off");
   const [bankVotes, setBankVotes] = useState<{ vendorId: string; votes: MemoryVote[] }>({ vendorId: "", votes: [] });
 
   useEffect(() => {
     if (!qbConnectionId) return;
     let cancelled = false;
-    void Promise.all([dispatch(fetchSuggestionRules()), dispatch(fetchSuggestionSettings())]).then(([r, s]) => {
-      if (cancelled) return;
-      setRules(fetchSuggestionRules.fulfilled.match(r) ? r.payload : []);
-      setMode(fetchSuggestionSettings.fulfilled.match(s) ? s.payload.autoClassification : "off");
+    void dispatch(fetchSuggestionSettings()).then((s) => {
+      if (!cancelled) setMode(fetchSuggestionSettings.fulfilled.match(s) ? s.payload.autoClassification : "off");
     });
     return () => {
       cancelled = true;
@@ -86,14 +75,12 @@ export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: strin
 
   const picks = useMemo(() => {
     if (mode === "off" || !vendorName.trim()) return [];
-    const rule = ruleForVendor(rules.filter((r) => !r.broken), vendorName);
     const votes = [
       ...billVotes(posted.map(pastBill), { id: memoryVendorId || null, name: vendorName }, invoiceId),
       ...(bankVotes.vendorId === memoryVendorId ? bankVotes.votes : []),
     ];
     const found = invoicePicks({
       vendorName: vendor?.displayName ?? vendorName,
-      rule: rule ? { id: rule.id, glAccountId: rule.glAccountId, taxCodeId: rule.taxCodeId, label: rule.label } : null,
       vendorDefault: vendor ? { glAccountId: vendor.glAccountId ?? null, taxCodeId: vendor.taxCodeId ?? null } : null,
       votes,
     });
@@ -102,7 +89,7 @@ export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: strin
       const account = glAccounts.find((a) => a.qbAccountId === pick.glAccountId && !a.isDeleted);
       return account ? [{ pick, name: account.name, reason: pickReason(pick, account.name) }] : [];
     });
-  }, [mode, rules, vendorName, vendor, posted, memoryVendorId, invoiceId, bankVotes, glAccounts]);
+  }, [mode, vendorName, vendor, posted, memoryVendorId, invoiceId, bankVotes, glAccounts]);
 
-  return { rules, mode, picks };
+  return { mode, picks };
 }

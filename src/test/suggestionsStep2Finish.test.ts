@@ -7,7 +7,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { codingFor, isSureLine, surePatch } from "../components/v2/bankTransactions/lineCoding";
 import type { BankTransaction } from "../components/v2/bankTransactions/types";
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
-import { setAutoClassification } from "../lib/bankFeeds/rules";
+import { setAutoClassification } from "../lib/bankFeeds/settings";
 import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 import { autoPostLock, autoPostUnlockDays, earliest } from "../lib/suggestions/autoPostLock";
@@ -162,6 +162,36 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
     const next = await read(all[3].id);
     assert.equal(next?.categoryId, undefined);
     assert.notEqual((next?.suggestion as Suggestion).confidence, "high");
+  });
+
+  it("doesn't fill when the 3 past lines name different vendors", async () => {
+    const all = await lines(4);
+    await code(all[0].id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await code(all[1].id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await code(all[2].id, { vendorId: "v-shell", payee: "Shell", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await refreshSuggestions(db, QB);
+    const next = await read(all[3].id);
+    assert.equal(next?.categoryId, undefined);
+    assert.match((next?.suggestion as Suggestion).reason, /different vendors/);
+  });
+
+  it("one past decision only suggests: it never spreads to every similar line (Starbucks)", async () => {
+    await importCsv(db, {
+      qbConnectionId: QB,
+      userId: "u1",
+      accountLabel: "RBC",
+      rows: Array.from({ length: 5 }, (_, i) => ({ date: today, description: `STARBUCKS STORE 1234 SEATTLE ${i}`, amount: -(5 + i) })),
+    });
+    const all = await listTransactions(db, QB);
+    await code(all[0].id, { vendorId: "v-sbux", payee: "Starbucks", glAccountId: "gl-meals", taxCodeId: "gst" });
+    const out = await refreshSuggestions(db, QB);
+    assert.equal(out.autoCoded, 0);
+    for (const l of all.slice(1)) {
+      const after_ = await read(l.id);
+      assert.equal(after_?.categoryId, undefined, "nothing filled in");
+      assert.notEqual((after_?.suggestion as Suggestion).confidence, "high");
+      assert.equal((after_?.suggestion as Suggestion).picks?.[0].glAccountId, "gl-meals", "but suggested in the dropdown");
+    }
   });
 
   it("Suggest only fills nothing, however many past lines agree", async () => {

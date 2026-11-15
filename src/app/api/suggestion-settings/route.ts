@@ -5,7 +5,7 @@
 //   Suggest only takes back what Scantrix filled in by itself.
 import { can } from "@/lib/bankFeeds/door";
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
-import { setAutoClassification } from "@/lib/bankFeeds/rules";
+import { setAutoClassification } from "@/lib/bankFeeds/settings";
 import { readAutoClassification } from "@/lib/bankFeeds/suggest";
 import { AUTO_CLASSIFICATION_MODES, type AutoClassification } from "@/lib/suggestions/match";
 

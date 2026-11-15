@@ -17,10 +17,10 @@
 // "autopilot") and says so on the line; the user can change it. It never
 // changes a line's status (exclude, transfer, match) by itself, and never posts.
 //
-// Smart Suggestions, step 1: a company rule ("Always code Esso to Vehicle
-// expense", rules.ts) comes before the history above. A rule is the company's
-// own instruction, so it counts as sure even for a payee seen for the first
-// time, and the line is filled in when the line itself is clean data.
+// Smart Suggestions, step 1: the company's own coding in QuickBooks (the last
+// 12 months, history.ts) counts like decisions a person made here, so a payee
+// the books already know is suggested from day one. There are no Scantrix
+// rules: the company's rules live in QuickBooks (Saurabh, 13 Nov call).
 //
 // Step 2: every suggestion also carries the top 3 accounts (`picks`, from
 // lib/suggestions/picks.ts) with the past lines behind each, for the account
@@ -29,15 +29,15 @@
 // from that payee get that vendor.
 import type { AnyBulkWriteOperation } from "mongodb";
 
-import { payeeKey, ruleFor, ruleSubject, type AutoClassification } from "@/lib/suggestions/match";
+import { payeeKey, type AutoClassification } from "@/lib/suggestions/match";
 import { HISTORY_LABEL, historyPicks, isHistory, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
 import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
-import type { HistoryDoc, PayeeLinkDoc, RuleDoc, RuleMatch, TxnDoc } from "./schema";
+import type { HistoryDoc, PayeeLinkDoc, TxnDoc } from "./schema";
 import { logEvent } from "./store";
 
-// The payee key and rule matching live in lib/suggestions/match.ts, shared
+// The payee key lives in lib/suggestions/match.ts, shared
 // with the invoice review screen.
 export { payeeKey } from "@/lib/suggestions/match";
 export { MIN_AGREEING_WEIGHT, MIN_AGREEMENT, voteWeight } from "@/lib/suggestions/picks";
@@ -96,10 +96,8 @@ export interface Suggestion {
   autoCoded: boolean;
   /** Weighted votes behind the suggestion, and how many past lines. */
   basis: { agreeing: number; total: number; lines: number };
-  /** Which step found it: a company rule, or this payee's history. */
-  step: "rule" | "history";
-  /** The rule behind a step-1 suggestion. */
-  rule?: { id: string; match: RuleMatch; label: string };
+  /** Which step found it: this payee's history (here and in the books), or similar past items (step 3). */
+  step: "history" | "similar";
   /** Step 2: up to 3 accounts, best first, each with its reason and the past lines behind it. */
   picks?: SuggestionPick[];
   /** The vendor comes from the payee's link to a vendor, not from history. */
@@ -190,7 +188,11 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   if (!top) return empty;
 
   const agreement = total > 0 ? top.weight / total : 0;
-  const historyOk = top.weight >= MIN_AGREEING_WEIGHT && agreement >= MIN_AGREEMENT;
+  // Agreeing means the same GL and tax code, and no two different vendors
+  // among them (a line coded without a vendor doesn't disagree).
+  const vendorsInTop = new Set(weighted.filter((x) => groupKey(x.v) === groupKey(top.vote) && x.v.vendorId).map((x) => x.v.vendorId));
+  const vendorsAgree = vendorsInTop.size <= 1;
+  const historyOk = top.weight >= MIN_AGREEING_WEIGHT && agreement >= MIN_AGREEMENT && vendorsAgree;
   // How many of the agreeing lines came from the company's own books.
   const topBooks = weighted.filter((x) => groupKey(x.v) === groupKey(top.vote) && x.v.evidence && isHistory(x.v.evidence)).map((x) => x.v.evidence!.source as keyof typeof HISTORY_LABEL);
   const booksNote = topBooks.length === 0 ? "" : topBooks.length === top.lines ? ` in your ${HISTORY_LABEL[topBooks[0]]} history` : ` (${topBooks.length} of them in your ${HISTORY_LABEL[topBooks[0]]} history)`;
@@ -199,6 +201,8 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
     ? `${plural(top.lines, "earlier line")} for this payee${booksNote} were coded the same way.`
     : top.weight < MIN_AGREEING_WEIGHT
       ? `Only ${fmt(top.weight)} recent agreeing ${top.weight === 1 ? "decision" : "decisions"} — at least 3 are needed.`
+      : !vendorsAgree
+        ? "Earlier lines for this payee were coded the same way but to different vendors."
       : `Earlier lines for this payee were coded differently (${[`${describe(top.vote)} ${top.lines}×`, ...others].join(", ")}).`;
 
   const v = top.vote;
@@ -254,45 +258,6 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   };
 }
 
-// ---------------------------------------------------------------- rules
-
-export type RuleLike = Pick<RuleDoc, "_id" | "match" | "value" | "label" | "glAccountId" | "taxCodeId" | "updatedAt">;
-
-/**
- * Step 1: the rule's GL account and tax code. The vendor and payee come from
- * this payee's history when there is one (`history`), since a rule names only
- * the coding.
- */
-export function scoreWithRule(line: LineFacts, rule: RuleLike, history: Suggestion | null, now = Date.now()): Suggestion {
-  const leg = legibility(line, new Date(now).toISOString().slice(0, 10));
-  const subject = ruleSubject(rule);
-  const fromHistory = history?.kind === "expense" ? history : null;
-  return {
-    kind: "expense",
-    glAccountId: rule.glAccountId,
-    taxCodeId: rule.taxCodeId ?? undefined,
-    vendorId: fromHistory?.vendorId,
-    payee: fromHistory?.payee,
-    confidence: "high",
-    reason: leg.ok ? `Coded by Scantrix — your company rule for ${subject}.` : leg.detail,
-    checks: {
-      legibility: leg,
-      completeness: { ok: true, detail: "The rule gives the GL account" + (rule.taxCodeId ? " and the tax code." : ".") },
-      history: { ok: true, detail: `Your company rule for ${subject}. A rule is your own instruction, so it counts even for a new payee.` },
-    },
-    autoCoded: leg.ok,
-    basis: { agreeing: 0, total: 0, lines: 0 },
-    step: "rule",
-    rule: { id: rule._id, match: rule.match, label: rule.label },
-    // The rule is the 1st pick; history adds the 2nd and 3rd, never as sure as the rule.
-    picks: topPicks(
-      [{ glAccountId: rule.glAccountId, ...(rule.taxCodeId ? { taxCodeId: rule.taxCodeId } : {}), confidence: "high", step: "rule", subject, lines: 0, weight: 0, evidence: [], ruleId: rule._id }],
-      (history?.picks ?? []).map((p) => (p.confidence === "high" ? { ...p, confidence: "medium" as const } : p)),
-    ),
-    scoredAt: new Date(now).toISOString(),
-  };
-}
-
 function describe(v: Vote): string {
   if (v.kind === "transfer") return "transfer";
   if (v.kind === "exclude") return "excluded";
@@ -330,21 +295,19 @@ function toVote(r: VoteRow): Vote | null {
 
 /**
  * Re-scores every undecided line of a company (or only those with the given
- * payee keys) and codes the ones that pass all three checks, or that a company
- * rule matches. Called after a sync, a CSV import, any decision the user makes,
- * and any change to the rules or the Auto-classification setting. Returns how
- * many lines Scantrix coded by itself in this pass, and how many lines each
- * rule filled in (or, with "Suggest only", suggested on).
+ * payee keys) and codes the ones that pass all three checks. Called after a
+ * sync, a CSV import, a history read, any decision the user makes, and any
+ * change to the Auto-classification setting. Returns how many lines Scantrix
+ * coded by itself in this pass.
  *
  * Auto-classification: "off" clears every suggestion; "suggest" keeps them but
  * fills nothing in; either way, what Scantrix filled in earlier is taken back.
- * A rule marked broken (its account is gone) is skipped.
  */
 export async function refreshSuggestions(
   db: Db,
   qbConnectionId: string,
   onlyKeys?: string[],
-): Promise<{ scored: number; autoCoded: number; byRule: Record<string, number> }> {
+): Promise<{ scored: number; autoCoded: number }> {
   // 1. Give every line its payee key (new lines from sync/import have none yet).
   const unkeyed = await db.txns
     .find({ qbConnectionId, payeeKey: null, removedAt: null }, { projection: { _id: 1, description: 1, merchantName: 1, counterpartyName: 1 } })
@@ -386,9 +349,8 @@ export async function refreshSuggestions(
   }
 
   // 3. Candidates: lines still to review that the user has not coded.
-  const [candidates, rules, mode, links] = await Promise.all([
+  const [candidates, mode, links] = await Promise.all([
     db.txns.find({ qbConnectionId, removedAt: null, status: "review", decidedBy: { $in: [null, "autopilot"] }, postingStatus: null, ...keyFilter }).toArray(),
-    db.rules.find({ qbConnectionId, brokenAt: null }).toArray(),
     readAutoClassification(db, qbConnectionId),
     db.payeeLinks.find({ qbConnectionId, ...(onlyKeys ? { payeeKey: { $in: onlyKeys } } : {}) }).toArray(),
   ]);
@@ -421,9 +383,8 @@ export async function refreshSuggestions(
   };
 
   let autoCoded = 0;
-  const byRule: Record<string, number> = {};
   const now = Date.now();
-  // One round trip per line was slow on a large company (every rule change
+  // One round trip per line was slow on a large company (every setting change
   // re-scores all of them): plain suggestions go in one bulk write, and the
   // lines Scantrix codes or uncodes are updated side by side.
   const plain: AnyBulkWriteOperation<TxnDoc>[] = [];
@@ -458,10 +419,8 @@ export async function refreshSuggestions(
     const link = vendorByKey.get(lineKey) ?? null;
     const pastVotes = [...(key ? (votesByKey.get(key) ?? []) : []), ...historyVotesFor(lineKey, link?.vendorId ?? null, c.amountCents < 0)];
     const fromHistory = score(facts, pastVotes, now, link);
-    const rule = ruleFor(rules, { ...c, payeeKey: lineKey });
-    const found = rule ? withLinkedVendor(scoreWithRule(facts, rule, fromHistory, now), link) : fromHistory;
+    const found = fromHistory;
     const s = mode === "suggest" ? suggestOnly(found) : found;
-    if (rule && (s.autoCoded || mode === "suggest")) byRule[rule._id] = (byRule[rule._id] ?? 0) + 1;
     if (s.autoCoded) {
       autoCoded += 1;
       const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null) || c.taxCodeId !== (s.taxCodeId ?? null);
@@ -484,20 +443,19 @@ export async function refreshSuggestions(
               after: { glAccountId: s.glAccountId ?? null, taxCodeId: s.taxCodeId ?? null, vendorId: s.vendorId ?? null, payee: s.payee ?? null },
               reason: s.reason,
               step: s.step,
-              ...(s.rule ? { ruleId: s.rule.id } : {}),
             },
           });
         }
       })());
     } else if (c.decidedBy === "autopilot") {
-      // History, a rule or the setting no longer supports the coding Scantrix chose: undo it, keep the explanation.
+      // History or the setting no longer supports the coding Scantrix chose: undo it, keep the explanation.
       coding.push(uncode(c, s, s.reason));
     } else {
       plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: s, updatedAt: new Date() } } } });
     }
   }
   await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding]);
-  return { scored: candidates.length, autoCoded, byRule };
+  return { scored: candidates.length, autoCoded };
 }
 
 /**
@@ -528,10 +486,6 @@ export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: str
   return memoryVotes([...fromBank, ...fromBooks], "Bank line");
 }
 
-/** A rule names only the coding; the vendor a person linked this payee to fills the vendor. */
-function withLinkedVendor(s: Suggestion, link: Pick<PayeeLinkDoc, "vendorId" | "payee"> | null): Suggestion {
-  return link ? { ...s, vendorId: link.vendorId, payee: s.payee ?? link.payee ?? undefined, linkedVendor: true } : s;
-}
 
 /**
  * Called after a person's decision that set a vendor: links the line's payee

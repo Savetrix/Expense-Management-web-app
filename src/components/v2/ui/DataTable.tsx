@@ -1,4 +1,4 @@
-import { Fragment, ReactNode } from "react";
+import { ReactNode } from "react";
 
 export interface DataTableColumn<T> {
   key: string;
@@ -37,12 +37,8 @@ interface DataTableProps<T> {
    *  page (and the rest of the screen's layout) down indefinitely.
    *  Omit for short, naturally-sized lists that don't need it. */
   maxHeightClassName?: string;
-  /**
-   * Splits the body into labelled groups under one header and one scroll
-   * (e.g. bank lines Scantrix is sure about, then the rest). Each group's
-   * `header` spans the full width. When given, `rows` is ignored.
-   */
-  sections?: { key: string; header: ReactNode; rows: T[]; rowClassName?: string }[];
+  /** Extra classes for a row, e.g. a light highlight for lines the app picked. */
+  getRowClassName?: (row: T) => string;
 }
 
 // Bordered header row + divided/hoverable body rows, matching the pattern
@@ -59,7 +55,7 @@ export function DataTable<T>({
   emptyState,
   bordered = true,
   maxHeightClassName,
-  sections,
+  getRowClassName,
 }: DataTableProps<T>) {
   const selectable = Boolean(selectedKeys && onToggleRow);
   const wrapperClassName = bordered ? "rounded-lg border border-border bg-surface" : "";
@@ -133,18 +129,7 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {sections
-            ? sections.map((section) => (
-                <Fragment key={section.key}>
-                  <tr className="bg-page">
-                    <td colSpan={columns.length + (selectable ? 1 : 0)} className="px-[var(--space-sm)] py-[var(--space-sm)]">
-                      {section.header}
-                    </td>
-                  </tr>
-                  {section.rows.map((row) => renderRow(row, section.rowClassName))}
-                </Fragment>
-              ))
-            : rows.map((row) => renderRow(row))}
+          {rows.map((row) => renderRow(row, getRowClassName?.(row)))}
         </tbody>
       </table>
     </div>

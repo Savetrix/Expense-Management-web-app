@@ -15,7 +15,7 @@
 // before the first read or write.
 import { MongoClient, MongoError, type Collection, type Db as MongoDatabase } from "mongodb";
 
-import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, RuleDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
+import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
 import { ensureIndexes } from "./schema";
 
 export interface Db {
@@ -27,7 +27,6 @@ export interface Db {
   webhooks: Collection<WebhookLogDoc>;
   insights: Collection<InsightDoc>;
   ledgerMappings: Collection<LedgerMappingDoc>;
-  rules: Collection<RuleDoc>;
   suggestionSettings: Collection<SuggestionSettingsDoc>;
   payeeLinks: Collection<PayeeLinkDoc>;
   history: Collection<HistoryDoc>;
@@ -79,7 +78,6 @@ export function openDb(uri: string, dbName: string): Db {
     webhooks: database.collection<WebhookLogDoc>("bank_webhook_log"),
     insights: database.collection<InsightDoc>("invoice_insights"),
     ledgerMappings: database.collection<LedgerMappingDoc>("bank_ledger_mappings"),
-    rules: database.collection<RuleDoc>("suggestion_rules"),
     suggestionSettings: database.collection<SuggestionSettingsDoc>("suggestion_settings"),
     payeeLinks: database.collection<PayeeLinkDoc>("suggestion_payee_links"),
     history: database.collection<HistoryDoc>("suggestion_history"),

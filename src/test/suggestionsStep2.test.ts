@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
-import { createRule, setAutoClassification } from "../lib/bankFeeds/rules";
+import { setAutoClassification } from "../lib/bankFeeds/settings";
 import { refreshSuggestions, score, vendorMemory, type Suggestion, type Vote } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 import { billVotes, invoicePicks, type PastBill } from "../lib/suggestions/invoicePicks";
@@ -46,7 +46,6 @@ describe("top 3 picks from history", () => {
   it("says why in plain words", () => {
     assert.equal(pickReason({ step: "history", subject: "Petro Canada", lines: 4 }, "Travel"), "You coded Petro Canada to Travel 4 times");
     assert.equal(pickReason({ step: "history", subject: "Shell", lines: 1 }, "Travel"), "You coded Shell to Travel once");
-    assert.equal(pickReason({ step: "rule", subject: "Esso", lines: 0 }, "Vehicle"), "Your company rule for Esso");
   });
 
   it("keeps at most 3 picks, the first of each account", () => {
@@ -82,22 +81,11 @@ describe("invoice picks", () => {
 
   it("keeps the vendor default first, and company memory adds the 2nd and 3rd", () => {
     const votes = billVotes([bill({ glAccountId: "meals" }), bill({ id: "b2", glAccountId: "meals" }), bill({ id: "b3", glAccountId: "office" })], { id: "v-uber", name: "Uber" });
-    const picks = invoicePicks({ vendorName: "Uber", rule: null, vendorDefault: { glAccountId: "travel", taxCodeId: null }, votes, now: NOW });
+    const picks = invoicePicks({ vendorName: "Uber", vendorDefault: { glAccountId: "travel", taxCodeId: null }, votes, now: NOW });
     assert.deepEqual(picks.map((p) => [p.glAccountId, p.step]), [["travel", "vendor_default"], ["meals", "history"], ["office", "history"]]);
     assert.equal(picks[0].confidence, "medium", "a default with no memory behind it is not High");
   });
 
-  it("lets a company rule beat both", () => {
-    const picks = invoicePicks({
-      vendorName: "Uber",
-      rule: { id: "r1", glAccountId: "vehicle", taxCodeId: "gst", label: "Uber" },
-      vendorDefault: { glAccountId: "travel", taxCodeId: null },
-      votes: billVotes([bill({ glAccountId: "meals" })], { id: "v-uber", name: "Uber" }),
-      now: NOW,
-    });
-    assert.deepEqual(picks.map((p) => p.glAccountId), ["vehicle", "travel", "meals"]);
-    assert.equal(picks[0].confidence, "high");
-  });
 
   it("uses only this vendor's bills, never the bill on screen", () => {
     const votes = billVotes(
@@ -156,14 +144,6 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.notEqual(s.picks?.[0].confidence, "high");
   });
 
-  it("lets a company rule beat history: the rule is the 1st pick, history the 2nd", async () => {
-    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", payee: "Petro Canada" });
-    await createRule(db, { qbConnectionId: "qb-1", userId: "u1", input: { match: "payee", value: "petro canada", label: "Petro Canada", glAccountId: "gl-vehicle", taxCodeId: null } });
-    const next = await lineAfter("qb-1", lines[3].id);
-    const s = next?.suggestion as Suggestion;
-    assert.equal(next?.categoryId, "gl-vehicle");
-    assert.deepEqual(s.picks?.map((p) => [p.glAccountId, p.step, p.confidence]), [["gl-vehicle", "rule", "high"], ["gl-travel", "history", "medium"]]);
-  });
 
   it("with Suggest only, fills nothing in but still shows the picks", async () => {
     await setAutoClassification(db, { qbConnectionId: "qb-1", userId: "u1", mode: "suggest" });

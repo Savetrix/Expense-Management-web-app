@@ -28,7 +28,6 @@ import type { CSSProperties } from "react";
 import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
-import { InvoiceRuleHint } from "@/components/v2/invoices/InvoiceRuleHint";
 import { useInvoiceSuggestions } from "@/components/v2/invoices/useInvoiceSuggestions";
 import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
 import { Badge } from "@/components/ui/Badge";
@@ -1087,11 +1086,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     if (account) applyGlAccount(account);
   };
 
-  // A company rule for this vendor (InvoiceRuleHint): the same as picking its GL account and tax code here.
-  const applyRule = (rule: { glAccountId: string; taxCodeId: string | null }) => {
-    handleGlAccountSelect(rule.glAccountId);
-    if (rule.taxCodeId) handleTaxCodeSelect(rule.taxCodeId);
-  };
 
   const validateQuickBooksFields = (): Record<string, string> => {
     const errors: Record<string, string> = {};
@@ -1734,16 +1728,6 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                   {fieldErrors.glAccountId}
                 </p>
               )}
-              <InvoiceRuleHint
-                vendorName={invoice.vendor}
-                glAccountId={invoice.glAccountId}
-                taxCodeId={invoice.taxCodeId}
-                glAccounts={glAccounts}
-                allowFill={isPendingReview}
-                onUse={applyRule}
-                rules={suggestions.rules}
-                mode={suggestions.mode}
-              />
               {glAccountsMixedAcrossLines && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
                   Multiple GL codes selected across line items, extra charges and discounts — picking one here replaces all of them.

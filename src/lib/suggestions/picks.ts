@@ -1,10 +1,11 @@
 // Smart Suggestions, step 2: the top 3 accounts for an item, from a company
-// rule and from what the company decided before for the same vendor or payee.
+// the company's past decisions for the same vendor or payee (in Scantrix and in
+// its QuickBooks history), and from similar past items (step 3).
 // Pure and shared: the server uses it for bank lines (lib/bankFeeds/suggest.ts),
 // the invoice screen uses it in the browser.
 //
 // Confidence comes from the evidence only:
-//   High   — a company rule, or ≥ 3.0 of agreeing weight that is ≥ 90% of all
+//   High   — ≥ 3.0 of agreeing weight that is ≥ 90% of all
 //            weight for this vendor or payee (the weight rule below).
 //   Medium — the account has at least 60% of the weight.
 //   Low    — anything weaker. Shown in red.
@@ -49,14 +50,14 @@ export interface MemoryVote {
   evidence: Evidence;
 }
 
-export type PickStep = "rule" | "history" | "vendor_default";
+export type PickStep = "history" | "vendor_default" | "similar";
 
 export interface SuggestionPick {
   glAccountId: string;
   taxCodeId?: string;
   confidence: Confidence;
   step: PickStep;
-  /** Who the history is about ("Petro Canada"), or the rule's subject. */
+  /** Who the history is about ("Petro Canada"). */
   subject: string;
   /** How many past items chose this account (history only). */
   lines: number;
@@ -67,7 +68,6 @@ export interface SuggestionPick {
   weight: number;
   /** The most recent past items behind it, newest first (at most 3). */
   evidence: Evidence[];
-  ruleId?: string;
 }
 
 export const MAX_PICKS = 3;
@@ -133,7 +133,6 @@ export const shortDate = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${N
  * history: Petro Canada, 12 Oct".
  */
 export function pickReason(pick: Pick<SuggestionPick, "step" | "subject" | "lines"> & Partial<Pick<SuggestionPick, "historyLines" | "historySource" | "evidence">>, accountName: string): string {
-  if (pick.step === "rule") return `Your company rule for ${pick.subject}`;
   if (pick.step === "vendor_default") return pick.lines > 0 ? `Vendor default for ${pick.subject}, used ${times(pick.lines)} before` : `Vendor default for ${pick.subject}`;
   const fromBooks = pick.historyLines ?? 0;
   if (fromBooks > 0 && pick.historySource) {
