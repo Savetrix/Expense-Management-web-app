@@ -23,7 +23,7 @@ import {
 } from "@/store/bankFeeds/bankFeedsApi";
 import { getInvoices } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
-import { requestHistoryRead } from "@/components/v2/suggestions/historyClient";
+import { requestHistoryRead, requestSimilarSync } from "@/components/v2/suggestions/historyClient";
 
 import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
@@ -238,9 +238,12 @@ export function BankTransactionsContentV2() {
   useEffect(() => {
     if (!qbConnectionId || !canPost) return;
     let cancelled = false;
-    void requestHistoryRead(qbConnectionId).then((r) => {
-      if (!cancelled && r.imported) dispatch(fetchBankTransactions());
-    });
+    void (async () => {
+      const read = await requestHistoryRead(qbConnectionId);
+      // Step 3: new lines and new memory get their meaning vectors.
+      const embedded = await requestSimilarSync(qbConnectionId);
+      if (!cancelled && (read.imported || embedded > 0)) dispatch(fetchBankTransactions());
+    })();
     return () => {
       cancelled = true;
     };
@@ -399,6 +402,9 @@ export function BankTransactionsContentV2() {
               showToast(`${n} transaction${n === 1 ? "" : "s"} imported${duplicates ? `, ${duplicates} already here` : ""}.`, "success");
               setTab("transactions");
               void checkLedger();
+              void requestSimilarSync(qbConnectionId ?? "").then((embedded) => {
+                if (embedded > 0) dispatch(fetchBankTransactions());
+              });
               return true;
             }
             showToast(result.payload?.message ?? "Couldn't save the imported rows.", "error");

@@ -133,6 +133,11 @@ export const shortDate = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${N
  * history: Petro Canada, 12 Oct".
  */
 export function pickReason(pick: Pick<SuggestionPick, "step" | "subject" | "lines"> & Partial<Pick<SuggestionPick, "historyLines" | "historySource" | "evidence">>, accountName: string): string {
+  if (pick.step === "similar") {
+    // "3 similar items went to Travel: Petro Canada 12 Oct, Shell 3 Sep"
+    const items = (pick.evidence ?? []).slice(0, 3).map((e) => `${e.label} ${shortDate(e.date)}`).join(", ");
+    return `${pick.lines} similar item${pick.lines === 1 ? "" : "s"} went to ${accountName}${items ? `: ${items}` : ""}`;
+  }
   if (pick.step === "vendor_default") return pick.lines > 0 ? `Vendor default for ${pick.subject}, used ${times(pick.lines)} before` : `Vendor default for ${pick.subject}`;
   const fromBooks = pick.historyLines ?? 0;
   if (fromBooks > 0 && pick.historySource) {

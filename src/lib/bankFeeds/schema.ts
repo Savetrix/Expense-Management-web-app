@@ -259,6 +259,38 @@ export interface HistoryImportStatus {
 }
 
 /**
+ * A meaning vector for Smart Suggestions, step 3 (similar.ts). A "memory" item
+ * votes with its coding: a bank line a person coded, a line from the books
+ * (history), or a bill a person posted. A "query" item is a bank line to
+ * review, compared against the memory when its payee is new. Never shared
+ * across companies. _id = `${qbConnectionId}:${kind}:${ref}`.
+ */
+export interface VectorDoc {
+  _id: string;
+  qbConnectionId: string;
+  kind: "bank" | "history" | "invoice";
+  role: "memory" | "query";
+  /** The item's own id: bank line id, history row id, or invoice id. */
+  ref: string;
+  /** The text that was turned into the vector (card numbers cut to the last 4). */
+  text: string;
+  textHash: string;
+  /** Which model made the vector (embeddings.ts); another model's vector is made again. */
+  model: string;
+  vector: number[];
+  /** Money out (true) or in. */
+  out: boolean;
+  glAccountId: string | null;
+  taxCodeId: string | null;
+  label: string;
+  date: string;
+  amountCents: number | null;
+  decidedAt: string;
+  source: "bank" | "invoice" | "quickbooks" | "xero";
+  embeddedAt: Date;
+}
+
+/**
  * One coded line from the company's own books in QuickBooks/Xero (Smart
  * Suggestions, history): counted like a past decision a person made. Removed
  * when the setting is switched off. _id = `${qbConnectionId}:${entity}:${entryId}:${line}`.
@@ -328,6 +360,7 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.payeeLinks.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
     db.history.createIndex({ qbConnectionId: 1, nameKey: 1 }),
     db.history.createIndex({ qbConnectionId: 1, vendorId: 1 }),
+    db.vectors.createIndex({ qbConnectionId: 1, role: 1 }),
     db.txns.createIndex({ qbConnectionId: 1, vendorId: 1, decidedAt: -1 }),
   ]);
 }

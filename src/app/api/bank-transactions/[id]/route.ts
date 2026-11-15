@@ -6,6 +6,8 @@ import { after } from "next/server";
 
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
+import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
+
 import { decide, readPatch } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
@@ -33,6 +35,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     after(async () => {
       const key = await payeeKeyOf(ctx.db, ctx.connection.id, id);
       if (key) await refreshSuggestions(ctx.db, ctx.connection.id, [key]).catch((e) => console.error("[bank] suggestions", e?.message));
+      // A person's decision is new memory for step 3 (similar items): embed it now.
+      await embedNewDecision(ctx.db, ctx.connection.id).catch((e) => console.error("[bank] similar", e?.message));
     });
     return json({ transaction: result.txn });
   } catch (error) {

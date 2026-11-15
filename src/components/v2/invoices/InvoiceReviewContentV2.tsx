@@ -990,13 +990,17 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     [glAccounts, invoice.glAccountId],
   );
 
-  // Smart Suggestions: the top 3 GL accounts for this vendor, and the company's rules.
+  // Smart Suggestions: the top 3 GL accounts for this vendor (or, for a new
+  // vendor, from similar past items).
   const suggestions = useInvoiceSuggestions({
     invoiceId,
     vendorId: selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "",
     vendorName: invoice.vendor || "",
+    lines: lineItems.map((l) => l.description ?? ""),
     glAccounts,
   });
+  // A new vendor's one-click creation brings the suggested GL and tax as its defaults.
+  const vendorSuggestion = suggestions.picks.find((p) => p.pick.step === "similar")?.pick;
 
   const resolvedTaxCodeName = useMemo(() => {
     const match = taxCodes.find((code) => getTaxCodeId(code) === invoice.taxCodeId);
@@ -1605,6 +1609,18 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
                           }}
                           className="max-w-[18rem]"
                         />
+                        {!linkedVendorExists && invoice.vendor?.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddVendorName(invoice.vendor.trim());
+                              setAddVendorOpen(true);
+                            }}
+                            className="mt-[var(--space-xs)] block text-right text-caption font-semibold text-accent hover:underline"
+                          >
+                            + Create “{invoice.vendor.trim()}”
+                          </button>
+                        )}
                       </div>
                       {vendorIsStale && (
                         <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
@@ -2494,6 +2510,8 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         open={addVendorOpen}
         onClose={() => setAddVendorOpen(false)}
         initialName={addVendorName}
+        initialGlAccountId={vendorSuggestion?.glAccountId ?? ""}
+        initialTaxCodeId={vendorSuggestion?.taxCodeId ?? ""}
         onCreated={(vendor) => {
           updateField("vendor", vendor.displayName);
           dispatch(setSelectedVendor({ forInvoiceId: invoiceId, ...vendor }));

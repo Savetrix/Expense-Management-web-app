@@ -294,7 +294,7 @@ export function TransactionsTab({
         }
         const c = codingFor(t);
         if (!editable(t)) return <span className="block truncate text-content-secondary">{(c.vendorId && lookups.vendorById.get(c.vendorId)?.displayName) || t.payee || "—"}</span>;
-        return (
+        const box = (
           <CreatableCombobox
             floating
             options={vendorOptions}
@@ -314,6 +314,23 @@ export function TransactionsTab({
             onSelect={(id) => setVendor(t, id)}
             onAddNew={(name) => setAdding({ txnId: t.id, kind: "vendor", name: name || t.merchantName || "" })}
           />
+        );
+        // A new payee (step 3) usually has no vendor yet: one click opens the
+        // create-vendor pop-up with the suggested name, GL account and tax code.
+        const newVendor = !c.vendorId && c.suggestion?.step === "similar" && c.suggestion.payee;
+        if (!newVendor) return box;
+        return (
+          <>
+            {box}
+            <button
+              type="button"
+              className="mt-0.5 block max-w-full truncate text-caption font-semibold text-accent hover:underline"
+              onClick={() => setAdding({ txnId: t.id, kind: "vendor", name: c.suggestion?.payee ?? "" })}
+              title="Create this vendor, with the suggested GL account and tax code"
+            >
+              + Create “{c.suggestion?.payee}”
+            </button>
+          </>
         );
       },
     },
@@ -668,8 +685,8 @@ export function TransactionsTab({
         open={adding?.kind === "vendor"}
         onClose={() => setAdding(null)}
         initialName={adding?.kind === "vendor" ? adding.name : ""}
-        initialGlAccountId={adding?.kind === "vendor" ? (addingCoding?.glAccountId ?? "") : ""}
-        initialTaxCodeId={adding?.kind === "vendor" ? (addingCoding?.taxCodeId ?? "") : ""}
+        initialGlAccountId={adding?.kind === "vendor" ? (addingCoding?.glAccountId ?? addingCoding?.offered?.glAccountId ?? "") : ""}
+        initialTaxCodeId={adding?.kind === "vendor" ? (addingCoding?.taxCodeId ?? addingCoding?.offered?.taxCodeId ?? "") : ""}
         onCreated={(vendor) => {
           if (!adding) return;
           const shown = addingCoding;

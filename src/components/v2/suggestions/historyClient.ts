@@ -58,3 +58,25 @@ export async function saveLearnFromHistory(qbConnectionId: string, learnFromHist
     return "Couldn't change the setting. Check your connection.";
   }
 }
+
+/** Step 3: keeps the company's meaning vectors current. Returns how many items were newly embedded. */
+export async function requestSimilarSync(qbConnectionId: string): Promise<number> {
+  try {
+    const res = await authFetch("/api/suggestions/similar/sync", { method: "POST", headers: headers(qbConnectionId) });
+    const body = res.ok ? await res.json().catch(() => null) : null;
+    return typeof body?.embedded === "number" ? body.embedded : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Step 3 for a bill from a new vendor: the accounts similar past items went to. */
+export async function fetchSimilarPicks(qbConnectionId: string, input: { vendorName: string; lines: string[] }): Promise<import("@/lib/suggestions/picks").SuggestionPick[]> {
+  try {
+    const res = await authFetch("/api/suggestions/similar", { method: "POST", headers: headers(qbConnectionId), body: JSON.stringify(input) });
+    const body = res.ok ? await res.json().catch(() => null) : null;
+    return Array.isArray(body?.picks) ? body.picks : [];
+  } catch {
+    return [];
+  }
+}

@@ -30,10 +30,12 @@
 import type { AnyBulkWriteOperation } from "mongodb";
 
 import { payeeKey, type AutoClassification } from "@/lib/suggestions/match";
+import { similarPicks, suggestedVendorName, type MemoryItem } from "@/lib/suggestions/similar";
 import { HISTORY_LABEL, historyPicks, isHistory, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
 import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
+import { loadMemory } from "./similarSync";
 import type { HistoryDoc, PayeeLinkDoc, TxnDoc } from "./schema";
 import { logEvent } from "./store";
 
@@ -368,6 +370,42 @@ export async function refreshSuggestions(
     if (h.vendorId) historyByVendor.set(h.vendorId, [...(historyByVendor.get(h.vendorId) ?? []), v]);
   }
   const historyNames = [...historyByName.keys()];
+
+  // Step 3 reads the company's vectors once, and only if a line needs them.
+  let memory: MemoryItem[] | null = null;
+  let queries: Map<string, number[]> | null = null;
+  const similarFor = async (c: TxnDoc, facts: LineFacts): Promise<Suggestion | null> => {
+    if (mode === "off") return null;
+    if (!memory || !queries) {
+      memory = await loadMemory(db, qbConnectionId);
+      const docs = await db.vectors.find({ qbConnectionId, role: "query", kind: "bank" }, { projection: { ref: 1, vector: 1 } }).toArray();
+      queries = new Map(docs.map((d) => [d.ref, d.vector]));
+    }
+    const vector = queries.get(c._id);
+    if (!vector || memory.length === 0) return null;
+    const picks = similarPicks({ vector, out: c.amountCents < 0 }, memory, now);
+    if (picks.length === 0) return null;
+    const top = picks[0];
+    const items = top.evidence.map((e) => e.label).slice(0, 3).join(", ");
+    return {
+      kind: "expense",
+      glAccountId: top.glAccountId,
+      ...(top.taxCodeId ? { taxCodeId: top.taxCodeId } : {}),
+      payee: suggestedVendorName(c.merchantName ?? c.counterpartyName, c.description) || undefined,
+      confidence: top.confidence,
+      reason: `New payee. ${top.lines} similar past item${top.lines === 1 ? "" : "s"} (${items}) went to the same account.`,
+      checks: {
+        legibility: legibility(facts, new Date(now).toISOString().slice(0, 10)),
+        completeness: { ok: false, detail: "New vendor: pick or create it." },
+        history: { ok: false, detail: "No earlier lines for this payee; similar items from other vendors." },
+      },
+      autoCoded: false,
+      basis: { agreeing: top.weight, total: picks.reduce((sum, p) => sum + p.weight, 0), lines: top.lines },
+      step: "similar",
+      picks,
+      scoredAt: new Date(now).toISOString(),
+    };
+  };
   const historyCache = new Map<string, Vote[]>();
   const historyVotesFor = (lineKey: string, linkedVendorId: string | null, out: boolean): Vote[] => {
     if (history.length === 0) return [];
@@ -419,7 +457,9 @@ export async function refreshSuggestions(
     const link = vendorByKey.get(lineKey) ?? null;
     const pastVotes = [...(key ? (votesByKey.get(key) ?? []) : []), ...historyVotesFor(lineKey, link?.vendorId ?? null, c.amountCents < 0)];
     const fromHistory = score(facts, pastVotes, now, link);
-    const found = fromHistory;
+    // Step 3: a new payee (nothing in step 2, no linked vendor) gets the accounts
+    // that similar past items from any vendor went to. Never filled in.
+    const found = pastVotes.length === 0 && !link ? ((await similarFor(c, facts)) ?? fromHistory) : fromHistory;
     const s = mode === "suggest" ? suggestOnly(found) : found;
     if (s.autoCoded) {
       autoCoded += 1;

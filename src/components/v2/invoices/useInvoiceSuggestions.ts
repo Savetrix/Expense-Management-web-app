@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { billVotes, invoicePicks, sameVendorName, type PastBill } from "@/lib/suggestions/invoicePicks";
 import { pickReason, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
+import { fetchSimilarPicks } from "@/components/v2/suggestions/historyClient";
 import { fetchSuggestionSettings, fetchVendorMemory, type AutoClassification } from "@/store/bankFeeds/bankFeedsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
@@ -35,8 +36,9 @@ export interface InvoiceSuggestions {
   picks: { pick: SuggestionPick; name: string; reason: string }[];
 }
 
-export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: string; vendorName: string; glAccounts: GLAccount[] }): InvoiceSuggestions {
+export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: string; vendorName: string; lines?: string[]; glAccounts: GLAccount[] }): InvoiceSuggestions {
   const { invoiceId, vendorId, vendorName, glAccounts } = args;
+  const linesKey = (args.lines ?? []).filter(Boolean).slice(0, 5).join("\n");
   const dispatch = useAppDispatch();
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
   const vendors = useAppSelector((s) => s.quickBooks.vendors);
@@ -73,23 +75,40 @@ export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: strin
     };
   }, [dispatch, qbConnectionId, memoryVendorId, mode]);
 
+  // Step 3: a vendor Scantrix doesn't know yet gets the accounts similar past
+  // items from any vendor went to (server: /api/suggestions/similar).
+  const [similar, setSimilar] = useState<{ key: string; picks: SuggestionPick[] }>({ key: "", picks: [] });
+  const similarKey = `${vendorName.trim()}|${linesKey}`;
+  const newVendor = !vendor && Boolean(vendorName.trim());
+  useEffect(() => {
+    if (!qbConnectionId || mode === "off" || !newVendor || similar.key === similarKey) return;
+    let cancelled = false;
+    void fetchSimilarPicks(qbConnectionId, { vendorName: vendorName.trim(), lines: linesKey ? linesKey.split("\n") : [] }).then((p) => {
+      if (!cancelled) setSimilar({ key: similarKey, picks: p });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [qbConnectionId, mode, newVendor, similarKey, similar.key, vendorName, linesKey]);
+
   const picks = useMemo(() => {
     if (mode === "off" || !vendorName.trim()) return [];
     const votes = [
       ...billVotes(posted.map(pastBill), { id: memoryVendorId || null, name: vendorName }, invoiceId),
       ...(bankVotes.vendorId === memoryVendorId ? bankVotes.votes : []),
     ];
-    const found = invoicePicks({
+    const fromMemory = invoicePicks({
       vendorName: vendor?.displayName ?? vendorName,
       vendorDefault: vendor ? { glAccountId: vendor.glAccountId ?? null, taxCodeId: vendor.taxCodeId ?? null } : null,
       votes,
     });
+    const found = fromMemory.length === 0 && newVendor && similar.key === similarKey ? similar.picks : fromMemory;
     // Only accounts this screen can post to; a deleted one drops out and the rest move up.
     return found.flatMap((pick) => {
       const account = glAccounts.find((a) => a.qbAccountId === pick.glAccountId && !a.isDeleted);
       return account ? [{ pick, name: account.name, reason: pickReason(pick, account.name) }] : [];
     });
-  }, [mode, vendorName, vendor, posted, memoryVendorId, invoiceId, bankVotes, glAccounts]);
+  }, [mode, vendorName, vendor, posted, memoryVendorId, invoiceId, bankVotes, glAccounts, newVendor, similar, similarKey]);
 
   return { mode, picks };
 }

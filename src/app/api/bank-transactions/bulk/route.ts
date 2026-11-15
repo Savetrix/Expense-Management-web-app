@@ -5,6 +5,8 @@ import { after } from "next/server";
 
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
+import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
+
 import { decide, readPatch, type BankTransactionView } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
           if (key) keys.add(key);
         }
         if (keys.size > 0) await refreshSuggestions(ctx.db, ctx.connection.id, [...keys]).catch((e) => console.error("[bank] suggestions", e?.message));
+        await embedNewDecision(ctx.db, ctx.connection.id).catch((e) => console.error("[bank] similar", e?.message));
       });
     }
     return json({ updated, failed });

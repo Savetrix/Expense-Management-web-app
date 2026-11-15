@@ -13,6 +13,8 @@ import { getLedgerContext, scantrixBillIds, vendorExternalIds } from "@/lib/bank
 import { LedgerError } from "@/lib/bankFeeds/ledger/types";
 import { logEvent } from "@/lib/bankFeeds/store";
 import { refreshSuggestions } from "@/lib/bankFeeds/suggest";
+import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
+
 
 export const runtime = "nodejs";
 // Twelve months of a busy company's books take a while to read.
@@ -54,7 +56,11 @@ export async function POST(request: Request) {
         ? await Promise.all([vendorExternalIds(ctx.caller.accessToken, company), scantrixBillIds(ctx.caller.accessToken, company)])
         : [new Map<string, string>(), new Set<string>()];
       const status = await importHistory(ctx.db, { qbConnectionId: company, userId: ctx.caller.userId, ledger: { ctx: ledger, adapter }, vendorIds, scantrixBillIds: billIds });
-      if (status.outcome === "done") await refreshSuggestions(ctx.db, company);
+      if (status.outcome === "done") {
+        await refreshSuggestions(ctx.db, company);
+        // The books are new memory for step 3 too.
+        await embedNewDecision(ctx.db, company).catch((e) => console.error("[bank] similar", e?.message));
+      }
       return json({ imported: status.outcome === "done", status });
     } finally {
       running.delete(company);
