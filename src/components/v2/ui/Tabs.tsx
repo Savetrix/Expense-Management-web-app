@@ -2,6 +2,8 @@ export interface TabItem {
   value: string;
   label: string;
   count?: number;
+  /** Says what the count counts, e.g. "open" → "(2 open)". */
+  countSuffix?: string;
 }
 
 interface TabsProps {
@@ -31,7 +33,7 @@ export function Tabs({ items, value, onChange }: TabsProps) {
             }`}
           >
             {item.label}
-            {typeof item.count === "number" && <span className="ml-[var(--space-xs)] text-content-muted">({item.count})</span>}
+            {typeof item.count === "number" && <span className="ml-[var(--space-xs)] text-content-muted">({item.count}{item.countSuffix ? ` ${item.countSuffix}` : ""})</span>}
           </button>
         );
       })}

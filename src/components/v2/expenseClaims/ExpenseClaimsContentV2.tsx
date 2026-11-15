@@ -1,13 +1,13 @@
 "use client";
 
 import { Plus, Receipt } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader, Tabs } from "@/components/v2/ui";
 import {
-  fetchClaimContacts,
   fetchClaimSummary,
   fetchExpenseClaims,
   fetchExpenseSettings,
@@ -27,21 +27,34 @@ type TopTab = "claims" | "mileage" | "settings";
 // ones are finished.
 const isOpen = ({ status }: { status: string }) => status === "awaiting_review" || status === "awaiting_reimbursement";
 
-export function ExpenseClaimsContentV2() {
+/**
+ * Back from editing a receipt on the review screen: `reopenWizardWith` reopens
+ * the new-claim wizard with those receipts ticked, `reopenClaimId` that claim.
+ */
+export function ExpenseClaimsContentV2({ reopenWizardWith = null, reopenClaimId = null }: { reopenWizardWith?: string[] | null; reopenClaimId?: string | null }) {
   const dispatch = useAppDispatch();
+  const router = useRouter();
   const team = useTeamMembers();
   const { activeId } = team;
   const ec = useAppSelector((state) => state.expenseClaims);
 
   const [tab, setTab] = useState<TopTab>("claims");
-  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(!!reopenWizardWith);
+  // Taken once from the URL, which is then cleaned so a refresh doesn't reopen it.
+  const [wizardSeed] = useState(reopenWizardWith);
+  // Opened once — leaving the Claims tab forgets it, so coming back doesn't reopen it.
+  const [claimToOpen, setClaimToOpen] = useState(reopenClaimId);
+  useEffect(() => {
+    if (reopenWizardWith || reopenClaimId) router.replace("/expense-claims");
+    // Only the URL this page was opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!activeId) return;
     dispatch(fetchExpenseClaims());
     dispatch(fetchJourneys());
     dispatch(fetchExpenseSettings());
-    dispatch(fetchClaimContacts());
   }, [activeId, dispatch]);
 
   // Keep the sidebar's "assigned to me" count (claims + trips) in step with
@@ -54,7 +67,6 @@ export function ExpenseClaimsContentV2() {
   const claims = ec.claimsConnectionId === activeId ? ec.claims : [];
   const journeys = ec.journeysConnectionId === activeId ? ec.journeys : [];
   const settings = ec.settingsConnectionId === activeId ? ec.settings : null;
-  const contacts = ec.contactsConnectionId === activeId ? ec.contacts : [];
 
   if (!team.hasCompany) {
     return (
@@ -87,12 +99,16 @@ export function ExpenseClaimsContentV2() {
       <div className="mt-[var(--space-lg)]">
         <Tabs
           items={[
-            { value: "claims", label: "Claims", count: claims.filter(isOpen).length },
-            { value: "mileage", label: "Mileage", count: journeys.filter(isOpen).length },
+            // Only what's still in progress — paid and rejected ones aren't counted.
+            { value: "claims", label: "Claims", count: claims.filter(isOpen).length, countSuffix: "open" },
+            { value: "mileage", label: "Mileage", count: journeys.filter(isOpen).length, countSuffix: "open" },
             { value: "settings", label: "Settings" },
           ]}
           value={tab}
-          onChange={(v) => setTab(v as TopTab)}
+          onChange={(v) => {
+            setClaimToOpen(null);
+            setTab(v as TopTab);
+          }}
         />
       </div>
 
@@ -107,6 +123,7 @@ export function ExpenseClaimsContentV2() {
           allowSelfApproval={settings?.allowSelfApproval ?? false}
           canOpenInvoices={team.canOpenInvoices}
           onNewClaim={() => setWizardOpen(true)}
+          initialOpenClaimId={claimToOpen}
         />
       )}
       {tab === "mileage" && (
@@ -137,15 +154,11 @@ export function ExpenseClaimsContentV2() {
       <NewClaimWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        members={team.members}
-        contacts={contacts}
         role={team.role}
         selfId={team.selfId}
-        onCreated={() => {
-          setTab("claims");
-          // A claimant typed by name has just become a contact.
-          dispatch(fetchClaimContacts());
-        }}
+        canOpenInvoices={team.canOpenInvoices}
+        initialSelected={wizardSeed}
+        onCreated={() => setTab("claims")}
       />
     </div>
   );

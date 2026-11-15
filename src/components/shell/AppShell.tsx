@@ -37,7 +37,7 @@ import { Avatar, Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/
 import { PROVIDERS, providerIdOf, providerInfoOf, type AccountingProviderId } from "@/lib/accountingProvider";
 import { onOpenAddAccountModal } from "@/lib/addAccountModal";
 import { showToast } from "@/lib/dialogManager";
-import { getSidebarPinned, setSidebarPinned } from "@/lib/storage";
+import { getLastCompany, getSidebarPinned, setLastCompany, setSidebarPinned } from "@/lib/storage";
 import { capitalizeWords, normalizePhotoURL, personInitials } from "@/lib/textFormat";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useLogout } from "@/store/useLogout";
@@ -45,6 +45,7 @@ import { connectQuickBooks, getMyQBConnections, getQuickBooksStatus } from "@/st
 import { fetchMySubscription } from "@/store/subscription/subscriptionApi";
 import { fetchClaimSummary } from "@/store/expenseClaims/expenseClaimsApi";
 import { canOpenPage, pageKeyOf } from "@/lib/pageAccess";
+import { Spinner } from "@/components/ui/Spinner";
 import type { QBConnection } from "@/store/quickBooks/useQuickBooksConnections";
 
 // QuickBooks connection management now lives entirely under Integrations
@@ -131,23 +132,11 @@ function NavLink({
   );
 }
 
-// Slot 0 is always the time-of-day English greeting; the rest are other
-// languages. One is picked per session (see the mount effect below) instead
-// of continuously rotating, so the header doesn't just say the same thing on
-// every login/refresh without being distracting while you're working.
-const ROTATING_GREETING_WORDS = ["Hola", "Namaste", "Bonjour", "Ciao", "Hallo"];
-const GREETING_ROTATION_COUNT = ROTATING_GREETING_WORDS.length + 1;
-
 function timeOfDayGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";
   return "Good evening";
-}
-
-function greetingFor(name: string, rotationIndex: number): string {
-  const word = rotationIndex === 0 ? timeOfDayGreeting() : ROTATING_GREETING_WORDS[rotationIndex - 1];
-  return `${word}, ${name}`;
 }
 
 // Genuinely new information architecture, not a port of an existing mobile
@@ -179,25 +168,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const collapsed = !pinned;
   const switcherRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const [greetingIndex, setGreetingIndex] = useState(0);
-  const [greetingFading, setGreetingFading] = useState(false);
-
-  // Picked once when AppShell mounts (a refresh, or a fresh login since
-  // logging out unmounts AppShell entirely) rather than on a timer. Deferred
-  // to an effect instead of useState's initializer so the client's first
-  // paint still matches the server-rendered time-of-day greeting exactly —
-  // same hydration-mismatch guard as the sidebar-pinned state above.
-  useEffect(() => {
-    const randomIndex = Math.floor(Math.random() * GREETING_ROTATION_COUNT);
-    if (randomIndex === 0) return;
-    setGreetingFading(true);
-    const timeout = setTimeout(() => {
-      setGreetingIndex(randomIndex);
-      setGreetingFading(false);
-    }, 200);
-    return () => clearTimeout(timeout);
-  }, []);
-
   // The one place the companies list is loaded for every screen (it lands in
   // the quickBooks slice). Re-checked when the user comes back to the tab, so
   // a company connected, removed or shared in another tab shows up here.
@@ -296,6 +266,24 @@ export function AppShell({ children }: { children: ReactNode }) {
   // 2+ companies connected but none picked yet — draw the eye to the
   // switcher instead of leaving it looking like any other idle control.
   const needsEntitySelection = connectedAccounts.length > 1 && !activeConnection;
+
+  // With 2+ companies nothing is picked after a login — reopen the one this
+  // user last worked in (or the first one) instead of leaving the dashboard
+  // blank until they find the switcher. The header always names the company.
+  const userId: string = user?.data?.user?._id ?? "";
+  const autoPickRef = useRef("");
+  useEffect(() => {
+    if (!accessToken || !userId || !connectionsLoaded || !needsEntitySelection) return;
+    const remembered = getLastCompany(userId);
+    const pick = connectedAccounts.find((c) => c._id === remembered) ?? connectedAccounts[0];
+    // One attempt per company, so a failing status call can't loop.
+    if (autoPickRef.current === pick._id) return;
+    autoPickRef.current = pick._id;
+    dispatch(getQuickBooksStatus({ accessToken, qbConnectionId: pick._id }));
+  }, [accessToken, userId, connectionsLoaded, needsEntitySelection, connectedAccounts, dispatch]);
+  useEffect(() => {
+    if (userId && activeConnection?._id) setLastCompany(userId, activeConnection._id);
+  }, [userId, activeConnection?._id]);
 
   // Claims sent to you for approval — refreshed on company change and as you
   // move around, so the count doesn't go stale while you work elsewhere.
@@ -631,12 +619,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
 
-          <h2
-            className={`hidden truncate text-center text-h3 font-bold text-content-primary transition-opacity duration-200 sm:block ${
-              greetingFading ? "opacity-0" : "opacity-100"
-            }`}
-          >
-            {greetingFor(name, greetingIndex)}
+          {/* Rendered on the server too, so the hour can differ from the browser's. */}
+          <h2 className="hidden truncate text-center text-h3 font-bold text-content-primary sm:block" suppressHydrationWarning>
+            {timeOfDayGreeting()}, {name}
           </h2>
 
           <div className="flex shrink-0 items-center justify-end gap-[var(--space-xs)] lg:gap-[var(--space-sm)]">
@@ -652,7 +637,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main ref={mainRef} className="min-w-0 flex-1 overflow-y-auto">
           {/* Never flash a page the contributor wasn't given while moving them on. */}
-          {pageBlocked || accessUnknown ? null : children}
+          {pageBlocked || accessUnknown ? (
+            <div className="flex justify-center p-[var(--space-xxl)]">
+              <Spinner size="lg" />
+            </div>
+          ) : (
+            children
+          )}
         </main>
         <ExpandTransitionOverlay targetRef={mainRef} />
       </div>

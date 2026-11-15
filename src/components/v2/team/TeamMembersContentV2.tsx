@@ -24,7 +24,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar, Modal, PageHeader, SelectDropdown } from "@/components/v2/ui";
-import { ALL_PAGE_KEYS, PAGE_ACCESS_OPTIONS, type PageKey } from "@/lib/pageAccess";
+import { ALL_PAGE_KEYS, CONTRIBUTOR_DEFAULT_PAGES, PAGE_ACCESS_OPTIONS, type PageKey } from "@/lib/pageAccess";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectConnectedAccounts } from "@/store/quickBooks/quickBooksSlice";
 import {
@@ -173,7 +173,7 @@ export function TeamMembersContentV2() {
   const [inviteRole, setInviteRole] = useState<QBMemberRole>("accountant");
   const [inviteAutoPost, setInviteAutoPost] = useState(ROLE_DEFAULT_AUTO_POST.accountant);
   const [inviteManagerId, setInviteManagerId] = useState("");
-  const [invitePages, setInvitePages] = useState<Set<PageKey>>(() => new Set(ALL_PAGE_KEYS));
+  const [invitePages, setInvitePages] = useState<Set<PageKey>>(() => new Set(CONTRIBUTOR_DEFAULT_PAGES));
   // The contributor whose pages are being edited, with the draft.
   const [pagesEdit, setPagesEdit] = useState<{ member: QBMember; pages: Set<PageKey> } | null>(null);
   const [savingMemberId, setSavingMemberId] = useState<string | null>(null);
@@ -446,7 +446,7 @@ export function TeamMembersContentV2() {
     setInviteEmail("");
     setInviteEmailError("");
     setInviteManagerId("");
-    setInvitePages(new Set(ALL_PAGE_KEYS));
+    setInvitePages(new Set(CONTRIBUTOR_DEFAULT_PAGES));
     chooseInviteRole(
       availableRoles[availableRoles.length - 1]?.key || "contributor",
     );

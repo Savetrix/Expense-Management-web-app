@@ -5,8 +5,12 @@ import { INVOICE_STATUS_PILL_STYLE, type InvoiceStatus } from "@/lib/invoiceDisp
 // the invoices list page so they can never drift into different colors for
 // the same status again. See INVOICE_STATUS_PILL_STYLE for the per-status
 // classes.
-export function StatusPill({ status }: { status: InvoiceStatus }) {
-  const style = INVOICE_STATUS_PILL_STYLE[status];
+// `rejected`: a failed invoice a person rejected — a decision, not an error,
+// so it reads "Rejected" in grey instead of a red "Failed".
+const REJECTED_STYLE = { bg: "bg-surface-alt", text: "text-content-secondary", dot: "bg-content-muted", label: "Rejected" };
+
+export function StatusPill({ status, rejected = false }: { status: InvoiceStatus; rejected?: boolean }) {
+  const style = rejected && status === "failed" ? REJECTED_STYLE : INVOICE_STATUS_PILL_STYLE[status];
   return (
     <span
       className={`inline-flex w-fit items-center gap-[6px] rounded-pill px-[var(--space-sm)] py-[2px] text-caption font-bold ${style.bg} ${style.text}`}

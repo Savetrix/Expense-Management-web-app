@@ -13,6 +13,8 @@ import {
 import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { setSelectedVendor } from "@/store/vendor/vendorSlice";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
+import { defaultVendorCurrency } from "@/lib/vendorForm";
+import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
 import { showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
@@ -74,7 +76,18 @@ export function useVendorResolution(invoiceId: string, onResolved: () => void) {
   const [activeTab, setActiveTab] = useState<VendorResolutionTab>("suggested");
   const [searchText, setSearchText] = useState("");
   const [newVendorName, setNewVendorName] = useState(invoiceVendor);
-  const [currency, setCurrency] = useState(CURRENCY_OPTIONS[0]);
+  // A vendor created from an invoice starts in that invoice's currency, else
+  // the company's home currency — never a blanket USD.
+  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
+  const invoiceCurrency = selectedInvoice?.extractedData?.currency?.trim().toUpperCase() || null;
+  const startCurrency = defaultVendorCurrency(invoiceCurrency ?? homeCurrency, CURRENCY_OPTIONS);
+  const [currency, setCurrency] = useState(startCurrency);
+  // The invoice (or the company list) can arrive after the dialog mounts.
+  const [currencyFrom, setCurrencyFrom] = useState(startCurrency);
+  if (currencyFrom !== startCurrency) {
+    setCurrencyFrom(startCurrency);
+    setCurrency(startCurrency);
+  }
   const [creatingVendor, setCreatingVendor] = useState(false);
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [selectedGlAccountId, setSelectedGlAccountId] = useState("");
