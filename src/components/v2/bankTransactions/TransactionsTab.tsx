@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowLeftRight, ExternalLink, EyeOff, Landmark, Paperclip, Send, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CheckCircle2, ExternalLink, EyeOff, Landmark, Paperclip, Send, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -21,7 +21,6 @@ import { codingFor, isSuggestedField, isSureLine, picksFor, surePatch, type Look
 import { formatAmount } from "./format";
 import { findStrongSuggestions, type StrongSuggestion } from "./matching";
 import { LINE_COLUMN_WIDTH, SuggestedMatches } from "./SuggestedMatches";
-import { SureLines } from "./SureLines";
 import { STATUS_LABEL } from "./TransactionModal";
 import type { LedgerAccountDto } from "@/store/bankFeeds/bankFeedsApi";
 
@@ -157,11 +156,8 @@ export function TransactionsTab({
     const matching = new Set(suggestions.map((s) => s.txn.id));
     return rows.filter((t) => isSureLine(t) && !matching.has(t.id));
   }, [rows, status, suggestions]);
-  const listRows = useMemo(() => {
-    if (sureLines.length === 0) return rows;
-    const sure = new Set(sureLines.map((t) => t.id));
-    return rows.filter((t) => !sure.has(t.id));
-  }, [rows, sureLines]);
+  const sureIds = useMemo(() => new Set(sureLines.map((t) => t.id)), [sureLines]);
+  const listRows = useMemo(() => (sureIds.size === 0 ? rows : rows.filter((t) => !sureIds.has(t.id))), [rows, sureIds]);
 
   if (txns.length === 0 && loading) {
     return (
@@ -290,6 +286,11 @@ export function TransactionsTab({
       header: "Vendor",
       width: LINE_COLUMN_WIDTH.vendor,
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          const v = sureValues(t);
+          const name = (v.vendorId && lookups.vendorById.get(v.vendorId)?.displayName) || v.payee;
+          return name ? <span className="block truncate font-semibold">{name}</span> : <span className="block truncate text-content-muted">No vendor</span>;
+        }
         const c = codingFor(t);
         if (!editable(t)) return <span className="block truncate text-content-secondary">{(c.vendorId && lookups.vendorById.get(c.vendorId)?.displayName) || t.payee || "—"}</span>;
         return (
@@ -320,6 +321,18 @@ export function TransactionsTab({
       header: "GL account",
       width: LINE_COLUMN_WIDTH.gl,
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          const v = sureValues(t);
+          const why = picksFor(t, lookups, glName).find((p) => p.pick.glAccountId === v.glAccountId)?.reason ?? codingFor(t).reason?.replace(/^Coded by Scantrix — /, "") ?? "";
+          return (
+            <>
+              <span className="block truncate font-semibold">{glName(v.glAccountId) || "—"}</span>
+              <span className="line-clamp-2 text-content-secondary" title={why}>
+                {why}
+              </span>
+            </>
+          );
+        }
         const c = codingFor(t);
         if (!editable(t)) {
           const matched = t.matchedInvoiceId ? invoiceById.get(t.matchedInvoiceId) : undefined;
@@ -354,6 +367,10 @@ export function TransactionsTab({
       header: "Tax",
       width: LINE_COLUMN_WIDTH.tax,
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          const tax = sureValues(t).taxCodeId ? lookups.taxById.get(sureValues(t).taxCodeId as string) : undefined;
+          return tax ? <span className="block truncate font-semibold">{taxCodeLabel(tax)}</span> : <span className="block truncate text-content-muted">No tax</span>;
+        }
         const c = codingFor(t);
         const label = c.taxCodeId ? lookups.taxById.get(c.taxCodeId) : undefined;
         if (!editable(t)) return <span className="block truncate text-content-secondary">{label ? taxCodeLabel(label) : "—"}</span>;
@@ -397,6 +414,18 @@ export function TransactionsTab({
       width: LINE_COLUMN_WIDTH.actions,
       align: "right",
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          return (
+            <span className="inline-flex items-center gap-[var(--space-xs)]">
+              <Button size="sm" onClick={() => void postSure([t])} title={sendsNow ? `Post to ${providerName} with the vendor, GL and tax shown` : "Save as ready to post, with the vendor, GL and tax shown"}>
+                Post
+              </Button>
+              <button type="button" className={ROW_BTN} onClick={() => onOpen(t.id)} title="Change the vendor, GL account or tax first">
+                Change
+              </button>
+            </span>
+          );
+        }
         if (t.postingStatus === "posted") {
           // In the books: locked here; a change is made in QuickBooks/Xero itself.
           const label = `In ${providerName}`;
@@ -479,6 +508,11 @@ export function TransactionsTab({
     },
   ];
 
+  /** What Scantrix would code a sure line to: its own fill, or the High suggestion ("Suggest only"). */
+  const sureValues = (t: BankTransaction) => {
+    const c = codingFor(t);
+    return c.source === "autopilot" ? c : { ...c, ...(c.offered ?? {}) };
+  };
   const postSure = async (lines: BankTransaction[]) => {
     const items = lines.flatMap((t) => {
       const patch = surePatch(t);
@@ -591,19 +625,6 @@ export function TransactionsTab({
       )}
 
       {status === "review" && (
-        <SureLines
-          lines={sureLines}
-          lookups={lookups}
-          providerName={providerName}
-          sends={sendsNow}
-          glName={glName}
-          onPost={(t) => void postSure([t])}
-          onPostAll={() => void postSure(sureLines)}
-          onOpen={(id) => onOpen(id)}
-        />
-      )}
-
-      {status === "review" && (
         <SuggestedMatches
           suggestions={suggestions}
           lookups={lookups}
@@ -615,14 +636,51 @@ export function TransactionsTab({
         />
       )}
 
-      {listRows.length === 0 ? (
-        <div className="p-[var(--space-lg)] text-center text-body-sm text-content-secondary">
-          {rows.length > 0 ? "Every line here is in the section above." : "No transactions match these filters."}
-        </div>
+      {rows.length === 0 ? (
+        <div className="p-[var(--space-lg)] text-center text-body-sm text-content-secondary">No transactions match these filters.</div>
       ) : (
         <DataTable
           columns={columns}
           rows={listRows}
+          sections={
+            sureLines.length > 0
+              ? [
+                  {
+                    key: "sure",
+                    rowClassName: "bg-status-success-bg/40",
+                    header: (
+                      <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-[var(--space-xs)] text-body-sm font-bold text-content-primary">
+                            <CheckCircle2 size={16} strokeWidth={2.25} className="text-status-success-text" />
+                            Scantrix is sure · {sureLines.length}
+                          </p>
+                          <p className="text-caption text-content-secondary">
+                            Coded by a company rule or 3 matching past lines. Check the vendor, GL account and tax, then post.
+                          </p>
+                        </div>
+                        <Button size="sm" onClick={() => void postSure(sureLines)}>
+                          Post all {sureLines.length}
+                        </Button>
+                      </div>
+                    ),
+                    rows: sureLines,
+                  },
+                  {
+                    key: "rest",
+                    header: (
+                      <div>
+                        <p className="text-body-sm font-bold text-content-primary">To code · {listRows.length}</p>
+                        <p className="text-caption text-content-secondary">
+                          {listRows.length > 0 ? "Pick a vendor, GL account and tax for each line, then post." : "Nothing left to code here."}
+                        </p>
+                      </div>
+                    ),
+                    rows: listRows,
+                  },
+                ]
+              : undefined
+          }
           getRowKey={(t) => t.id}
           bordered={false}
           maxHeightClassName="max-h-[640px]"

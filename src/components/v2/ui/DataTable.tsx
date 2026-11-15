@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { Fragment, ReactNode } from "react";
 
 export interface DataTableColumn<T> {
   key: string;
@@ -37,6 +37,12 @@ interface DataTableProps<T> {
    *  page (and the rest of the screen's layout) down indefinitely.
    *  Omit for short, naturally-sized lists that don't need it. */
   maxHeightClassName?: string;
+  /**
+   * Splits the body into labelled groups under one header and one scroll
+   * (e.g. bank lines Scantrix is sure about, then the rest). Each group's
+   * `header` spans the full width. When given, `rows` is ignored.
+   */
+  sections?: { key: string; header: ReactNode; rows: T[]; rowClassName?: string }[];
 }
 
 // Bordered header row + divided/hoverable body rows, matching the pattern
@@ -53,6 +59,7 @@ export function DataTable<T>({
   emptyState,
   bordered = true,
   maxHeightClassName,
+  sections,
 }: DataTableProps<T>) {
   const selectable = Boolean(selectedKeys && onToggleRow);
   const wrapperClassName = bordered ? "rounded-lg border border-border bg-surface" : "";
@@ -60,6 +67,44 @@ export function DataTable<T>({
   if (rows.length === 0 && emptyState) {
     return <div className={wrapperClassName}>{emptyState}</div>;
   }
+
+  const renderRow = (row: T, extraClassName = "") => {
+    const rowKey = getRowKey(row);
+    const selected = selectedKeys?.has(rowKey) ?? false;
+    return (
+      <tr
+        key={rowKey}
+        onClick={() => onRowClick?.(row)}
+        // Neutral hover/selected tint (bg-surface-alt), not the mint
+        // accent-bg — that stays reserved for actual success/auto
+        // meaning (avatar chips, badges), not generic row state.
+        className={`transition-colors ${extraClassName} ${onRowClick ? "cursor-pointer" : ""} ${
+          selected ? "bg-surface-alt" : "hover:bg-surface-alt"
+        }`}
+      >
+        {selectable && (
+          <td className="px-[var(--space-sm)] py-[var(--space-sm)]" onClick={(event) => event.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleRow?.(row)}
+              className="rounded border-border-strong text-accent focus:ring-accent"
+            />
+          </td>
+        )}
+        {columns.map((col) => (
+          <td
+            key={col.key}
+            className={`overflow-hidden px-[var(--space-sm)] py-[var(--space-sm)] text-caption text-content-primary ${
+              col.align === "right" ? "text-right" : "text-left"
+            } ${col.className ?? ""}`}
+          >
+            {col.render(row)}
+          </td>
+        ))}
+      </tr>
+    );
+  };
 
   return (
     <div
@@ -88,43 +133,18 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {rows.map((row) => {
-            const rowKey = getRowKey(row);
-            const selected = selectedKeys?.has(rowKey) ?? false;
-            return (
-              <tr
-                key={rowKey}
-                onClick={() => onRowClick?.(row)}
-                // Neutral hover/selected tint (bg-surface-alt), not the mint
-                // accent-bg — that stays reserved for actual success/auto
-                // meaning (avatar chips, badges), not generic row state.
-                className={`transition-colors ${onRowClick ? "cursor-pointer" : ""} ${
-                  selected ? "bg-surface-alt" : "hover:bg-surface-alt"
-                }`}
-              >
-                {selectable && (
-                  <td className="px-[var(--space-sm)] py-[var(--space-sm)]" onClick={(event) => event.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => onToggleRow?.(row)}
-                      className="rounded border-border-strong text-accent focus:ring-accent"
-                    />
-                  </td>
-                )}
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={`overflow-hidden px-[var(--space-sm)] py-[var(--space-sm)] text-caption text-content-primary ${
-                      col.align === "right" ? "text-right" : "text-left"
-                    } ${col.className ?? ""}`}
-                  >
-                    {col.render(row)}
-                  </td>
-                ))}
-              </tr>
-            );
-          })}
+          {sections
+            ? sections.map((section) => (
+                <Fragment key={section.key}>
+                  <tr className="bg-page">
+                    <td colSpan={columns.length + (selectable ? 1 : 0)} className="px-[var(--space-sm)] py-[var(--space-sm)]">
+                      {section.header}
+                    </td>
+                  </tr>
+                  {section.rows.map((row) => renderRow(row, section.rowClassName))}
+                </Fragment>
+              ))
+            : rows.map((row) => renderRow(row))}
         </tbody>
       </table>
     </div>
