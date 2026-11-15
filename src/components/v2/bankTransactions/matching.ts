@@ -77,6 +77,29 @@ export function isExactAmount(txn: Pick<BankTransaction, "amount">, c: InvoiceCa
   return c.total !== null && Math.round(Math.abs(c.total) * 100) === Math.round(Math.abs(txn.amount) * 100);
 }
 
+export type MatchAmount =
+  | { kind: "exact" }
+  /** The bank line pays part of the bill; `leftCents` stays open on the bill. */
+  | { kind: "part"; leftCents: number }
+  /** The bank line is more than the bill: it can't all go on this bill. */
+  | { kind: "over"; extraCents: number }
+  /** The bill's total isn't known. */
+  | { kind: "unknown" };
+
+/**
+ * How a bank line's amount compares with a bill it is being matched to, to the
+ * cent. A match must never go through silently when they differ (Saurabh's
+ * 54-vs-70 case): a smaller line is a part payment a person confirms, a bigger
+ * one is refused.
+ */
+export function matchAmount(txn: Pick<BankTransaction, "amount">, c: Pick<InvoiceCandidate, "total">): MatchAmount {
+  if (c.total === null || !Number.isFinite(c.total)) return { kind: "unknown" };
+  const line = Math.round(Math.abs(txn.amount) * 100);
+  const bill = Math.round(Math.abs(c.total) * 100);
+  if (line === bill) return { kind: "exact" };
+  return line < bill ? { kind: "part", leftCents: bill - line } : { kind: "over", extraCents: line - bill };
+}
+
 /** Strong = same amount to the cent, dated within 7 days of the bank line, AND the bank text names the bill's vendor. */
 export function isStrongMatch(txn: MatchableLine, c: InvoiceCandidate): boolean {
   return isExactAmount(txn, c) && daysApart(c.date, txn.date) <= 7 && vendorAgrees(txn, c);

@@ -12,11 +12,12 @@ import {
   SearchInput,
   TextInput,
 } from "@/components/v2/ui";
+import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
 import { codingFor, codingLabel, type Lookups } from "./coding";
 import { formatAmount } from "./format";
-import { billsFor, isExactAmount, rankInvoices, vendorAgrees } from "./matching";
+import { billsFor, isExactAmount, matchAmount, rankInvoices, vendorAgrees } from "./matching";
 import { TransferModal } from "./TransferModal";
 import type { BankAccount, BankTransaction, InvoiceCandidate } from "./types";
 
@@ -316,15 +317,46 @@ export function TransactionModal({
                     <Button
                       size="sm"
                       disabled={!pickedInvoice}
-                      onClick={() => {
-                        onUpdate(txn.id, {
-                          status: "matched",
-                          matchedInvoiceId: pickedInvoice,
-                        });
+                      onClick={async () => {
+                        const bill = invoices.find((c) => c.id === pickedInvoice);
+                        if (!bill) return;
+                        // Never match different amounts silently (bank line 54, bill 70).
+                        const check = matchAmount(txn, bill);
+                        const money = (cents: number) => formatAmount(cents / 100);
+                        if (check.kind === "over") {
+                          showToast(`This bank line is ${money(check.extraCents)} more than the bill (${formatAmount(bill.total)}). Pick the bill it paid in full, or don't match it.`, "error");
+                          return;
+                        }
+                        if (check.kind === "part" || check.kind === "unknown") {
+                          const ok = await confirmDialog({
+                            title: check.kind === "part" ? "Record a part payment?" : "The bill's amount isn't known",
+                            message:
+                              check.kind === "part"
+                                ? `The bank line is ${formatAmount(Math.abs(txn.amount))} and the bill is ${formatAmount(bill.total)}. Matching records ${formatAmount(Math.abs(txn.amount))} as a part payment, and ${money(check.leftCents)} stays open on the bill.`
+                                : `Scantrix can't compare this bank line with the bill. Match it only if this line paid that bill.`,
+                            confirmLabel: check.kind === "part" ? "Record part payment" : "Match anyway",
+                          });
+                          if (!ok) return;
+                        }
+                        onUpdate(txn.id, { status: "matched", matchedInvoiceId: pickedInvoice });
                       }}
                     >
                       Match
                     </Button>
+                    {(() => {
+                      const bill = invoices.find((c) => c.id === pickedInvoice);
+                      const check = bill ? matchAmount(txn, bill) : null;
+                      if (!check || check.kind === "exact") return null;
+                      return (
+                        <p className="mt-[var(--space-xs)] text-caption font-semibold text-status-warning-text">
+                          {check.kind === "part"
+                            ? `Different amounts: the bill is ${formatAmount(check.leftCents / 100)} more than this line. Matching records a part payment.`
+                            : check.kind === "over"
+                              ? `Different amounts: this line is ${formatAmount(check.extraCents / 100)} more than the bill. It can't be matched to it.`
+                              : "The bill's amount isn't known."}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </>
               )}
