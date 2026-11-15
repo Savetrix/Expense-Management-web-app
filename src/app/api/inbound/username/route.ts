@@ -53,6 +53,19 @@ export async function GET(request: Request) {
   const raw = new URL(request.url).searchParams.get("username");
   const username = normalizeUsername(raw);
 
+  // The whole address was typed: say what to type instead of "use letters…".
+  if (username.includes("@")) {
+    return Response.json(
+      {
+        username,
+        available: false,
+        reason: "invalid_characters",
+        message: `Type only the part before the @, for example "${username.split("@")[0] || "accounts"}".`,
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
+
   const problem = checkUsernameShape(username);
   if (problem) {
     return Response.json(

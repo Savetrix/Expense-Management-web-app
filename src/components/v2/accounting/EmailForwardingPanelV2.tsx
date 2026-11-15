@@ -228,9 +228,23 @@ function UsernameEditor({
 
   const current = alias.receivingAddress.split("@")[0] ?? "";
 
+  // People paste the whole address ("worklinks@invoice.scantrix.ai"): keep
+  // only the part before the @ when the rest is our own domain.
+  const ownDomain = domain.trim().toLowerCase().replace(/^@/, "");
+  const localPart = (text: string) => {
+    const value = text.trim();
+    const at = value.lastIndexOf("@");
+    return at >= 0 && value.slice(at + 1).toLowerCase() === ownDomain ? value.slice(0, at) : value;
+  };
+
   const runCheck = async () => {
-    const value = draft.trim();
+    const value = localPart(draft);
     if (!value || checking) return;
+    if (value.includes("@")) {
+      showToast(`Type only the part before the @. The address always ends in @${ownDomain}.`, "error");
+      return;
+    }
+    if (value !== draft.trim()) setDraft(value);
     setChecking(true);
     setResult(null);
     const outcome = await dispatch(checkInboundUsername({ username: value }));
@@ -296,6 +310,7 @@ function UsernameEditor({
           aria-label="Custom username"
           className={`${TEXT_INPUT_CLASS} font-mono`}
         />
+        <span className="hidden shrink-0 self-center font-mono text-body-sm text-content-secondary sm:inline">@{ownDomain}</span>
         <button
           type="button"
           onClick={runCheck}
