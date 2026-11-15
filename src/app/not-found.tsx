@@ -6,7 +6,7 @@ import { Providers } from "./providers";
 import { AuthGate } from "@/components/auth/AuthGate";
 
 export const metadata: Metadata = {
-  title: "Page not found — Scantrix",
+  title: "Page not found — ScanTrix",
   robots: { index: false, follow: false },
 };
 

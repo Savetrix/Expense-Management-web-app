@@ -7,7 +7,7 @@ import type { BlogPostSource } from "@/lib/blog";
 // The duplicate-payment section is written as MANUAL controls on purpose.
 // SEO-AUDIT.md §3A records that automatic duplicate-bill detection is not
 // shipped, so this post must not imply the product does it. The test suite
-// enforces that no sentence pairs "Scantrix" with "duplicate".
+// enforces that no sentence pairs "ScanTrix" with "duplicate".
 export const post: BlogPostSource = {
   slug: "clear-month-end-accounts-payable-backlog",
   title: "How to clear a month-end accounts payable backlog for good",
@@ -16,7 +16,7 @@ export const post: BlogPostSource = {
   publishedAt: "2026-09-30",
   category: "Accounts payable",
   tags: ["Month-end close", "Accounts payable", "AP process"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: `
 It is the second-to-last day of the month. There are forty supplier invoices spread across three inboxes, a shared drive and a pile on someone's desk. Two clients are waiting on their numbers, and at least one invoice has been entered twice by two different people.
 
@@ -90,6 +90,6 @@ With weekly processing in place, month end becomes a short confirmation rather t
 
 Every step above works with nothing more than discipline and a calendar. Automation makes it easier to keep up, and it helps most with the tedious parts: the typing, and sorting routine from exception.
 
-[Scantrix](/#how) handles those parts for teams on QuickBooks Online. Each company gets its own forwarding address, so invoices have a front door. Invoices are read automatically: vendor, invoice number, dates, line items and totals. Confident ones are posted to QuickBooks as bills. Anything uncertain lands in a review queue with the reason attached, which is the exceptions list from step 3, kept for you. For more ways to shorten entry itself, see [how to enter bills into QuickBooks Online faster](/blog/enter-bills-into-quickbooks-online-faster).
+[ScanTrix](/#how) handles those parts for teams on QuickBooks Online. Each company gets its own forwarding address, so invoices have a front door. Invoices are read automatically: vendor, invoice number, dates, line items and totals. Confident ones are posted to QuickBooks as bills. Anything uncertain lands in a review queue with the reason attached, which is the exceptions list from step 3, kept for you. For more ways to shorten entry itself, see [how to enter bills into QuickBooks Online faster](/blog/enter-bills-into-quickbooks-online-faster).
 `,
 };

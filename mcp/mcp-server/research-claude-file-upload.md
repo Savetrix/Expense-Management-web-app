@@ -1,12 +1,12 @@
 # Research: Can Claude "sidecar-curl" a file to mcp.scantrix.ai outside of MCP tool-call arguments?
 
-Context: Scantrix/Savetrix runs a remote MCP server at `mcp.scantrix.ai`, added by
+Context: ScanTrix/Savetrix runs a remote MCP server at `mcp.scantrix.ai`, added by
 end-users as a custom connector in claude.ai (Settings → Connectors). End-users are
 non-technical consumers chatting in claude.ai's normal web/desktop product — not
 developers calling the Messages API, and not Claude Code. Two upload workarounds are
 already built (`fileUrl` tool argument; ticketed browser-upload link). This note checks
 a third proposed approach: have Claude `curl -F file=@... ` an invoice straight to
-Scantrix's REST endpoint from a sandbox with network access, then call an MCP tool with
+ScanTrix's REST endpoint from a sandbox with network access, then call an MCP tool with
 the returned file ID.
 
 Research scope: primary sources only — docs.anthropic.com / platform.claude.com,
@@ -57,7 +57,7 @@ give that sandbox open network access to third-party domains like `mcp.scantrix.
   full internet access except for domains on Anthropic's legal blocklist"). In principle
   a Team/Enterprise customer's admin *could* whitelist `mcp.scantrix.ai` or flip to "All
   domains" — but that is a deliberate, org-admin-only configuration step outside
-  Scantrix's control and not the default state a non-technical Free/Pro/Max end-user
+  ScanTrix's control and not the default state a non-technical Free/Pro/Max end-user
   (the population in question) is in.
 
   The article also notes: *"If MCP (Model Context Protocol) integrations are enabled,
@@ -92,7 +92,7 @@ give that sandbox open network access to third-party domains like `mcp.scantrix.
 **Bottom line for Q1:** the sandbox real end-users get in claude.ai has network access,
 but only to a short list of package-registry domains (plus Anthropic's own API host).
 It cannot reach `mcp.scantrix.ai` by default, and nothing in Anthropic's own docs
-describes a path for an end-user or for Scantrix to add it to that allowlist.
+describes a path for an end-user or for ScanTrix to add it to that allowlist.
 
 ---
 
@@ -149,7 +149,7 @@ confirmed absence, not merely an unresearched one.
 ## Q3 — Is the Messages-API bash/code-execution tool the same thing an end-user gets inside claude.ai, or a separate developer-only capability?
 
 **Verdict: Confirmed separate.** The bash tool and the Messages-API code execution tool
-are developer-wired capabilities; a Scantrix end-user using claude.ai's normal product
+are developer-wired capabilities; a ScanTrix end-user using claude.ai's normal product
 never gets them, regardless of what Claude "decides" to attempt.
 
 - **Primary source:** [Bash tool docs](https://platform.claude.com/docs/en/docs/agents-and-tools/tool-use/bash-tool) (redirect target of `docs.anthropic.com/.../bash-tool`):
@@ -185,7 +185,7 @@ never gets them, regardless of what Claude "decides" to attempt.
 **Bottom line for Q3:** confirmed — the bash tool and the Messages-API code execution
 tool are developer-side, application-provided or API-billed capabilities. claude.ai's
 own consumer sandbox is a different, separately documented feature with its own (more
-permissive but still allowlisted) network policy. A Scantrix end-user on claude.ai's
+permissive but still allowlisted) network policy. A ScanTrix end-user on claude.ai's
 normal chat product has no path to the raw Messages-API bash tool under any
 circumstance.
 
@@ -193,7 +193,7 @@ circumstance.
 
 ## Practical summary
 
-Scantrix's non-technical claude.ai end-users cannot rely on Claude "sidecar-curling" an
+ScanTrix's non-technical claude.ai end-users cannot rely on Claude "sidecar-curling" an
 invoice file straight to `mcp.scantrix.ai`'s REST endpoint outside of MCP tool-call
 arguments. The bash tool and the Messages API's fully network-isolated code-execution
 tool are developer-only primitives that never appear inside a normal claude.ai chat
@@ -202,12 +202,12 @@ session. claude.ai does give ordinary chat users its own separate code-execution
 have outbound network access by default — but only to a fixed allowlist of package-registry
 domains (npm, PyPI, GitHub, crates.io, Ubuntu archives, Yarn) plus Anthropic's own API
 host, not to arbitrary third-party endpoints; `mcp.scantrix.ai` is not reachable from it,
-and nothing in Anthropic's docs gives an end-user or Scantrix a way to add it. Separately,
+and nothing in Anthropic's docs gives an end-user or ScanTrix a way to add it. Separately,
 and independent of network policy, the MCP specification itself — confirmed directly by
 an Anthropic maintainer in the spec's own GitHub repo, and unchanged in the current
 2026-07-28 revision — has no client-to-server file-upload primitive at all: resources and
 blob/binary content flow server-to-client only, so even if the sandbox could reach
-Scantrix's endpoint, there is still no standard way to get a chat-attached file into an
+ScanTrix's endpoint, there is still no standard way to get a chat-attached file into an
 MCP tool call except by having the model re-emit it as base64 (impractical for multi-MB
 scans) or by using the two workarounds already built (`fileUrl` argument; ticketed
 browser-upload link). The third approach is not a real option for this audience today.

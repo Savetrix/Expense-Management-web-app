@@ -1,7 +1,7 @@
 // Plaid transaction → bank_transactions row (the Plaid-fact columns only).
 //
 // Two conversions happen here and nowhere else:
-//   * sign: Plaid reports money OUT as a positive amount; Scantrix stores money
+//   * sign: Plaid reports money OUT as a positive amount; ScanTrix stores money
 //     out as negative (the screens' convention, types.ts: "Negative = money out").
 //   * money: integer cents, rounded once.
 import type { Transaction } from "plaid";

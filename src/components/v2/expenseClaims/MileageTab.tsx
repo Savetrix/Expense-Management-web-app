@@ -173,7 +173,7 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
     const ok = await confirmDialog({
       title: pay ? "Approve, post and mark as paid?" : `Approve and post to ${provider.name}?`,
       message: `This creates a bill in ${provider.name} payable to ${j.driver.name} for ${money(j.amount)} (${j.km} km × ${money(j.rate)}).${
-        pay ? ` It also records that they've been paid — Scantrix doesn't send the money.` : ""
+        pay ? ` It also records that they've been paid — ScanTrix doesn't send the money.` : ""
       }`,
       confirmLabel: pay ? "Approve & mark paid" : "Approve & post",
     });
@@ -210,7 +210,7 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
   const handleMarkPaid = async (j: JourneyDto) => {
     const ok = await confirmDialog({
       title: "Mark as paid?",
-      message: `Record that ${j.driver.name} has been paid back ${money(j.amount)}. Scantrix doesn't send the money.`,
+      message: `Record that ${j.driver.name} has been paid back ${money(j.amount)}. ScanTrix doesn't send the money.`,
       confirmLabel: "Mark as paid",
     });
     if (!ok) return;

@@ -35,7 +35,7 @@ interface CreatableComboboxProps {
    * inside table cells and other containers that clip their content.
    */
   floating?: boolean;
-  /** "suggested": the shown value is Scantrix's suggestion, not yet saved. */
+  /** "suggested": the shown value is ScanTrix's suggestion, not yet saved. */
   tone?: "default" | "suggested";
   /** Tooltip on the input (e.g. why a value was suggested). */
   title?: string;

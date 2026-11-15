@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/",
     // Lets feed readers discover the blog from the homepage.
-    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "Scantrix Blog" }] },
+    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "ScanTrix Blog" }] },
   },
   keywords: [
     "QuickBooks invoice scanning",

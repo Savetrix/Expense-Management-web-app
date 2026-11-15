@@ -672,7 +672,7 @@ async function resolveSenderFacts(
   const matches = candidates.some((candidate) => allowed.has(candidate.toLowerCase()));
   if (!matches) {
     // Deliberately the same answer an unknown address gets: never reveal whether
-    // the sender has a Scantrix account.
+    // the sender has a ScanTrix account.
     return null;
   }
 

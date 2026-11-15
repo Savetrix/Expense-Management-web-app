@@ -1,4 +1,4 @@
-// E-book access requests -> the Scantrix inbox, and the access cookie.
+// E-book access requests -> the ScanTrix inbox, and the access cookie.
 //
 // The visitor has no account, so like /api/custom-plan-enquiry this takes no
 // Bearer token. What stands in for authentication is the same stack of cheap

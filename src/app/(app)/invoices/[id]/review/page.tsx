@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { InvoiceReviewContentV2 } from "@/components/v2/invoices/InvoiceReviewContentV2";
 
 export const metadata: Metadata = {
-  title: "Invoice Review — Scantrix",
+  title: "Invoice Review — ScanTrix",
 };
 
 export default async function InvoiceReviewV2Page({

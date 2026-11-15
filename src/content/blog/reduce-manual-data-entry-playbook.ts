@@ -8,9 +8,9 @@ export const post: BlogPostSource = {
   publishedAt: "2026-10-30",
   category: "Workflow",
   tags: ["Manual data entry", "Data extraction", "Confidence thresholds", "Exception handling", "AP automation"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: `
-![Scantrix Insights banner reading "Cut Manual Entry. Keep Control.", with a document card flowing into extracted vendor, invoice date, total and status fields](/blog/reduce-manual-data-entry-playbook.jpg)
+![ScanTrix Insights banner reading "Cut Manual Entry. Keep Control.", with a document card flowing into extracted vendor, invoice date, total and status fields](/blog/reduce-manual-data-entry-playbook.jpg)
 
 Every operations team knows the feeling: documents arrive by email, portal, scan and shared folder, and someone has to retype the details into a system. It is slow, but the bigger problem is inconsistency. A mistyped vendor name, a swapped date or a missing field rarely stays where it started. It travels into reporting, billing and the customer experience, where it is far more expensive to fix. This playbook walks through a practical way to reduce manual data entry while keeping people in control of the outcomes that matter.
 
@@ -76,7 +76,7 @@ Use your own numbers rather than industry averages. A small pilot on one documen
 
 ## A simple way to start
 
-Pick one document type with steady volume and a clear owner. Map its intake, define the required fields, set cautious confidence thresholds and route exceptions to named reviewers. Run it for a few weeks, measure hours, error rate and cycle time, and adjust. Tools like [Scantrix](/#how) are built around exactly this pattern: capture the data, check it against your rules, and put a person in the loop where it counts.
+Pick one document type with steady volume and a clear owner. Map its intake, define the required fields, set cautious confidence thresholds and route exceptions to named reviewers. Run it for a few weeks, measure hours, error rate and cycle time, and adjust. Tools like [ScanTrix](/#how) are built around exactly this pattern: capture the data, check it against your rules, and put a person in the loop where it counts.
 
 ## Conclusion
 

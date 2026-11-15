@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { VendorsContentV2 } from "@/components/v2/vendors/VendorsContentV2";
 
 export const metadata: Metadata = {
-  title: "Vendors — Scantrix",
+  title: "Vendors — ScanTrix",
 };
 
 export default function VendorsV2Page() {

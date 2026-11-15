@@ -8,9 +8,9 @@ export const post: BlogPostSource = {
   publishedAt: "2026-10-22",
   category: "Workflow",
   tags: ["Document capture", "Data extraction", "Human review", "Audit trail"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: `
-![Scantrix Insights banner: a scanned invoice turned into structured fields for vendor, invoice date, total and status](/blog/document-capture-is-changing-2026.jpg)
+![ScanTrix Insights banner: a scanned invoice turned into structured fields for vendor, invoice date, total and status](/blog/document-capture-is-changing-2026.jpg)
 
 October is a natural reset point for operations teams. Year-end reporting is approaching, peak-season volumes are building, and budgets for next year are taking shape. It's the right moment to ask whether the way your team captures documents and extracts data still fits the way your business works.
 
@@ -101,7 +101,7 @@ If several of these are hard to answer, that's a signal about where to focus fir
 
 The direction of travel is clear: capture is becoming faster to deploy, more accurate on messy real-world documents, more security-conscious, and more tightly connected to the systems where work actually happens. Teams that treat extraction as the start of a governed, integrated workflow, rather than a standalone scanning step, tend to be better prepared for volume spikes and reporting deadlines.
 
-[Scantrix](/#how) focuses on exactly this gap between a scanned document and data your team can trust. Whatever approach you choose, the best time to review your workflow is before peak volume arrives, not during it.
+[ScanTrix](/#how) focuses on exactly this gap between a scanned document and data your team can trust. Whatever approach you choose, the best time to review your workflow is before peak volume arrives, not during it.
 
 ## Frequently asked questions
 

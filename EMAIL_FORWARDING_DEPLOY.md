@@ -135,7 +135,7 @@ Most likely first-run rejections:
 - **`unknown_alias`** — `INBOUND_EMAIL_DOMAIN` does not match the domain you sent
   to. It must be exactly the receiving domain, no `@`.
 - **`sender_not_registered`** — you forwarded from a different mailbox than the
-  one on your Scantrix account. Add it under **additional senders** in the panel,
+  one on your ScanTrix account. Add it under **additional senders** in the panel,
   or forward from the account address.
 - **`no_supported_attachments`** — the invoice was a link in the body, not an
   attachment. Body links are deliberately never fetched.

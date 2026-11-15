@@ -116,7 +116,7 @@ export function TransactionModal({
               onUnlinkFound && (
                 <Button
                   variant="outline"
-                  title={`Put this line back in To review. Scantrix won't link it to this ${providerName} entry again.`}
+                  title={`Put this line back in To review. ScanTrix won't link it to this ${providerName} entry again.`}
                   onClick={() => {
                     onUnlinkFound();
                     onClose();
@@ -329,7 +329,7 @@ export function TransactionModal({
                 </>
               )}
               <p className="rounded-md border border-dashed border-border px-[var(--space-sm)] py-[var(--space-xs)] text-caption text-content-secondary">
-                Entered straight into {providerName}? Scantrix checks {providerName} every few minutes. When exactly one entry on this bank
+                Entered straight into {providerName}? ScanTrix checks {providerName} every few minutes. When exactly one entry on this bank
                 account has the same amount within 3 days, the line moves to Matched by itself. The bank account must be chosen in Connected accounts.
               </p>
             </section>
@@ -364,10 +364,10 @@ export function TransactionModal({
                       <Sparkles size={16} strokeWidth={2.25} className="mt-0.5 shrink-0 text-accent" />
                       <span>
                         <span className="font-semibold">
-                          {coding.source === "autopilot" ? "Coded by Scantrix" : pendingSuggestion ? "Scantrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
+                          {coding.source === "autopilot" ? "Coded by ScanTrix" : pendingSuggestion ? "ScanTrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
                         </span>
                         {pendingSuggestion && codingLabel(coding, lookups) && <> · {codingLabel(coding, lookups)}</>}
-                        {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by Scantrix — /, "")}</span>}
+                        {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by ScanTrix — /, "")}</span>}
                       </span>
                     </p>
                     {pendingSuggestion && (
@@ -389,7 +389,7 @@ export function TransactionModal({
                   {suggestion && (
                     <>
                       <button type="button" className="mt-[var(--space-xs)] text-caption font-semibold text-content-secondary underline" onClick={() => setShowChecks((v) => !v)}>
-                        {showChecks ? "Hide the checks" : "How Scantrix decided"}
+                        {showChecks ? "Hide the checks" : "How ScanTrix decided"}
                       </button>
                       {showChecks && (
                         <ul className="mt-[var(--space-xs)] flex flex-col gap-[var(--space-xs)] text-caption text-content-secondary">

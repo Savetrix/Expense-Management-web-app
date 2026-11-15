@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { VendorResolutionContentV2 } from "@/components/v2/invoices/VendorResolutionContentV2";
 
 export const metadata: Metadata = {
-  title: "Resolve Vendor — Scantrix",
+  title: "Resolve Vendor — ScanTrix",
 };
 
 export default async function VendorResolutionV2Page({

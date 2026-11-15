@@ -76,7 +76,7 @@ export function buildEnquiryMessage(draft: EnquiryDraft, context: EnquiryContext
   const account = context.userId ? context.userId : "Not signed in";
 
   const text = [
-    "New Custom Plan enquiry from the Scantrix pricing page.",
+    "New Custom Plan enquiry from the ScanTrix pricing page.",
     "",
     `Name:      ${draft.name}`,
     `Email:     ${draft.email}`,
@@ -120,7 +120,7 @@ export function buildEnquiryMessage(draft: EnquiryDraft, context: EnquiryContext
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;">
       <tr>
         <td style="padding:24px 28px;border-bottom:1px solid #e2e8f0;">
-          <p style="margin:0 0 4px;font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#1fb6aa;">Scantrix</p>
+          <p style="margin:0 0 4px;font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#1fb6aa;">ScanTrix</p>
           <h1 style="margin:0;font-size:20px;line-height:1.3;color:#1f3a5f;">New Custom Plan enquiry</h1>
         </td>
       </tr>

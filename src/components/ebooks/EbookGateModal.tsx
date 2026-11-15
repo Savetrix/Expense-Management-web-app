@@ -172,7 +172,7 @@ export function EbookGateModal({ slug, title, intent, onClose, onUnlocked }: Ebo
       inFlightRef.current = false;
       onUnlocked(intent);
     } catch {
-      setFormError("We couldn't reach Scantrix. Check your connection; your details are still here.");
+      setFormError("We couldn't reach ScanTrix. Check your connection; your details are still here.");
     } finally {
       inFlightRef.current = false;
       setSubmitting(false);

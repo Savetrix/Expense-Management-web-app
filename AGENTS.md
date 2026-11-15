@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## What this is
 Expense-Management-web-app: Next.js 16 (App Router, Turbopack, TS
-strict, Tailwind v4) web port of the Scantrix mobile app (Expo/React
+strict, Tailwind v4) web port of the ScanTrix mobile app (Expo/React
 Native, repo Scantrix_v2). Ported logic layer (auth/invoice/vendor/
 quickBooks) lives in src/store/ (Redux Toolkit slices + thunks) and
 src/lib/ (api client, storage, firebase, quickbooks). Building the UI

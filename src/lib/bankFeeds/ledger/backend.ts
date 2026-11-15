@@ -38,7 +38,7 @@ export async function getLedgerContext(userToken: string, qbConnectionId: string
       cache: "no-store",
     });
   } catch {
-    throw new LedgerError("Scantrix couldn't reach the accounting connection just now. Try again.", "definite", "unavailable");
+    throw new LedgerError("ScanTrix couldn't reach the accounting connection just now. Try again.", "definite", "unavailable");
   }
   const body = (await res.json().catch(() => null)) as { message?: string; data?: Record<string, unknown> | null } | null;
   if (res.status === 409) throw new LedgerError(body?.message || "Reconnect the accounting software first.", "definite", "reconnect");
@@ -47,7 +47,7 @@ export async function getLedgerContext(userToken: string, qbConnectionId: string
   if (res.status === 503) throw new LedgerError("Posting isn't switched on on the backend yet.", "definite", "not_configured");
   const d = body?.data;
   if (!res.ok || !d || typeof d.accessToken !== "string" || typeof d.tenantId !== "string") {
-    throw new LedgerError(body?.message || "Scantrix couldn't open the accounting connection. Try again.", "definite", "unavailable");
+    throw new LedgerError(body?.message || "ScanTrix couldn't open the accounting connection. Try again.", "definite", "unavailable");
   }
   return {
     provider: (d.provider === "xero" ? "xero" : "quickbooks") as LedgerProvider,
@@ -63,14 +63,14 @@ async function getList<T>(userToken: string, qbConnectionId: string, path: strin
   try {
     res = await fetch(`${SAVETRIX_API_BASE_URL}${path}`, { headers: headers(userToken, qbConnectionId), signal: AbortSignal.timeout(20_000), cache: "no-store" });
   } catch {
-    throw new LedgerError("Scantrix couldn't load the company's lists just now. Try again.", "definite", "unavailable");
+    throw new LedgerError("ScanTrix couldn't load the company's lists just now. Try again.", "definite", "unavailable");
   }
-  if (!res.ok) throw new LedgerError(`Scantrix couldn't load the company's lists (${res.status}). Try again.`, "definite", "unavailable");
+  if (!res.ok) throw new LedgerError(`ScanTrix couldn't load the company's lists (${res.status}). Try again.`, "definite", "unavailable");
   const body = (await res.json().catch(() => null)) as { data?: Record<string, unknown> } | null;
   return pick(body?.data ?? {}) ?? [];
 }
 
-/** Scantrix vendor id (`_id`) → the vendor's id in QuickBooks/Xero. */
+/** ScanTrix vendor id (`_id`) → the vendor's id in QuickBooks/Xero. */
 export async function vendorExternalIds(userToken: string, qbConnectionId: string): Promise<Map<string, string>> {
   const vendors = await getList<{ _id?: string; qbVendorId?: string }>(userToken, qbConnectionId, "/quickbooks/vendors", (d) => d.vendors as never);
   return new Map(vendors.filter((v) => v._id && v.qbVendorId).map((v) => [String(v._id), String(v.qbVendorId)]));
@@ -94,7 +94,7 @@ export async function postedBill(userToken: string, qbConnectionId: string, invo
   const result = await fetchInvoice(userToken, qbConnectionId, invoiceId);
   if (!result.ok) {
     if (result.status === 404) return null;
-    throw new LedgerError("Scantrix couldn't load the matched bill just now. Try again.", "definite", "unavailable");
+    throw new LedgerError("ScanTrix couldn't load the matched bill just now. Try again.", "definite", "unavailable");
   }
   const q = result.invoice.quickbooks;
   return q?.billId && q?.vendorId ? { billId: q.billId, vendorId: q.vendorId } : null;
