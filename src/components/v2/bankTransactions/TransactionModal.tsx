@@ -201,7 +201,7 @@ export function TransactionModal({
               <ModalDefinitionRow label={`In ${providerName}`}>
                 <span className="inline-flex min-w-0 items-center gap-1">
                   <span className="truncate">
-                    Entered there directly: {found.label}
+                    Found in {providerName}: {found.label}
                     {found.name ? ` · ${found.name}` : ""} · {found.date}
                   </span>
                   {found.url && (

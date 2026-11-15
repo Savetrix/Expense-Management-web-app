@@ -340,7 +340,7 @@ export function TransactionsTab({
           return (
             <span className="block truncate text-content-secondary">
               {t.posting?.found
-                ? `Entered in ${providerName}: ${t.posting.found.label}${t.posting.found.name ? ` · ${t.posting.found.name}` : ""}`
+                ? `Found in ${providerName}: ${t.posting.found.label}${t.posting.found.name ? ` · ${t.posting.found.name}` : ""}`
                 : t.status === "matched" ? `Bill: ${matched ? `${matched.vendor}${matched.number ? ` #${matched.number}` : ""}` : "matched"}` : t.status === "transfer" ? `Transfer · ${t.transferAccount ?? ""}` : glName(c.glAccountId) || "—"}
             </span>
           );

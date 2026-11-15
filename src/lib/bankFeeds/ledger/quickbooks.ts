@@ -181,8 +181,19 @@ export function paidFromQbAnswer(data: Record<string, unknown>): string[] {
 /** The QuickBooks entries that move money in a bank or card account. */
 export const QB_ENTRY_ENTITIES = ["Purchase", "Deposit", "Transfer", "BillPayment", "Payment", "CreditCardPayment"] as const;
 /** The entries a company's coding is learned from (Smart Suggestions, history). */
-export const QB_HISTORY_ENTITIES = ["Bill", "Purchase", "Deposit", "BillPayment"] as const;
-type QbEntity = (typeof QB_ENTRY_ENTITIES)[number] | (typeof QB_HISTORY_ENTITIES)[number];
+export const QB_HISTORY_ENTITIES = ["Bill", "Purchase", "Deposit", "BillPayment", "CreditCardPayment"] as const;
+type QbEntity = (typeof QB_ENTRY_ENTITIES)[number] | (typeof QB_HISTORY_ENTITIES)[number] | "CreditCardPaymentTxn";
+/**
+ * What QuickBooks calls an entity in a query, in the order to try. Paying a
+ * card from the bank is the CreditCardPayment entity, whose query name is
+ * CreditCardPaymentTxn (older minor versions may answer to either).
+ */
+const QUERY_NAMES: Partial<Record<QbEntity, QbEntity[]>> = { CreditCardPayment: ["CreditCardPaymentTxn", "CreditCardPayment"] };
+/** The rows of one entity in a query answer, under whichever name QuickBooks used. */
+function rowsOf(data: Record<string, unknown>, entity: string): unknown[] {
+  const answer = data.QueryResponse as Record<string, unknown[]> | undefined;
+  return answer?.[entity] ?? (entity === "CreditCardPayment" ? answer?.CreditCardPaymentTxn : undefined) ?? [];
+}
 /** Newer entities some companies' API versions refuse; a refusal skips them instead of failing the read. */
 const OPTIONAL_ENTITIES = new Set<string>(["CreditCardPayment"]);
 const ENTRY_PAGE = 1000;
@@ -231,7 +242,7 @@ const toCents = (n: unknown): number | null => {
 
 /** Pure: the entries in one query answer, each as the money it moved in one bank or card account. */
 export function entriesFromQbAnswer(entity: string, data: Record<string, unknown>, appBase: string): LedgerEntry[] {
-  const rows = ((data.QueryResponse as Record<string, unknown> | undefined)?.[entity] ?? []) as QbEntryRow[];
+  const rows = rowsOf(data, entity) as QbEntryRow[];
   const out: LedgerEntry[] = [];
   for (const r of rows) {
     const id = r.Id === undefined || r.Id === null ? "" : String(r.Id);
@@ -289,6 +300,7 @@ export function entriesFromQbAnswer(entity: string, data: Record<string, unknown
 type QbHistoryLineRow = {
   Amount?: number | string;
   DetailType?: string;
+  Description?: string;
   AccountBasedExpenseLineDetail?: { AccountRef?: QbRef; TaxCodeRef?: QbRef };
   DepositLineDetail?: { AccountRef?: QbRef; Entity?: QbRef; TaxCodeRef?: QbRef };
 };
@@ -302,7 +314,7 @@ interface QbHistoryRow extends QbEntryRow {
  * (no account) are left out.
  */
 export function historyFromQbAnswer(entity: (typeof QB_HISTORY_ENTITIES)[number], data: Record<string, unknown>): HistoryLine[] {
-  const rows = ((data.QueryResponse as Record<string, unknown> | undefined)?.[entity] ?? []) as QbHistoryRow[];
+  const rows = rowsOf(data, entity) as QbHistoryRow[];
   const out: HistoryLine[] = [];
   for (const r of rows) {
     const id = r.Id === undefined || r.Id === null ? "" : String(r.Id);
@@ -317,7 +329,19 @@ export function historyFromQbAnswer(entity: (typeof QB_HISTORY_ENTITIES)[number]
         vendorId: ref(r.VendorRef), vendorName: r.VendorRef?.name?.trim() || null,
         accountId: null, taxCodeId: null,
         bankAccountId: ref(r.CheckPayment?.BankAccountRef ?? r.CreditCardPayment?.CCAccountRef),
-        credit: false, dominant: true,
+        credit: false, dominant: true, description: r.PrivateNote?.trim() || null,
+      });
+      continue;
+    }
+    if (entity === "CreditCardPayment") {
+      // Paying the card from the bank: no GL account, kept so the memory knows the bank line.
+      const cents = toCents(r.Amount);
+      if (!cents) continue;
+      out.push({
+        entity, id, line: 0, date, amountCents: Math.abs(cents),
+        vendorId: null, vendorName: r.CreditCardAccountRef?.name?.trim() || null,
+        accountId: null, taxCodeId: null, bankAccountId: ref(r.BankAccountRef),
+        credit: false, dominant: true, description: r.PrivateNote?.trim() || null,
       });
       continue;
     }
@@ -335,6 +359,7 @@ export function historyFromQbAnswer(entity: (typeof QB_HISTORY_ENTITIES)[number]
         bankAccountId: entity === "Bill" ? null : ref(entity === "Deposit" ? r.DepositToAccountRef : r.AccountRef),
         credit: entity === "Purchase" && r.Credit === true,
         dominant: false,
+        description: l.Description?.trim() || r.PrivateNote?.trim() || null,
       });
     });
     const biggest = lines.reduce<HistoryLine | null>((best, l) => (!best || l.amountCents > best.amountCents ? l : best), null);
@@ -346,19 +371,26 @@ export function historyFromQbAnswer(entity: (typeof QB_HISTORY_ENTITIES)[number]
 
 /** Every page of one entity's answers dated from..to. An optional entity QuickBooks refuses reads as none. */
 async function queryAll(ctx: LedgerContext, entity: QbEntity, from: string, to: string): Promise<Record<string, unknown>[]> {
-  const pages: Record<string, unknown>[] = [];
-  for (let page = 0; page < ENTRY_MAX_PAGES; page++) {
-    let data: Record<string, unknown>;
+  const names = QUERY_NAMES[entity] ?? [entity];
+  for (const [n, name] of names.entries()) {
+    const pages: Record<string, unknown>[] = [];
     try {
-      data = await call(ctx, buildQbEntryQuery(entity, from, to, page * ENTRY_PAGE + 1));
+      for (let page = 0; page < ENTRY_MAX_PAGES; page++) {
+        const data = await call(ctx, buildQbEntryQuery(name, from, to, page * ENTRY_PAGE + 1));
+        pages.push(data);
+        if (rowsOf(data, entity).length < ENTRY_PAGE) break;
+      }
+      return pages;
     } catch (error) {
-      if (OPTIONAL_ENTITIES.has(entity) && error instanceof LedgerError && error.code === "validation") return pages;
+      // An optional entity QuickBooks refuses under this name: try the next name, else read none.
+      if (OPTIONAL_ENTITIES.has(entity) && error instanceof LedgerError && error.code === "validation") {
+        if (n === names.length - 1) return [];
+        continue;
+      }
       throw error;
     }
-    pages.push(data);
-    if (((data.QueryResponse as Record<string, unknown[]> | undefined)?.[entity] ?? []).length < ENTRY_PAGE) break;
   }
-  return pages;
+  return [];
 }
 
 export const quickbooks: LedgerAdapter = {

@@ -147,6 +147,7 @@ export async function importHistory(db: Db, args: ImportArgs): Promise<HistoryIm
       bankAccountId: l.bankAccountId,
       credit: l.credit,
       dominant: l.dominant,
+      description: l.description,
       importedAt,
     }));
 

@@ -107,7 +107,7 @@ export interface LedgerEntry {
  * account and tax code, a deposit line, or a bill payment.
  */
 export interface HistoryLine {
-  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment";
+  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment" | "CreditCardPayment";
   /** The provider's id of the entry. */
   id: string;
   /** The line's position in the entry (0 for an entry with one line). */
@@ -126,6 +126,8 @@ export interface HistoryLine {
   bankAccountId: string | null;
   /** Money back onto a card (a refund) rather than money out. */
   credit: boolean;
+  /** The line's own words (its description, else the entry's memo), for finding similar items. */
+  description: string | null;
   /** The biggest line of its entry: the one that speaks for the entry when counting. */
   dominant: boolean;
 }

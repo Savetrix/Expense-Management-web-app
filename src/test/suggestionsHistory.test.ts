@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { historyMatches, importHistory, nameKey, payeeMatchStats, removeHistory } from "../lib/bankFeeds/history";
-import { historyFromQbAnswer } from "../lib/bankFeeds/ledger/quickbooks";
+import { entriesFromQbAnswer, historyFromQbAnswer } from "../lib/bankFeeds/ledger/quickbooks";
 import type { HistoryLine, LedgerAdapter, LedgerContext } from "../lib/bankFeeds/ledger/types";
 import { setNamedMapping } from "../lib/bankFeeds/ledgerMappings";
 import { postLines } from "../lib/bankFeeds/posting";
@@ -63,6 +63,27 @@ describe("reading coded lines from QuickBooks", () => {
   });
 });
 
+describe("credit card payments", () => {
+  it("are read under either query name, kept without a GL account, with the bank side", () => {
+    const answer = { QueryResponse: { CreditCardPaymentTxn: [{ Id: "12", TxnDate: "2026-10-20", Amount: 900, BankAccountRef: { value: "35" }, CreditCardAccountRef: { value: "41", name: "Visa" }, PrivateNote: "Visa payment" }] } };
+    const lines = historyFromQbAnswer("CreditCardPayment", answer);
+    assert.deepEqual(
+      lines.map((l) => [l.entity, l.accountId, l.bankAccountId, l.amountCents, l.vendorName, l.description]),
+      [["CreditCardPayment", null, "35", 90000, "Visa", "Visa payment"]],
+    );
+    const found = entriesFromQbAnswer("CreditCardPayment", answer, "https://app.sandbox.qbo.intuit.com/app");
+    assert.deepEqual(found.map((e) => [e.key, e.accountId, e.amountCents]), [
+      ["CreditCardPayment:12:from", "35", -90000],
+      ["CreditCardPayment:12:to", "41", 90000],
+    ]);
+  });
+
+  it("keep each line's description for finding similar items", () => {
+    const lines = historyFromQbAnswer("Purchase", { QueryResponse: { Purchase: [{ Id: "1", TxnDate: "2026-10-12", AccountRef: { value: "35" }, PrivateNote: "memo", Line: [{ Amount: 5, Description: "PETRO-CANADA 1234", AccountBasedExpenseLineDetail: { AccountRef: { value: "7" } } }] }] } });
+    assert.equal(lines[0].description, "PETRO-CANADA 1234");
+  });
+});
+
 describe("matching bank payees to vendors in the books", () => {
   it("cleans a vendor name the way bank payees are cleaned", () => {
     assert.equal(nameKey("Petro-Canada Ltd."), "petro canada");
@@ -108,6 +129,7 @@ const purchase = (id: string, days: number, over: Partial<HistoryLine> = {}): Hi
   bankAccountId: "35",
   credit: false,
   dominant: true,
+  description: "Fuel",
   ...over,
 });
 function fakeBooks(lines: HistoryLine[]) {

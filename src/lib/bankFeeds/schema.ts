@@ -267,7 +267,7 @@ export interface HistoryDoc {
   _id: string;
   qbConnectionId: string;
   source: "quickbooks" | "xero";
-  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment";
+  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment" | "CreditCardPayment";
   entryId: string;
   line: number;
   date: string;
@@ -283,6 +283,8 @@ export interface HistoryDoc {
   bankAccountId: string | null;
   credit: boolean;
   dominant: boolean;
+  /** The line's own words in the books, for step 3 (similar items). */
+  description: string | null;
   importedAt: Date;
 }
 
