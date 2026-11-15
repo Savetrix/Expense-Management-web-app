@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
+import { defaultVendorCurrency, hasVendorErrors, validateVendorForm, type VendorFieldErrors } from "@/lib/vendorForm";
 import { showToast } from "@/lib/dialogManager";
 import { taxCodeId as getTaxCodeId, taxCodeLabel as formatTaxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { AddGlAccountModalV2 } from "@/components/v2/glTaxCode/AddGlAccountModalV2";
@@ -15,13 +16,12 @@ import {
   fetchQuickBooksTaxCodes,
   fetchQuickBooksVendors,
 } from "@/store/quickBooks/quickBooksApi";
+import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
 const FIELD_INPUT_CLASS =
   "mt-[var(--space-xs)] h-[50px] w-full rounded-md border border-border bg-page px-[var(--space-md)] text-body text-content-primary placeholder:text-content-secondary focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-60";
-
-const GL_REQUIRED = "GL account is required to create a vendor";
 
 export interface CreatedVendorRecord {
   _id: string;
@@ -67,21 +67,24 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  // Field problems sit next to their field; formError is what the server said.
+  const [fieldErrors, setFieldErrors] = useState<VendorFieldErrors>({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [addGlOpen, setAddGlOpen] = useState(false);
   const [addGlName, setAddGlName] = useState("");
-  const glMissing = formError === GL_REQUIRED;
+  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
 
   useEffect(() => {
     if (!open) return;
     setDisplayName(initialName);
-    setCurrency(CURRENCY_OPTIONS[0]);
+    setCurrency(defaultVendorCurrency(homeCurrency, CURRENCY_OPTIONS));
     setGlAccountId(initialGlAccountId);
     setTaxCodeId(initialTaxCodeId);
     setEmail("");
     setPhone("");
     setAddress("");
+    setFieldErrors({});
     setFormError("");
     setAddGlOpen(false);
     if (accessToken) {
@@ -102,14 +105,9 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   const handleSave = async () => {
     if (!accessToken) return;
     const trimmedName = displayName.trim();
-    if (!trimmedName) {
-      setFormError("Vendor name is required");
-      return;
-    }
-    if (!glAccountId) {
-      setFormError(GL_REQUIRED);
-      return;
-    }
+    const errors = validateVendorForm({ name: displayName, glAccountId, email, requireGlAccount: true });
+    setFieldErrors(errors);
+    if (hasVendorErrors(errors)) return;
     setFormError("");
     setSaving(true);
     try {
@@ -127,7 +125,7 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
       );
       if (!createQuickBooksVendor.fulfilled.match(result)) {
         const payload = result.payload as { message?: string } | undefined;
-        showToast(payload?.message || "Could not create vendor. Please try again.", "error");
+        setFormError(payload?.message || "Could not create vendor. Please try again.");
         return;
       }
 
@@ -176,11 +174,16 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
           <label className={FIELD_LABEL_CLASS}>Vendor name *</label>
           <input
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+              if (fieldErrors.name && e.target.value.trim()) setFieldErrors((prev) => ({ ...prev, name: undefined }));
+            }}
             placeholder="Enter vendor name"
             disabled={saving}
-            className={FIELD_INPUT_CLASS}
+            aria-invalid={!!fieldErrors.name}
+            className={`${FIELD_INPUT_CLASS} ${fieldErrors.name ? "border-status-danger-border" : ""}`}
           />
+          {fieldErrors.name && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{fieldErrors.name}</p>}
         </div>
 
         <div>
@@ -203,18 +206,18 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
               ariaLabel="GL account"
               value={glAccountId}
               placeholder="Select GL account"
-              error={glMissing ? formError : undefined}
+              error={fieldErrors.glAccount}
               disabled={saving}
               onSelect={(id) => {
                 setGlAccountId(id);
-                if (id && glMissing) setFormError("");
+                if (id && fieldErrors.glAccount) setFieldErrors((prev) => ({ ...prev, glAccount: undefined }));
               }}
               onAddNew={(name) => {
                 setAddGlName(name);
                 setAddGlOpen(true);
               }}
             />
-            {glMissing && <p className="text-caption font-medium text-status-danger-text">{formError}</p>}
+            {fieldErrors.glAccount && <p className="text-caption font-medium text-status-danger-text">{fieldErrors.glAccount}</p>}
           </div>
           {glAccounts.length === 0 && (
             <p className="mt-[var(--space-xs)] text-caption text-content-secondary">
@@ -241,11 +244,16 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
           <input
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+            }}
             placeholder="vendor@company.com"
             disabled={saving}
-            className={FIELD_INPUT_CLASS}
+            aria-invalid={!!fieldErrors.email}
+            className={`${FIELD_INPUT_CLASS} ${fieldErrors.email ? "border-status-danger-border" : ""}`}
           />
+          {fieldErrors.email && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{fieldErrors.email}</p>}
         </div>
 
         <div>
@@ -270,8 +278,10 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
           />
         </div>
 
-        {formError && !glMissing && (
-          <p className="sm:col-span-2 text-caption font-semibold text-status-danger-text">{formError}</p>
+        {formError && (
+          <p role="alert" className="sm:col-span-2 rounded-md border-l-4 border-status-danger-border bg-status-danger-bg px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-medium text-status-danger-text">
+            {formError}
+          </p>
         )}
       </div>
     </Modal>
@@ -282,7 +292,7 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
       initialName={addGlName}
       onCreated={(account) => {
         setGlAccountId(account.qbAccountId);
-        setFormError("");
+        setFieldErrors((prev) => ({ ...prev, glAccount: undefined }));
       }}
     />
     </>

@@ -57,6 +57,20 @@ function buildSuggestions(
   const taxById = new Map(taxCodes.map((t) => [getTaxCodeId(t), t]));
   const staleCutoff = monthsAgo(STALE_MONTHS);
 
+  // Any invoice still in play (posted or waiting in review) counts as the
+  // vendor being in use — a pending one is recent activity too.
+  const lastInvoiceByVendor = new Map<string, Date>();
+  for (const invoice of invoices) {
+    if (invoice.postedStatus === "failed") continue;
+    const vendorId = invoice.vendor?.vendorDbId;
+    const dateStr = invoice.extractedData?.invoiceDate || invoice.createdAt;
+    if (!vendorId || !dateStr) continue;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) continue;
+    const prev = lastInvoiceByVendor.get(vendorId);
+    if (!prev || d > prev) lastInvoiceByVendor.set(vendorId, d);
+  }
+
   const invoicesByVendor = new Map<string, InvoiceRecord[]>();
   for (const invoice of invoices) {
     if (invoice.postedStatus !== "auto" && invoice.postedStatus !== "manual") continue;
@@ -133,24 +147,18 @@ function buildSuggestions(
       }
     }
 
-    // Staleness: last posted invoice (or, failing that, when the vendor was
-    // added) older than the cutoff suggests they're no longer in active use.
-    let lastActivity: Date | null = null;
-    for (const invoice of vendorInvoices) {
-      const dateStr = invoice.extractedData?.invoiceDate || invoice.createdAt;
-      if (!dateStr) continue;
-      const d = new Date(dateStr);
-      if (!Number.isNaN(d.getTime()) && (!lastActivity || d > lastActivity)) lastActivity = d;
-    }
+    // Staleness: latest invoice (or, failing that, when the vendor was added)
+    // older than the cutoff suggests they're no longer in active use.
+    let lastActivity: Date | null = lastInvoiceByVendor.get(vendor._id) ?? null;
+    const hadInvoice = lastActivity !== null;
     if (!lastActivity && vendor.createdAt) {
       const d = new Date(vendor.createdAt);
       if (!Number.isNaN(d.getTime())) lastActivity = d;
     }
     if (lastActivity && lastActivity < staleCutoff) {
-      const activitySuffix =
-        vendorInvoices.length > 0
-          ? `hasn't had an invoice posted in over ${STALE_MONTHS} months`
-          : "has never had an invoice posted since being added";
+      const activitySuffix = hadInvoice
+        ? `hasn't had an invoice in over ${STALE_MONTHS} months`
+        : "hasn't had an invoice since being added";
       results.push({
         id: `${vendor._id}-stale`,
         kind: "stale",
