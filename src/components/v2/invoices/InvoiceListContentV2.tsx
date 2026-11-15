@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { vendorInitials } from "@/components/invoices/SelectedInvoiceCard";
 import { Avatar, DataTable, SearchInput, SelectDropdown, StatusPill } from "@/components/v2/ui";
+import { isRejectedInvoice } from "@/lib/outcomeMix";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { OutcomeMixCardV2 } from "@/components/v2/invoices/OutcomeMixCardV2";
 import { TopVendorsCardV2 } from "@/components/v2/invoices/TopVendorsCardV2";
@@ -72,14 +73,44 @@ function invoiceTimestamp(invoice: InvoiceRecord): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function sumTotals(list: InvoiceRecord[]): number {
-  return list.reduce((sum, invoice) => sum + (invoice.extractedData?.totalAmount || 0), 0);
+// Per currency — amounts in different currencies can't be added together.
+// Largest first; invoices with no currency read go under "".
+function sumTotals(list: InvoiceRecord[]): [string, number][] {
+  const byCurrency = new Map<string, number>();
+  for (const invoice of list) {
+    const currency = (invoice.extractedData?.currency || "").trim().toUpperCase();
+    byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + (invoice.extractedData?.totalAmount || 0));
+  }
+  // A scan with no currency and no amount (failed, still processing) isn't a total.
+  if (byCurrency.get("") === 0 && byCurrency.size > 1) byCurrency.delete("");
+  return [...byCurrency.entries()].sort((a, b) => b[1] - a[1]);
 }
 
 // Always two decimals — rounding to whole units hid the cents, so a tile read
 // 52 for invoices adding up to 51.95.
 function formatAmount(total: number): string {
   return total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const withCurrency = ([currency, amount]: [string, number]) => `${currency ? `${currency} ` : ""}${formatAmount(amount)}`;
+
+// A stat tile's amount: one line per currency (two at most, then "+N more",
+// with every total in the tooltip).
+function CurrencyTotals({ totals, className }: { totals: [string, number][]; className: string }) {
+  if (totals.length <= 1) {
+    return <p className={`text-h3 font-bold tracking-tight ${className}`}>{withCurrency(totals[0] ?? ["", 0])}</p>;
+  }
+  const shown = totals.slice(0, 2);
+  return (
+    <div className={className} title={totals.map(withCurrency).join("\n")}>
+      {shown.map((t) => (
+        <p key={t[0]} className="truncate text-body font-bold tracking-tight">
+          {withCurrency(t)}
+        </p>
+      ))}
+      {totals.length > shown.length && <p className="text-tiny font-semibold">+{totals.length - shown.length} more currencies</p>}
+    </div>
+  );
 }
 
 export function InvoiceListContentV2() {
@@ -298,7 +329,7 @@ export function InvoiceListContentV2() {
         const status = getInvoiceStatus(invoice.postedStatus);
         return (
           <span className="block truncate whitespace-nowrap">
-            <StatusPill status={status} />
+            <StatusPill status={status} rejected={isRejectedInvoice(invoice)} />
           </span>
         );
       },
@@ -342,7 +373,7 @@ export function InvoiceListContentV2() {
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
               <div className="my-[2px]">
-                <p className="text-h3 font-bold tracking-tight text-white">{formatAmount(totals.total)}</p>
+                <CurrencyTotals totals={totals.total} className="text-white" />
               </div>
               <p className="text-tiny text-nav-muted">
                 {combinedInvoices.length} invoice{combinedInvoices.length === 1 ? "" : "s"}
@@ -367,9 +398,7 @@ export function InvoiceListContentV2() {
                     {tileTheme.label}
                   </p>
                   <div className="my-[2px]">
-                    <p className={`text-h3 font-bold tracking-tight ${tileTheme.accentTextClass}`}>
-                      {formatAmount(totals[t])}
-                    </p>
+                    <CurrencyTotals totals={totals[t]} className={tileTheme.accentTextClass} />
                   </div>
                   <p className={`text-tiny ${tileTheme.accentTextClass}`}>
                     {tabCounts[t]} invoice{tabCounts[t] === 1 ? "" : "s"}

@@ -30,6 +30,8 @@ export interface MySubscription {
   // (or null) = the free/admin-driven flow. Both use the same currentPeriod/
   // downgradeAvailableAt cycle math below — no special-casing needed.
   provider: "stripe" | "apple" | "google" | "manual" | null;
+  /** A team admin bought the current plan for this owner with their card (it renews on it until changed in Manage billing). */
+  paidBy?: { name: string } | null;
   trialStartedAt: string | null;
   trialEndsAt: string | null;
   billingAnchor: string | null;

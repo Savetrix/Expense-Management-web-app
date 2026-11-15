@@ -5,10 +5,21 @@
 // "this week" always means "the last 7 days" regardless of what day it is.
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 
+// A "failed" invoice a person rejected on purpose — not a scan or post that
+// went wrong. Rejections from before the backend stamped rejectedAt only
+// carry the default reason in their history.
+export function isRejectedInvoice(invoice: InvoiceRecord): boolean {
+  if (invoice.postedStatus !== "failed") return false;
+  if (invoice.rejectedAt) return true;
+  const last = invoice.statusHistory?.[invoice.statusHistory.length - 1];
+  return last?.reason === "Rejected by user";
+}
+
 export interface OutcomeMixBucket {
   auto: number;
   manual: number;
   failed: number;
+  rejected: number;
   total: number;
 }
 
@@ -26,6 +37,7 @@ export function computeOutcomeMix(invoices: InvoiceRecord[], weeks: number): Out
     auto: 0,
     manual: 0,
     failed: 0,
+    rejected: 0,
     total: 0,
   }));
 
@@ -45,7 +57,7 @@ export function computeOutcomeMix(invoices: InvoiceRecord[], weeks: number): Out
 
     const bucketFromNewest = Math.floor(age / MS_PER_WEEK);
     const bucket = buckets[weeks - 1 - bucketFromNewest];
-    bucket[invoice.postedStatus] += 1;
+    bucket[isRejectedInvoice(invoice) ? "rejected" : invoice.postedStatus] += 1;
     bucket.total += 1;
   }
 
@@ -54,9 +66,10 @@ export function computeOutcomeMix(invoices: InvoiceRecord[], weeks: number): Out
       auto: acc.auto + bucket.auto,
       manual: acc.manual + bucket.manual,
       failed: acc.failed + bucket.failed,
+      rejected: acc.rejected + bucket.rejected,
       total: acc.total + bucket.total,
     }),
-    { auto: 0, manual: 0, failed: 0, total: 0 },
+    { auto: 0, manual: 0, failed: 0, rejected: 0, total: 0 },
   );
 
   return {

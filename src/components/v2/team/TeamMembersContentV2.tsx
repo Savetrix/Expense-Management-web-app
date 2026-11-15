@@ -24,7 +24,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar, Modal, PageHeader, SelectDropdown } from "@/components/v2/ui";
-import { ALL_PAGE_KEYS, PAGE_ACCESS_OPTIONS, type PageKey } from "@/lib/pageAccess";
+import { ALL_PAGE_KEYS, CONTRIBUTOR_DEFAULT_PAGES, PAGE_ACCESS_OPTIONS, type PageKey } from "@/lib/pageAccess";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectConnectedAccounts } from "@/store/quickBooks/quickBooksSlice";
 import {
@@ -36,6 +36,7 @@ import {
 } from "@/store/quickBooks/quickBooksApi";
 import { Switch } from "@/components/ui/Switch";
 import { fetchInboundOverview } from "@/store/inboundEmail/inboundEmailApi";
+import { TeamBillingCardV2, TeamCheckoutReturn } from "./TeamBillingCardV2";
 
 interface QBMember {
   _id: string;
@@ -172,7 +173,7 @@ export function TeamMembersContentV2() {
   const [inviteRole, setInviteRole] = useState<QBMemberRole>("accountant");
   const [inviteAutoPost, setInviteAutoPost] = useState(ROLE_DEFAULT_AUTO_POST.accountant);
   const [inviteManagerId, setInviteManagerId] = useState("");
-  const [invitePages, setInvitePages] = useState<Set<PageKey>>(() => new Set(ALL_PAGE_KEYS));
+  const [invitePages, setInvitePages] = useState<Set<PageKey>>(() => new Set(CONTRIBUTOR_DEFAULT_PAGES));
   // The contributor whose pages are being edited, with the draft.
   const [pagesEdit, setPagesEdit] = useState<{ member: QBMember; pages: Set<PageKey> } | null>(null);
   const [savingMemberId, setSavingMemberId] = useState<string | null>(null);
@@ -181,6 +182,9 @@ export function TeamMembersContentV2() {
   const [togglingIds, setTogglingIds] = useState<Set<string>>(() => new Set());
 
   const [sending, setSending] = useState(false);
+  // Bumped when a team payment is confirmed (back from Stripe) — reloads the billing card.
+  const [billingRefresh, setBillingRefresh] = useState(0);
+  const checkoutReturn = <TeamCheckoutReturn onConfirmed={() => setBillingRefresh((n) => n + 1)} />;
   const [addressCopied, setAddressCopied] = useState(false);
 
   // With exactly one connected company there's nothing to choose, so use it
@@ -442,7 +446,7 @@ export function TeamMembersContentV2() {
     setInviteEmail("");
     setInviteEmailError("");
     setInviteManagerId("");
-    setInvitePages(new Set(ALL_PAGE_KEYS));
+    setInvitePages(new Set(CONTRIBUTOR_DEFAULT_PAGES));
     chooseInviteRole(
       availableRoles[availableRoles.length - 1]?.key || "contributor",
     );
@@ -571,6 +575,7 @@ export function TeamMembersContentV2() {
   if (!activeConnection) {
     return (
       <div className="mx-auto max-w-2xl p-[var(--space-lg)]">
+        {checkoutReturn}
         <div className="rounded-lg border border-border bg-surface p-[var(--space-lg)] shadow-sm">
           <EmptyState
             icon={<Users size={28} strokeWidth={1.75} />}
@@ -594,6 +599,7 @@ export function TeamMembersContentV2() {
 
   return (
     <div className="max-w-6xl p-[var(--space-md)] sm:p-[var(--space-lg)]">
+      {checkoutReturn}
       <PageHeader
         title="Team Members"
         subtitle="Manage team contributors, accountants, and invoice parsing inboxes."
@@ -894,6 +900,8 @@ export function TeamMembersContentV2() {
               {activeRoleMeta.label}
             </span>
           </div>
+
+          <TeamBillingCardV2 connection={activeConnection} refreshKey={billingRefresh} />
 
           {!canInvite && (
             <>

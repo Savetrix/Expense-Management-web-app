@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, FileUp, Landmark } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { PageHeader, Tabs } from "@/components/v2/ui";
@@ -9,9 +9,13 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { showToast } from "@/lib/dialogManager";
 import {
   bulkUpdateBankTransactions,
+  checkFoundInLedger,
+  linkFoundEntry,
+  unlinkFoundEntry,
   fetchBankAccounts,
   fetchBankTransactions,
   fetchLedgerAccounts,
+  fetchPaidBills,
   importBankCsv,
   postBankTransactions,
   updateBankTransaction,
@@ -24,9 +28,9 @@ import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
-import { toCandidates } from "./matching";
+import { closedBills, toCandidates, type StrongSuggestion } from "./matching";
 import { TransactionModal } from "./TransactionModal";
-import { TransactionsTab } from "./TransactionsTab";
+import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
 
 type Tab = "transactions" | "accounts";
@@ -133,6 +137,21 @@ export function BankTransactionsContentV2() {
     () => toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices),
     [pendingInvoices, autoPostedInvoices, manualPostedInvoices],
   );
+  // Bills paid in QuickBooks/Xero (or matched to a line already) aren't offered
+  // for a match. Asked once per set of bills; on failure every bill is offered.
+  const billIdsKey = useMemo(() => Array.from(new Set(candidates.map((c) => c.billId).filter(Boolean))).sort().join(","), [candidates]);
+  const [paidBills, setPaidBills] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!qbConnectionId || !billIdsKey) return;
+    let cancelled = false;
+    void dispatch(fetchPaidBills(billIdsKey.split(","))).then((r) => {
+      if (!cancelled && fetchPaidBills.fulfilled.match(r)) setPaidBills(new Set(r.payload));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId, billIdsKey]);
+  const closed = useMemo(() => closedBills(txns, candidates, paidBills), [txns, candidates, paidBills]);
 
   // Every decision is saved on the server. A status change carries the line's
   // version, so a teammate's newer change is never overwritten; field edits
@@ -151,6 +170,76 @@ export function BankTransactionsContentV2() {
       if (failed.length > 0) showToast(`${updated.length} saved, ${failed.length} not: ${failed[0].error}`, "warning");
       refetchSoon();
     } else showToast(result.payload?.message ?? "Couldn't save those changes.", "error");
+  };
+  // Post and Accept send to QuickBooks/Xero straight away (Saurabh, 11 Nov:
+  // "nothing in between"): save the decision, then send it. One line carries
+  // its version, so a teammate's newer change isn't overwritten. A line that
+  // can't go yet (a match whose bill isn't in the books, sending switched off)
+  // stays in Ready to post or Matched, with the reason, as before.
+  const saveAndSend = async (items: { txn: BankTransaction; patch: Partial<BankTransaction>; sendable: boolean }[], kind: "post" | "match") => {
+    let saved: string[];
+    if (items.length === 1) {
+      const [x] = items;
+      const result = await dispatch(updateBankTransaction({ id: x.txn.id, patch: x.patch as BankTxnPatch, version: x.txn.version }));
+      if (updateBankTransaction.rejected.match(result)) {
+        showToast(result.payload?.message ?? "Couldn't save that change.", "error");
+        return;
+      }
+      saved = [x.txn.id];
+    } else {
+      const result = await dispatch(bulkUpdateBankTransactions({ items: items.map((x) => ({ id: x.txn.id, ...(x.patch as BankTxnPatch) })) }));
+      if (!bulkUpdateBankTransactions.fulfilled.match(result)) {
+        showToast(result.payload?.message ?? "Couldn't save those changes.", "error");
+        return;
+      }
+      const { updated, failed } = result.payload;
+      if (failed.length > 0) showToast(`${failed.length} not saved: ${failed[0].error}`, "warning");
+      saved = updated.map((t) => t.id);
+    }
+    refetchSoon();
+    const sendable = new Set(items.filter((x) => x.sendable).map((x) => x.txn.id));
+    const toSend = saved.filter((id) => sendable.has(id));
+    const held = saved.length - toSend.length;
+    const blocked = canPost ? ledgerBlock(ledger.reason, ledger.error, provider.name) : `Your role can't send lines to ${provider.name}.`;
+    if (blocked) {
+      if (saved.length > 0) showToast(`${saved.length} ${kind === "match" ? "matched" : "ready to post"}. ${blocked}`, "info");
+      return;
+    }
+    if (held > 0) showToast(`${held} matched but not sent: post the bill to ${provider.name} first, then send it from Matched.`, "info");
+    if (toSend.length > 0) await sendLines(toSend);
+  };
+  const acceptMatches = (picked: StrongSuggestion[]) =>
+    saveAndSend(
+      picked.map((x) => ({ txn: x.txn, patch: { status: "matched" as const, matchedInvoiceId: x.invoice.id }, sendable: Boolean(x.invoice.billId) })),
+      "match",
+    );
+  const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
+  // Lines someone entered straight into QuickBooks/Xero leave To review by
+  // themselves (lib/bankFeeds/foundInLedger.ts): checked when the page opens,
+  // every 5 minutes while it is visible, and after an import.
+  const checkLedger = useCallback(async () => {
+    if (!qbConnectionId || !canPost || document.visibilityState !== "visible") return;
+    const result = await dispatch(checkFoundInLedger());
+    if (!checkFoundInLedger.fulfilled.match(result) || result.payload.skipped) return;
+    const { linked = 0, possible = 0 } = result.payload;
+    if (linked > 0 || possible > 0) dispatch(fetchBankTransactions());
+    if (linked > 0) showToast(`${linked} line${linked === 1 ? " was" : "s were"} already entered in ${provider.name}: moved to Matched.`, "info");
+  }, [dispatch, qbConnectionId, canPost, provider.name]);
+  useEffect(() => {
+    if (!qbConnectionId || !canPost) return;
+    void checkLedger();
+    const timer = window.setInterval(() => void checkLedger(), 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [checkLedger, qbConnectionId, canPost]);
+  const linkFound = async (id: string, key: string) => {
+    const result = await dispatch(linkFoundEntry({ id, key }));
+    if (linkFoundEntry.fulfilled.match(result)) showToast(`Linked to the entry in ${provider.name}. Moved to Matched.`, "success");
+    else showToast(result.payload?.message ?? "Couldn't link that entry.", "error");
+  };
+  const unlinkFound = async (id: string) => {
+    const result = await dispatch(unlinkFoundEntry(id));
+    if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. Scantrix won't link that ${provider.name} entry to this line again.`, "info");
+    else showToast(result.payload?.message ?? "Couldn't put that line back.", "error");
   };
   const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
@@ -238,17 +327,14 @@ export function BankTransactionsContentV2() {
             }}
             onUpdate={patchOne}
             invoices={candidates}
+            closedBills={closed}
             onBulkUpdate={patchMany}
-            onBulkItems={async (items) => {
-              const result = await dispatch(bulkUpdateBankTransactions({ items: items as ({ id: string } & BankTxnPatch)[] }));
-              if (bulkUpdateBankTransactions.fulfilled.match(result)) {
-                const { updated, failed } = result.payload;
-                showToast(failed.length ? `${updated.length} matched, ${failed.length} not: ${failed[0].error}` : `${updated.length} matched.`, failed.length ? "warning" : "success");
-              } else showToast(result.payload?.message ?? "Couldn't save those matches.", "error");
-            }}
+            onPost={postLines}
             lookups={lookups}
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
             ledger={ledger}
+            onAcceptMatches={acceptMatches}
+            onUnlinkFound={unlinkFound}
             onSend={canPost ? sendLines : undefined}
             sendingIds={sendingIds}
           />
@@ -298,6 +384,7 @@ export function BankTransactionsContentV2() {
               const { added: n, duplicates } = result.payload;
               showToast(`${n} transaction${n === 1 ? "" : "s"} imported${duplicates ? `, ${duplicates} already here` : ""}.`, "success");
               setTab("transactions");
+              void checkLedger();
               return true;
             }
             showToast(result.payload?.message ?? "Couldn't save the imported rows.", "error");
@@ -310,12 +397,16 @@ export function BankTransactionsContentV2() {
           key={`${openTxn.id}-${openFocus ?? "details"}`}
           txn={openTxn}
           invoices={candidates}
+          closedBills={closed}
           lookups={lookups}
           bankAccounts={bankAccounts}
           initialFocus={openFocus}
           providerName={provider.name}
           onClose={() => setOpenId(null)}
           onUpdate={patchOne}
+          onPost={(patch) => postLines([{ txn: openTxn, patch }])}
+          onLinkFound={(key) => linkFound(openTxn.id, key)}
+          onUnlinkFound={() => unlinkFound(openTxn.id)}
         />
       )}
     </div>

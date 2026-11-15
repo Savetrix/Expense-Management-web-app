@@ -69,7 +69,7 @@ the token from Redux and send it themselves. Policy helpers:
 - Typecheck: `npx tsc --noEmit`
 - Full gate (required, not optional — tsc alone misses SSR failures):
   `npx tsc --noEmit && npx next build`
-- Tests: `npm test` (node:test via tsx, `src/test/*.test.ts`). 270 tests.
+- Tests: `npm test` (node:test via tsx, `src/test/*.test.ts`). 530 tests.
   An earlier version of this file claimed no test suite existed; that was stale.
 
 ## During an active LOOP.md run

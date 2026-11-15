@@ -133,6 +133,8 @@ export interface InvoiceRecord {
   googleDrive?: { fileId?: string | null; fileUrl?: string | null; uploadedAt?: string | null };
   oneDrive?: { fileId?: string | null; fileUrl?: string | null; uploadedAt?: string | null };
   statusHistory?: StatusHistoryItem[];
+  /** Set when a person rejected it (see lib/outcomeMix.ts isRejectedInvoice). */
+  rejectedAt?: string | null;
   processedBy?: string;
   extractedByModel?: string;
   normalizedInvoiceNumber?: string;
