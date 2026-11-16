@@ -80,7 +80,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
             <p className="text-body-sm font-bold text-content-primary">Learn from QuickBooks or Xero history</p>
             <p className="text-caption text-content-secondary">
               Scantrix reads the last 12 months of your coding in {providerName} (bills, expenses, card charges, deposits and bill payments) and suggests
-              the same accounts from day one. Nothing is posted, and no AI reads it.
+              the same accounts from day one. Nothing is posted. To find similar items for new vendors, the vendor names and line descriptions are sent to OpenAI.
             </p>
             <p className="mt-[var(--space-xs)] text-caption font-semibold text-content-primary">{line}</p>
             {state.learnFromHistory && s?.outcome === "done" && state.payees.total > 0 && (
