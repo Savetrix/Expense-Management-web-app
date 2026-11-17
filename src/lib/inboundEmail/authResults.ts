@@ -57,16 +57,36 @@ function truncate(value: string | null): string | null {
   return value.length > MAX_DIAGNOSTIC_CHARS ? `${value.slice(0, MAX_DIAGNOSTIC_CHARS)}…` : value;
 }
 
-/** Case-insensitive header read that tolerates both provider shapes. */
+/**
+ * A header that occurred more than once can reach us as ONE string holding a
+ * JSON list: `["amazonses.com; spf=pass ...","mx.microsoft.com 1; dkim=none ..."]`.
+ * Seen 17 Nov 2026 on mail sent through Microsoft 365, which adds its own
+ * Authentication-Results line: read as one header, the authserv-id came out as
+ * `["",""]`, the pin matched nothing and a genuine email (spf, dkim and dmarc
+ * all pass) was rejected. Such a string is split back into its headers.
+ */
+function splitListedValue(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return [trimmed];
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed) && parsed.every((e) => typeof e === "string")) return parsed.map((e) => e.trim());
+  } catch {
+    // Not a JSON list after all: keep the value as it came.
+  }
+  return [trimmed];
+}
+
+/** Case-insensitive header read that tolerates every provider shape: a string, an array, or a string holding a JSON list. */
 function readHeader(headers: FetchedHeaders, name: string): string[] {
   const wanted = name.toLowerCase();
   const out: string[] = [];
   for (const [key, value] of Object.entries(headers ?? {})) {
     if (key.toLowerCase() !== wanted) continue;
-    if (Array.isArray(value)) {
-      for (const entry of value) if (typeof entry === "string" && entry.trim()) out.push(entry.trim());
-    } else if (typeof value === "string" && value.trim()) {
-      out.push(value.trim());
+    const values = Array.isArray(value) ? value : [value];
+    for (const entry of values) {
+      if (typeof entry !== "string" || !entry.trim()) continue;
+      for (const one of splitListedValue(entry)) if (one) out.push(one);
     }
   }
   return out;
