@@ -123,10 +123,14 @@ function memoryVotes(votes: Vote[], fallbackLabel: string): MemoryVote[] {
     }));
 }
 
-/** Who the history is about: the payee people wrote on the latest line, else the bank's name for it. */
+/**
+ * Who the history is about: the payee people wrote, when every past line
+ * names that same payee; else the bank's name for it. ("You coded Dinesh
+ * Bhatt to Cash 3 times" was wrong when only 2 of the 3 lines named him.)
+ */
 function subjectOf(votes: Vote[], fallback: string): string {
-  const latest = [...votes].filter((v) => v.payee).sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1))[0];
-  return latest?.payee ?? fallback;
+  const named = new Set(votes.map((v) => v.payee?.trim().toLowerCase() || ""));
+  return named.size === 1 && !named.has("") ? (votes[0].payee as string).trim() : fallback;
 }
 
 export interface LineFacts {

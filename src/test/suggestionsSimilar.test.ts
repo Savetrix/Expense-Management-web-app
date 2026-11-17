@@ -7,6 +7,8 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import type { Embedder } from "../lib/bankFeeds/embeddings";
 import { setAutoClassification } from "../lib/bankFeeds/settings";
+import type { Labeller } from "../lib/bankFeeds/shopKind";
+import { cleanKind } from "../lib/bankFeeds/shopKind";
 import { syncVectors } from "../lib/bankFeeds/similarSync";
 import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
@@ -78,6 +80,17 @@ describe("similar items vote", () => {
     assert.equal(similarPicks({ vector: fuel, out: true }, many, NOW)[0].lines, 20);
   });
 
+  it("lets only items nearly as close as the closest one vote (the same-town case)", () => {
+    // 2 really alike items (0.95) and 3 loosely alike ones (0.65, the town is the same).
+    const q = unit(1, 0, 0);
+    const meals = unit(1, 0.33, 0);
+    const fuel = unit(1, 1.17, 0);
+    const picks = similarPicks({ vector: q, out: true }, [item(meals, "meals"), item(meals, "meals", 6), item(fuel, "fuel"), item(fuel, "fuel", 6), item(fuel, "fuel", 7)], NOW);
+    assert.equal(picks[0].glAccountId, "meals", "3 loose votes don't beat 2 close ones");
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].confidence, "low", "only 2 voted");
+  });
+
   it("names the past items in the reason", () => {
     const picks = similarPicks(
       { vector: fuel, out: true },
@@ -107,6 +120,29 @@ function fakeEmbedder() {
   };
   return { embedder, sent };
 }
+
+/** A fake shop labeller: fuel words are a gas station. Counts what it was sent. */
+function fakeLabeller(over: Partial<Labeller> = {}) {
+  const sent: string[] = [];
+  const labeller: Labeller = {
+    model: "fake:kinds",
+    async label(texts) {
+      sent.push(...texts);
+      return texts.map((t) => (/petro|esso|shell|husky/i.test(t) ? "gas station" : null));
+    },
+    ...over,
+  };
+  return { labeller, sent };
+}
+
+describe("shop kinds", () => {
+  it("keeps a label short and plain", () => {
+    assert.equal(cleanKind(" Gas Station "), "gas station");
+    assert.equal(cleanKind("unknown"), null);
+    assert.equal(cleanKind(42), null);
+    assert.equal(cleanKind("a very long answer that is not a short kind of business"), null);
+  });
+});
 
 describe("step 3 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   let db: Db;
@@ -198,6 +234,45 @@ describe("step 3 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     const out = await syncVectors(db, "qb-a", embedder);
     assert.equal(out.skipped, "off");
     assert.equal(sent.length, 0);
+  });
+
+  it("imported lines get the kind of business once, and it goes into the compared text", async () => {
+    const { embedder, sent: embedded } = fakeEmbedder();
+    const { labeller, sent } = fakeLabeller();
+    await company("qb-a", "gl-travel");
+    await syncVectors(db, "qb-a", embedder, { labeller });
+    assert.equal(sent.length, 4, "the 3 coded lines and the one to review");
+    assert.ok(sent.every((t) => !/\d{4}/.test(t)), "store numbers are not sent");
+    const lines = await db.txns.find({ qbConnectionId: "qb-a" }).toArray();
+    assert.ok(lines.every((l) => l.shopKind === "gas station"));
+    assert.ok(embedded.some((t) => t.endsWith("| gas station")));
+    await syncVectors(db, "qb-a", embedder, { labeller });
+    assert.equal(sent.length, 4, "not asked again");
+  });
+
+  it("lines with the bank's category are never labelled, and Off sends nothing", async () => {
+    const { embedder } = fakeEmbedder();
+    const { labeller, sent } = fakeLabeller();
+    await company("qb-a", "gl-travel");
+    await db.txns.updateMany({ qbConnectionId: "qb-a" }, { $set: { categoryDetailed: "TRANSPORTATION_GAS" } });
+    await syncVectors(db, "qb-a", embedder, { labeller });
+    assert.equal(sent.length, 0);
+    await db.txns.updateMany({ qbConnectionId: "qb-a" }, { $set: { categoryDetailed: null } });
+    await setAutoClassification(db, { qbConnectionId: "qb-a", userId: "admin", mode: "off" });
+    await syncVectors(db, "qb-a", embedder, { labeller });
+    assert.equal(sent.length, 0);
+  });
+
+  it("a failed label call doesn't stop the sync, and is tried again next time", async () => {
+    const { embedder } = fakeEmbedder();
+    await company("qb-a", "gl-travel");
+    const broken = fakeLabeller({ label: async () => Promise.reject(new Error("timeout")) });
+    const out = await syncVectors(db, "qb-a", embedder, { labeller: broken.labeller });
+    assert.equal(out.embedded, 4);
+    assert.ok((await db.txns.find({ qbConnectionId: "qb-a" }).toArray()).every((l) => l.shopKind === undefined));
+    const { labeller, sent } = fakeLabeller();
+    await syncVectors(db, "qb-a", embedder, { labeller });
+    assert.equal(sent.length, 4);
   });
 
   it("step 2 wins for a payee the company already coded", async () => {

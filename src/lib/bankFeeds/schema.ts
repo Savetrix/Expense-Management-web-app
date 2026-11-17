@@ -99,6 +99,8 @@ export interface TxnDoc {
   categoryPrimary: string | null;
   categoryDetailed: string | null;
   categoryConfidence: string | null;
+  /** Step 3, lines without a category (imported files): the kind of business, worked out once (shopKind.ts). null = it couldn't tell; missing = not asked yet. */
+  shopKind?: string | null;
   paymentChannel: string | null;
   checkNumber: string | null;
 

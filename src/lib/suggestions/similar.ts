@@ -7,7 +7,8 @@
 // Rules (Feature 5):
 //   - money out is compared only with money out, money in with money in;
 //   - an item is close at a similarity of CLOSE_SIMILARITY or more (see below);
-//   - the nearest 20 close items vote; last 90 days count fully, older half;
+//   - the nearest 20 close items vote, but only those nearly as close as the
+//     closest one (within VOTE_WINDOW); last 90 days count fully, older half;
 //   - Medium: at least 3 close items and the top account holds ≥ 60% of the
 //     vote; anything weaker is Low (shown in red);
 //   - never filled in.
@@ -26,6 +27,15 @@ export const CLOSE_SIMILARITY = (() => {
   return Number.isFinite(v) && v > 0 && v < 1 ? v : 0.5;
 })();
 export const MAX_VOTERS = 20;
+/**
+ * Only items within this much of the closest one vote. Without it, many
+ * loosely alike items outvote a few really alike ones: three "PETRO-CANADA
+ * TORONTO" lines beat two "MCDONALDS TORONTO" lines for a new "BURGER KING
+ * TORONTO", because the town made them all look a bit alike. Measured 17 Nov
+ * 2026: right account first on a same-town set went from 2 of 10 to 9 of 10
+ * (with shop kinds, shopKind.ts); Feature 5's set stayed 20 of 20.
+ */
+export const VOTE_WINDOW = 0.1;
 export const MEDIUM_MIN_CLOSE = 3;
 export const MEDIUM_SHARE = 0.6;
 
@@ -107,8 +117,9 @@ export interface MemoryItem {
 
 /**
  * Up to 3 accounts from the closest past items (same direction, similarity ≥
- * 0.80, nearest 20), each Medium or Low by the rules above. Empty when nothing
- * is close: that is step 4's case.
+ * CLOSE_SIMILARITY, nearest 20, within VOTE_WINDOW of the closest), each
+ * Medium or Low by the rules above. Empty when nothing is close: that is step
+ * 4's case.
  */
 export function similarPicks(query: { vector: number[]; out: boolean }, memory: MemoryItem[], now = Date.now()): SuggestionPick[] {
   const close = memory
@@ -116,7 +127,8 @@ export function similarPicks(query: { vector: number[]; out: boolean }, memory: 
     .map((m) => ({ m, sim: cosine(query.vector, m.vector) }))
     .filter((x) => x.sim >= CLOSE_SIMILARITY)
     .sort((a, b) => b.sim - a.sim)
-    .slice(0, MAX_VOTERS);
+    .slice(0, MAX_VOTERS)
+    .filter((x, _, all) => x.sim >= all[0].sim - VOTE_WINDOW);
   if (close.length === 0) return [];
   const votes: MemoryVote[] = close.map(({ m }) => ({ glAccountId: m.glAccountId, taxCodeId: m.taxCodeId, decidedAt: m.decidedAt, evidence: m.evidence }));
   const total = votes.reduce((s, v) => s + voteWeight(v.decidedAt, now), 0);

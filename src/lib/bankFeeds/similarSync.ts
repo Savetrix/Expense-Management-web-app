@@ -19,6 +19,7 @@ import type { Db } from "./db";
 import { openAiEmbedder, type Embedder } from "./embeddings";
 import { readLearnFromHistory } from "./history";
 import type { VectorDoc } from "./schema";
+import { openAiLabeller, type Labeller } from "./shopKind";
 import { readAutoClassification, refreshSuggestions } from "./suggest";
 
 /** A bill a person posted, as the backend lists it (ledger/backend.ts scantrixInvoices). */
@@ -39,23 +40,26 @@ const hash = (model: string, text: string) => createHash("sha256").update(`${mod
 const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : new Date(0).toISOString());
 
 /** Everything that should have a vector for this company now. `invoices` undefined = keep the invoice vectors as they are. */
-async function itemsFor(db: Db, qbConnectionId: string, invoices: InvoiceMemory[] | undefined): Promise<Item[]> {
+async function itemsFor(db: Db, qbConnectionId: string, invoices: InvoiceMemory[] | undefined, labeller: Labeller | null): Promise<Item[]> {
   const items: Item[] = [];
-  const lines = await db.txns
-    .find({ qbConnectionId, removedAt: null }, { projection: { status: 1, decidedBy: 1, decidedAt: 1, glAccountId: 1, taxCodeId: 1, payee: 1, merchantName: 1, counterpartyName: 1, description: 1, categoryDetailed: 1, categoryPrimary: 1, amountCents: 1, date: 1, postingStatus: 1, posting: 1 } })
+  const all = await db.txns
+    .find({ qbConnectionId, removedAt: null }, { projection: { status: 1, decidedBy: 1, decidedAt: 1, glAccountId: 1, taxCodeId: 1, payee: 1, merchantName: 1, counterpartyName: 1, description: 1, categoryDetailed: 1, categoryPrimary: 1, shopKind: 1, amountCents: 1, date: 1, postingStatus: 1, posting: 1 } })
     .toArray();
-  for (const t of lines) {
-    const byPerson = t.decidedBy && t.decidedBy !== "autopilot" && t.decidedBy !== "system";
-    const memory = byPerson && t.glAccountId && !t.posting?.found && (t.status === "review" || t.status === "ready");
+  const lines = all.flatMap((t) => {
+    const byPerson = Boolean(t.decidedBy && t.decidedBy !== "autopilot" && t.decidedBy !== "system");
+    const memory = Boolean(byPerson && t.glAccountId && !t.posting?.found && (t.status === "review" || t.status === "ready"));
     const query = t.status === "review" && !t.postingStatus && !byPerson;
-    if (!memory && !query) continue;
+    return memory || query ? [{ t, memory }] : [];
+  });
+  await labelShops(db, qbConnectionId, lines.map((l) => l.t), labeller);
+  for (const { t, memory } of lines) {
     items.push({
       _id: `${qbConnectionId}:bank:${t._id}`,
       qbConnectionId,
       kind: "bank",
       role: memory ? "memory" : "query",
       ref: t._id,
-      text: bankText({ payee: t.payee ?? t.merchantName ?? t.counterpartyName, description: t.description, category: t.categoryDetailed ?? t.categoryPrimary }),
+      text: bankText({ payee: t.payee ?? t.merchantName ?? t.counterpartyName, description: t.description, category: t.categoryDetailed ?? t.categoryPrimary ?? t.shopKind }),
       out: t.amountCents < 0,
       glAccountId: memory ? t.glAccountId : null,
       taxCodeId: memory ? t.taxCodeId : null,
@@ -113,6 +117,33 @@ async function itemsFor(db: Db, qbConnectionId: string, invoices: InvoiceMemory[
   return items.filter((i) => i.text);
 }
 
+type LabelRow = { _id: string; payee?: string | null; merchantName?: string | null; counterpartyName?: string | null; description: string; categoryDetailed?: string | null; categoryPrimary?: string | null; shopKind?: string | null };
+
+/**
+ * Lines without a bank category (imported files) get the kind of business
+ * once (shopKind.ts), saved on the line. A failed call labels nothing and is
+ * tried again on the next sync; it never stops the sync.
+ */
+async function labelShops(db: Db, qbConnectionId: string, rows: LabelRow[], labeller: Labeller | null): Promise<void> {
+  if (!labeller) return;
+  const todo = rows.filter((t) => !t.categoryDetailed && !t.categoryPrimary && t.shopKind === undefined);
+  if (todo.length === 0) return;
+  let kinds: (string | null | undefined)[];
+  try {
+    kinds = await labeller.label(todo.map((t) => bankText({ payee: t.payee ?? t.merchantName ?? t.counterpartyName, description: t.description })));
+  } catch (error) {
+    console.error("[bank] shop kind", (error as Error)?.message);
+    return;
+  }
+  const ops = todo.flatMap((t, n) => {
+    const kind = kinds[n];
+    if (kind === undefined) return [];
+    t.shopKind = kind;
+    return [{ updateOne: { filter: { _id: t._id, qbConnectionId }, update: { $set: { shopKind: kind } } } }];
+  });
+  if (ops.length) await db.txns.bulkWrite(ops as never, { ordered: false });
+}
+
 export interface SyncOutcome {
   skipped?: "off" | "no_embedder";
   items: number;
@@ -121,11 +152,11 @@ export interface SyncOutcome {
 }
 
 /** Brings the company's vectors in step with its memory. Sends only new or changed text to the embedder. */
-export async function syncVectors(db: Db, qbConnectionId: string, embedder: Embedder | null, opts: { invoices?: InvoiceMemory[] } = {}): Promise<SyncOutcome> {
+export async function syncVectors(db: Db, qbConnectionId: string, embedder: Embedder | null, opts: { invoices?: InvoiceMemory[]; labeller?: Labeller | null } = {}): Promise<SyncOutcome> {
   if ((await readAutoClassification(db, qbConnectionId)) === "off") return { skipped: "off", items: 0, embedded: 0, removed: 0 };
   if (!embedder) return { skipped: "no_embedder", items: 0, embedded: 0, removed: 0 };
 
-  const items = await itemsFor(db, qbConnectionId, opts.invoices);
+  const items = await itemsFor(db, qbConnectionId, opts.invoices, opts.labeller ?? null);
   const existing = new Map((await db.vectors.find({ qbConnectionId }, { projection: { textHash: 1, model: 1, kind: 1 } }).toArray()).map((d) => [d._id, d]));
 
   const toEmbed = items.filter((i) => {
@@ -170,8 +201,8 @@ export async function loadMemory(db: Db, qbConnectionId: string) {
  * they are) and re-scores the lines to review when anything changed, so a new
  * payee's similar items include it at once.
  */
-export async function embedNewDecision(db: Db, qbConnectionId: string, embedder: Embedder | null = openAiEmbedder()): Promise<SyncOutcome> {
-  const outcome = await syncVectors(db, qbConnectionId, embedder);
+export async function embedNewDecision(db: Db, qbConnectionId: string, embedder: Embedder | null = openAiEmbedder(), labeller: Labeller | null = openAiLabeller()): Promise<SyncOutcome> {
+  const outcome = await syncVectors(db, qbConnectionId, embedder, { labeller });
   if (!outcome.skipped && (outcome.embedded > 0 || outcome.removed > 0)) await refreshSuggestions(db, qbConnectionId);
   return outcome;
 }

@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { openAiEmbedder } from "../lib/bankFeeds/embeddings";
+import { openAiLabeller } from "../lib/bankFeeds/shopKind";
 import { bankText, CLOSE_SIMILARITY, cosine, similarPicks, type MemoryItem } from "../lib/suggestions/similar";
 
 const run = process.env.RUN_OPENAI_EVAL === "1" && Boolean(process.env.OPENAI_API_KEY);
@@ -102,5 +103,46 @@ describe("step 3 with the real embedder (Feature 5's test set)", { skip: run ? f
     assert.ok(right >= 18, `${right} of 20 right; at least 18 needed`);
     assert.equal(essoPicks[0]?.glAccountId, "Travel");
     assert.equal(vehicle[0]?.glAccountId, "Vehicle expense");
+  });
+
+  it("imported files (no bank category): with the kind of business, still at least 18 of 20, and the same-town trap at least 8 of 10", async () => {
+    const embedder = openAiEmbedder();
+    const labeller = openAiLabeller();
+    assert.ok(embedder && labeller);
+    const score = async (past: typeof PAST, news: typeof NEW, accounts: Record<string, string>) => {
+      const all = [...past, ...news].map((x) => x.text);
+      const kinds = await labeller.label(all.map((t) => bankText({ description: t })));
+      const texts = all.map((t, i) => bankText({ description: t, category: kinds[i] }));
+      const vectors = await embedder.embed(texts);
+      const memory: MemoryItem[] = past.map((p, i) => ({
+        vector: vectors[i],
+        out: true,
+        glAccountId: accounts[p.kind],
+        taxCodeId: null,
+        decidedAt: recent(10 + i),
+        evidence: { label: p.text.split(" ")[0], date: recent(10 + i).slice(0, 10), amountCents: 1000, source: "bank" },
+      }));
+      let right = 0;
+      const report: string[] = [];
+      news.forEach((n, j) => {
+        const picks = similarPicks({ vector: vectors[past.length + j], out: true }, memory, NOW);
+        const ok = picks[0]?.glAccountId === accounts[n.kind];
+        if (ok) right++;
+        report.push(`${ok ? "OK  " : "MISS"} ${texts[past.length + j].padEnd(48)} first: ${picks[0] ? `${picks[0].glAccountId}/${picks[0].confidence}` : "none"}`);
+      });
+      return { right, report };
+    };
+    const csv = await score(PAST, NEW, ACCOUNT);
+    console.log(`\nImported files, right account first: ${csv.right} of ${NEW.length}\n${csv.report.join("\n")}`);
+
+    // One town everywhere, and fuel has the most past lines.
+    const T = (text: string, kind: "fuel" | "meals" | "software" | "office") => ({ text, category: "", kind });
+    const trapPast = [T("PETRO-CANADA 1234 TORONTO ON", "fuel"), T("PETRO-CANADA 1235 TORONTO ON", "fuel"), T("PETRO-CANADA 88 TORONTO ON", "fuel"), T("ESSO 5521 TORONTO ON", "fuel"), T("MCDONALDS #3322 TORONTO ON", "meals"), T("MCDONALDS #3329 TORONTO ON", "meals"), T("STAPLES 112 TORONTO ON", "office"), T("ADOBE *CREATIVE CLOUD 800-833-6687", "software")];
+    const trapNew = [T("BURGER KING 22 TORONTO ON", "meals"), T("WENDYS 812 TORONTO ON", "meals"), T("TIM HORTONS 4411 TORONTO ON", "meals"), T("A&W 445 TORONTO ON", "meals"), T("SUBWAY 1192 TORONTO ON", "meals"), T("SHELL 0042 TORONTO ON", "fuel"), T("HUSKY 77 TORONTO ON", "fuel"), T("GRAND & TOY 019 TORONTO ON", "office"), T("BEST BUY 940 TORONTO ON", "office"), T("ZOOM.US 888-799-9666", "software")];
+    const trap = await score(trapPast, trapNew, ACCOUNT);
+    console.log(`\nSame town, right account first: ${trap.right} of ${trapNew.length}\n${trap.report.join("\n")}`);
+
+    assert.ok(csv.right >= 18, `${csv.right} of 20 on imported files; at least 18 needed`);
+    assert.ok(trap.right >= 8, `${trap.right} of 10 on the same-town set; at least 8 needed`);
   });
 });

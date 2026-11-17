@@ -175,6 +175,19 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
     assert.match((next?.suggestion as Suggestion).reason, /different vendors/);
   });
 
+  it("names the vendor in the reason only when every past line named it", async () => {
+    const all = await lines(4);
+    await code(all[0].id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" });
+    await code(all[1].id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" });
+    await code(all[2].id, { glAccountId: "gl-travel" });
+    await refreshSuggestions(db, QB);
+    const s = (await read(all[3].id))?.suggestion as Suggestion;
+    assert.doesNotMatch(s.picks?.[0].subject ?? "", /Dinesh/, "only 2 of the 3 lines named him");
+    await code(all[2].id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" });
+    await refreshSuggestions(db, QB);
+    assert.equal(((await read(all[3].id))?.suggestion as Suggestion).picks?.[0].subject, "Dinesh Bhatt");
+  });
+
   it("one past decision only suggests: it never spreads to every similar line (Starbucks)", async () => {
     await importCsv(db, {
       qbConnectionId: QB,
