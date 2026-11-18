@@ -1767,7 +1767,7 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
                   onSelect={(id) => {
                     if (!id) return;
                     handleGlAccountSelect(id);
-                    // A suggested account brings its usual tax code when none is set yet.
+                    // Only the vendor's own default brings a tax code (its saved one); learned picks carry none (18 Nov).
                     const tax = suggestions.picks.find((p) => p.pick.glAccountId === id)?.pick.taxCodeId;
                     if (tax && !invoice.taxCodeId) handleTaxCodeSelect(tax);
                   }}
