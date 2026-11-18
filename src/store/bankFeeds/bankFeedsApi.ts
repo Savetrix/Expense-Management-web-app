@@ -330,12 +330,13 @@ export interface LedgerAccountDto {
   parentId?: string | null;
 }
 
-export const fetchLedgerAccounts = createAsyncThunk<{ accounts: LedgerAccountDto[]; qbConnectionId: string }, void, { state: RootState; rejectValue: BankRequestError }>(
+/** The chart of accounts (kept a day on the server); `refresh` reads it again now. */
+export const fetchLedgerAccounts = createAsyncThunk<{ accounts: LedgerAccountDto[]; qbConnectionId: string }, { refresh?: boolean } | void, { state: RootState; rejectValue: BankRequestError }>(
   "bankFeeds/ledgerAccounts",
-  async (_, { getState, rejectWithValue }) => {
+  async (arg, { getState, rejectWithValue }) => {
     try {
       const state = getState();
-      const body = await bankFetch<{ accounts: LedgerAccountDto[] }>(state, "/api/ledger/accounts");
+      const body = await bankFetch<{ accounts: LedgerAccountDto[] }>(state, arg && arg.refresh ? "/api/ledger/accounts?refresh=1" : "/api/ledger/accounts");
       return { accounts: body.accounts, qbConnectionId: state.quickBooks.qbConnectionId as string };
     } catch (e) {
       return rejectWithValue(reject(e));

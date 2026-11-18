@@ -18,6 +18,7 @@
 import type { Db } from "./db";
 import { adapterFor } from "./ledger";
 import { getLedgerContext, getList } from "./ledger/backend";
+import { ledgerAccountFor, plaidLabels } from "./ledgerMappings";
 import { LedgerError, type LedgerAccount, type LedgerProvider } from "./ledger/types";
 
 export const LISTS_MAX_AGE_MS = 24 * 3_600_000;
@@ -52,6 +53,8 @@ export interface CompanyListsDoc {
   vendors: VendorDefaults[] | null;
   vendorsAt: Date | null;
   country: string | null;
+  /** The company's home currency in QuickBooks/Xero, when known. */
+  homeCurrency?: string | null;
   environment: string | null;
 }
 
@@ -99,7 +102,7 @@ export async function chartFor(
     const adapter = adapterFor(ledger.provider);
     const [raw, info] = await Promise.all([adapter.listAccounts(ledger), adapter.companyInfo ? adapter.companyInfo(ledger).catch(() => null) : Promise.resolve(null)]);
     const accounts: ChartAccount[] = raw.map((a) => ({ id: a.id, name: a.name, kind: a.kind, type: a.type, currency: a.currency, parentId: a.parentId ?? null }));
-    await save(db, qbConnectionId, { provider: ledger.provider, chart: accounts, chartSource: "ledger", chartAt: new Date(now), environment: ledger.environment, ...(info ? { country: info.country } : {}) });
+    await save(db, qbConnectionId, { provider: ledger.provider, chart: accounts, chartSource: "ledger", chartAt: new Date(now), environment: ledger.environment, ...(info ? { country: info.country, homeCurrency: info.homeCurrency } : {}) });
     return { accounts, source: "ledger", provider: ledger.provider };
   } catch (error) {
     if (!(error instanceof LedgerError)) throw error;
@@ -144,6 +147,22 @@ export async function ensureVendorKnown(db: Db, userToken: string, qbConnectionI
   if (cached?.vendors?.some((v) => v.id === vendorId)) return false;
   await vendorsFor(db, userToken, qbConnectionId, { force: true });
   return true;
+}
+
+/**
+ * The currency of the bank account a line belongs to (Saurabh, 18 Nov: it must
+ * be right on its own): a connected bank account's own currency; for an
+ * imported file, the currency of the account in QuickBooks/Xero its name is
+ * mapped to; else the company's home currency. Null when nothing says.
+ */
+export async function accountCurrency(db: Db, qbConnectionId: string, ref: { accountId?: string | null; label?: string | null }): Promise<string | null> {
+  const accountId = ref.accountId ?? (ref.label ? ((await plaidLabels(db, qbConnectionId)).get(ref.label.trim().toLowerCase()) ?? null) : null);
+  const plaid = accountId ? await db.accounts.findOne({ _id: accountId, qbConnectionId }, { projection: { currency: 1 } }) : null;
+  if (plaid?.currency) return plaid.currency.toUpperCase();
+  const lists = await readLists(db, qbConnectionId);
+  const mapped = await ledgerAccountFor(db, qbConnectionId, { accountId: ref.accountId, label: ref.label });
+  const ledgerCurrency = mapped ? lists?.chart?.find((a) => a.id === mapped.id)?.currency : null;
+  return (ledgerCurrency || lists?.homeCurrency || null)?.toUpperCase() ?? null;
 }
 
 /** The bank or card accounts this company's bank lines are mapped to (Connected accounts). */

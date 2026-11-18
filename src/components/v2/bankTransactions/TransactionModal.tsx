@@ -10,7 +10,6 @@ import {
   Modal,
   ModalDefinitionRow,
   SearchInput,
-  TextInput,
 } from "@/components/v2/ui";
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
@@ -22,6 +21,18 @@ import { formatAmount } from "./format";
 import { billsFor, isExactAmount, rankInvoices, vendorAgrees } from "./matching";
 import { TransferModal } from "./TransferModal";
 import type { BankAccount, BankTransaction, InvoiceCandidate } from "./types";
+import { AddVendorModalV2 } from "@/components/v2/vendors/AddVendorModalV2";
+import { suggestedVendorName } from "@/lib/suggestions/similar";
+import type { LedgerAccountDto, NamedAccountDto } from "@/store/bankFeeds/bankFeedsApi";
+
+import { bankLineGlChoices, lineCurrency, lineLedgerId, newVendorPatch, vendorFormDefaults } from "./glList";
+
+/** Who the bill is from, to find it: the line's vendor, else ScanTrix's clean name for the payee. */
+function payBillSearch(txn: BankTransaction, lookups: Lookups): string {
+  const c = codingFor(txn);
+  const vendor = c.vendorId ? lookups.vendorById.get(c.vendorId)?.displayName : undefined;
+  return vendor || c.suggestion?.payee || suggestedVendorName(txn.merchantName, txn.description);
+}
 
 interface TransactionModalProps {
   txn: BankTransaction | null;
@@ -32,8 +43,14 @@ interface TransactionModalProps {
   bankAccounts: BankAccount[];
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
-  /** Open on the transfer form instead of the details (the row's transfer button). */
-  initialFocus?: "match" | "transfer";
+  /** Open on the transfer form instead of the details (the row's transfer button); "payBill": Accounts Payable was picked, so pick the bill. */
+  initialFocus?: "match" | "transfer" | "payBill";
+  /** Imported-file names and what they map to, the chart of accounts, and the home currency (glList.ts). */
+  named?: NamedAccountDto[];
+  chart?: LedgerAccountDto[];
+  homeCurrency?: string | null;
+  /** Reads the chart of accounts again (an account someone expects is missing). */
+  onRefreshAccounts?: () => void;
   providerName?: string;
   /** Post: saves the line as ready and sends it to QuickBooks/Xero when it can. Absent: Post only saves. */
   onPost?: (patch: Partial<BankTransaction>) => void;
@@ -64,9 +81,16 @@ export function TransactionModal({
   onPost,
   onLinkFound,
   onUnlinkFound,
+  named = [],
+  chart = [],
+  homeCurrency = null,
+  onRefreshAccounts,
 }: TransactionModalProps) {
   const [transferOpen, setTransferOpen] = useState(initialFocus === "transfer");
-  const [search, setSearch] = useState("");
+  // Accounts Payable picked: this line pays a bill, so the bill is picked below (a bill payment, no new expense).
+  const [payBill, setPayBill] = useState(initialFocus === "payBill");
+  const [addingVendor, setAddingVendor] = useState<string | null>(null);
+  const [search, setSearch] = useState(() => (initialFocus === "payBill" && txn ? payBillSearch(txn, lookups) : ""));
   const [pickedInvoice, setPickedInvoice] = useState("");
   const [payee, setPayee] = useState(txn?.payee ?? "");
   const [showChecks, setShowChecks] = useState(false);
@@ -83,7 +107,11 @@ export function TransactionModal({
         )
       : ranked;
   }, [ranked, search]);
-  const glOptions = useMemo(() => lookups.glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name })), [lookups.glAccounts]);
+  const glChoices = useMemo(
+    () => (txn ? bankLineGlChoices({ chart, backendGl: lookups.glAccounts, lineLedgerId: lineLedgerId(txn, bankAccounts, named), moneyIn: txn.amount > 0 }) : []),
+    [txn, chart, lookups.glAccounts, bankAccounts, named],
+  );
+  const glOptions = useMemo(() => glChoices.map(({ id, label }) => ({ id, label })), [glChoices]);
   const vendorOptions = useMemo(() => lookups.vendors.map((v) => ({ id: v._id, label: v.displayName })), [lookups.vendors]);
   const taxOptions = useMemo(() => lookups.taxCodes.map((t) => ({ id: taxCodeId(t), label: taxCodeLabel(t) })), [lookups.taxCodes]);
 
@@ -99,6 +127,15 @@ export function TransactionModal({
   const coding = codingFor(txn);
   const suggestion = coding.suggestion;
   const linePicks = picksFor(txn, lookups);
+  // A clean name for a payee that isn't a vendor yet ("Tim Hortons").
+  const newVendorName = coding.suggestion?.payee || suggestedVendorName(txn.merchantName, txn.description);
+  // The vendor form, opened from this line: clean name, the bank account's currency, the suggested GL, no tax.
+  const vendorDefaults = vendorFormDefaults({
+    typed: addingVendor ?? "",
+    suggestedName: newVendorName,
+    glAccountId: coding.glAccountId ?? coding.offered?.glAccountId,
+    currency: lineCurrency(txn, { bankAccounts, named, chart, homeCurrency }),
+  });
   // A suggestion ScanTrix didn't fill in (not sure enough, or "Suggest only").
   const offered = coding.offered;
   const pendingSuggestion = Boolean(offered);
@@ -262,8 +299,19 @@ export function TransactionModal({
           {!inactive && (
             <section className="flex flex-col gap-[var(--space-sm)]">
               <h3 className="text-body font-bold text-content-primary">
-                Match to a bill
+                {payBill ? "Pay a bill" : "Match to a bill"}
               </h3>
+              {payBill && (
+                <p className="text-body-sm text-content-secondary">
+                  Accounts Payable means this line pays a bill. Pick the bill below: ScanTrix records a bill payment from this bank account, and no new
+                  expense.
+                  {visible.length === 0 && (
+                    <span className="mt-[var(--space-xs)] block font-semibold text-content-primary">
+                      {search.trim() ? `No open bill from ${search.trim()}.` : "No open bill to pay."} Scan the bill first, or choose an expense account.
+                    </span>
+                  )}
+                </p>
+              )}
               {matchedInvoice && (
                 <p className="text-body-sm text-content-secondary">
                   Matched to {matchedInvoice.vendor} {matchedInvoice.number}.
@@ -444,6 +492,9 @@ export function TransactionModal({
                 clearLabel="No vendor"
                 placeholder="Vendor"
                 uiSize="md"
+                // One vendor box, like the invoice screen (Saurabh, 18 Nov).
+                suggestedNew={newVendorName}
+                onAddNew={(name) => setAddingVendor(name || newVendorName)}
               />
               <CreatableCombobox
                 options={glOptions}
@@ -451,10 +502,16 @@ export function TransactionModal({
                 ariaLabel="GL account"
                 value={txn.categoryId ?? ""}
                 onSelect={(id) => {
-                  // A suggested account brings its usual tax code when none is set yet.
-                  const tax = linePicks.find((p) => p.pick.glAccountId === id)?.pick.taxCodeId;
-                  onUpdate(txn.id, { categoryId: id || undefined, ...(tax && !txn.taxCodeId ? { taxCodeId: tax } : {}) });
+                  if (id && glChoices.find((c) => c.id === id)?.kind === "payable") {
+                    if (txn.amount > 0) return;
+                    setPayBill(true);
+                    setSearch(payBillSearch(txn, lookups));
+                    return;
+                  }
+                  // Tax is the vendor's saved tax code, never the account's usual one (18 Nov).
+                  onUpdate(txn.id, { categoryId: id || undefined });
                 }}
+                footerAction={onRefreshAccounts ? { label: "Missing an account? Refresh the list", onClick: onRefreshAccounts } : undefined}
                 picks={linePicks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
                 clearLabel="No category"
                 placeholder="GL account"
@@ -472,15 +529,6 @@ export function TransactionModal({
                   uiSize="md"
                 />
               )}
-              <TextInput
-                label="Vendor / payee"
-                value={payee}
-                onChange={(e) => setPayee(e.target.value)}
-                onBlur={() =>
-                  onUpdate(txn.id, { payee: payee.trim() || undefined })
-                }
-                placeholder="Who was paid or who paid you"
-              />
               <div className="flex flex-wrap gap-[var(--space-sm)]">
                 <Button
                   size="sm"
@@ -522,6 +570,18 @@ export function TransactionModal({
           }}
         />
       )}
+      <AddVendorModalV2
+        open={addingVendor !== null}
+        onClose={() => setAddingVendor(null)}
+        initialName={vendorDefaults.name}
+        initialGlAccountId={vendorDefaults.glAccountId}
+        initialTaxCodeId={vendorDefaults.taxCodeId}
+        initialCurrency={vendorDefaults.currency}
+        onCreated={(vendor) => {
+          setPayee(vendor.displayName);
+          onUpdate(txn.id, newVendorPatch(vendor, coding));
+        }}
+      />
     </>
   );
 }

@@ -314,7 +314,7 @@ export function blankDecision(now: Date): Pick<
  * same line in another account is kept. Two identical lines in one file (two
  * coffees, same day, same price) are both kept: each gets an occurrence number.
  */
-export async function importCsv(db: Db, args: { qbConnectionId: string; userId: string; accountLabel: string; rows: CsvRowIn[] }): Promise<{ added: number; duplicates: number }> {
+export async function importCsv(db: Db, args: { qbConnectionId: string; userId: string; accountLabel: string; rows: CsvRowIn[]; currency?: string | null }): Promise<{ added: number; duplicates: number }> {
   if (args.rows.length === 0) return { added: 0, duplicates: 0 };
   const seen = new Map<string, number>();
   const now = new Date();
@@ -340,7 +340,8 @@ export async function importCsv(db: Db, args: { qbConnectionId: string; userId: 
       logoUrl: null,
       website: null,
       amountCents: Math.round(r.amount * 100),
-      currency: null,
+      // The currency of the bank account chosen at import (companyLists.accountCurrency).
+      currency: args.currency ?? null,
       categoryPrimary: null,
       categoryDetailed: null,
       categoryConfidence: null,

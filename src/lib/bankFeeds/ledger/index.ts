@@ -16,9 +16,20 @@ export async function postingServices(userToken: string, qbConnectionId: string)
   const ledger = await getLedgerContext(userToken, qbConnectionId);
   let vendors: Promise<Map<string, string>> | null = null;
   let rates: Promise<Map<string, number>> | null = null;
+  let taxNeeded: Promise<boolean> | null = null;
+  const adapter = adapterFor(ledger.provider);
   return {
     ledger,
-    adapter: adapterFor(ledger.provider),
+    adapter,
+    // QuickBooks outside the US wants a tax code on every line; unknown country = don't block.
+    taxRequired: () =>
+      (taxNeeded ??=
+        ledger.provider === "quickbooks" && adapter.companyInfo
+          ? adapter.companyInfo(ledger).then(
+              (info) => Boolean(info.country && info.country.toUpperCase() !== "US"),
+              () => false,
+            )
+          : Promise.resolve(false)),
     vendorIds: () => (vendors ??= vendorExternalIds(userToken, qbConnectionId)),
     taxRates: () => (rates ??= taxRates(userToken, qbConnectionId)),
     bill: (invoiceId) => postedBill(userToken, qbConnectionId, invoiceId),

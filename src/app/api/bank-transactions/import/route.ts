@@ -2,6 +2,7 @@
 // has already parsed (components/v2/bankTransactions/csv.ts).
 // Body: { accountName, rows: [{ date: "YYYY-MM-DD", description, amount }] },
 // amount negative = money out.
+import { accountCurrency } from "@/lib/bankFeeds/companyLists";
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { refreshSuggestions } from "@/lib/bankFeeds/suggest";
 import { importCsv, listTransactions, type CsvRowIn } from "@/lib/bankFeeds/transactions";
@@ -26,11 +27,14 @@ export async function POST(request: Request) {
     rows.push({ date, amount, description: typeof r.description === "string" ? r.description : "" });
   }
   try {
+    const accountLabel = typeof body?.accountName === "string" ? body.accountName : "Imported file";
     const result = await importCsv(ctx.db, {
       qbConnectionId: ctx.connection.id,
       userId: ctx.caller.userId,
-      accountLabel: typeof body?.accountName === "string" ? body.accountName : "Imported file",
+      accountLabel,
       rows,
+      // The lines take the currency of the bank account chosen at import.
+      currency: await accountCurrency(ctx.db, ctx.connection.id, { label: accountLabel }),
     });
     if (result.added > 0) await refreshSuggestions(ctx.db, ctx.connection.id);
     return json({ ...result, transactions: await listTransactions(ctx.db, ctx.connection.id) }, 201);

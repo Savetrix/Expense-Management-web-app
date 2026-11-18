@@ -42,12 +42,14 @@ interface AddVendorModalV2Props {
   /** Prefills GL account and tax code (e.g. from a bank line already coded). */
   initialGlAccountId?: string;
   initialTaxCodeId?: string;
+  /** Starts the currency here instead of the home currency (a bank line: its bank account's currency). */
+  initialCurrency?: string;
   onCreated: (vendor: CreatedVendorRecord) => void;
 }
 
 // Create-only twin of the Add Vendor sheet on the Vendors page, for opening
 // in place from other screens (e.g. the invoice review vendor dropdown).
-export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAccountId = "", initialTaxCodeId = "", onCreated }: AddVendorModalV2Props) {
+export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAccountId = "", initialTaxCodeId = "", initialCurrency, onCreated }: AddVendorModalV2Props) {
   const dispatch = useAppDispatch();
   const provider = useActiveProvider();
   const accessToken = useAppSelector((state) => state.auth.user?.data?.accessToken);
@@ -74,11 +76,15 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   const [addGlOpen, setAddGlOpen] = useState(false);
   const [addGlName, setAddGlName] = useState("");
   const homeCurrency = useAppSelector(selectActiveHomeCurrency);
+  // A bank account's currency that isn't in the usual list is offered too.
+  const currencyChoices: readonly string[] =
+    initialCurrency && !CURRENCY_OPTIONS.includes(initialCurrency.toUpperCase() as (typeof CURRENCY_OPTIONS)[number]) ? [initialCurrency.toUpperCase(), ...CURRENCY_OPTIONS] : CURRENCY_OPTIONS;
 
   useEffect(() => {
     if (!open) return;
     setDisplayName(initialName);
-    setCurrency(defaultVendorCurrency(homeCurrency, CURRENCY_OPTIONS));
+    const start = initialCurrency?.toUpperCase();
+    setCurrency(start && currencyChoices.includes(start) ? start : defaultVendorCurrency(homeCurrency, CURRENCY_OPTIONS));
     setGlAccountId(initialGlAccountId);
     setTaxCodeId(initialTaxCodeId);
     setEmail("");
@@ -188,7 +194,7 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
 
         <div>
           <SelectDropdown label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} disabled={saving}>
-            {CURRENCY_OPTIONS.map((code) => (
+            {currencyChoices.map((code) => (
               <option key={code} value={code}>
                 {code}
               </option>

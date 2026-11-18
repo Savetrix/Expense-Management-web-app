@@ -22,9 +22,12 @@ import { formatAmount } from "./format";
 import { findStrongSuggestions, type StrongSuggestion } from "./matching";
 import { LINE_COLUMN_WIDTH, SuggestedMatches } from "./SuggestedMatches";
 import { STATUS_LABEL } from "./TransactionModal";
-import type { LedgerAccountDto } from "@/store/bankFeeds/bankFeedsApi";
+import type { LedgerAccountDto, NamedAccountDto } from "@/store/bankFeeds/bankFeedsApi";
+import { suggestedVendorName } from "@/lib/suggestions/similar";
 
-import type { BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
+import { bankLineGlChoices, lineCurrency, lineLedgerId, newVendorPatch, vendorFormDefaults } from "./glList";
+
+import type { BankAccount, BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
 
 // The bank lines, coded on the row: vendor, GL account and tax code are
 // dropdowns in the line itself (pick one or add one), pre-filled when the payee
@@ -39,8 +42,8 @@ interface TransactionsTabProps {
   onImportFile: () => void;
   /** Absent for roles that can't connect a bank. */
   onConnect?: () => void;
-  /** Opens the detail dialog; `focus` = which part to show first. */
-  onOpen: (id: string, focus?: "match" | "transfer") => void;
+  /** Opens the detail dialog; `focus` = which part to show first ("payBill": Accounts Payable was picked, so pick the bill it pays). */
+  onOpen: (id: string, focus?: "match" | "transfer" | "payBill") => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
   invoices: InvoiceCandidate[];
   /** Bills that can't be matched any more (see closedBills). */
@@ -60,6 +63,13 @@ interface TransactionsTabProps {
   /** Sends decided lines to QuickBooks/Xero. Absent for roles that can't post. */
   onSend?: (ids: string[]) => void;
   sendingIds: Set<string>;
+  /** Connected bank accounts and imported-file names, with what they map to: which account (and currency) a line belongs to. */
+  bankAccounts: BankAccount[];
+  named: NamedAccountDto[];
+  /** The company's home currency, the last fallback for a line's currency. */
+  homeCurrency: string | null;
+  /** Reads the chart of accounts again (an account someone expects is missing). */
+  onRefreshAccounts?: () => void;
 }
 
 /** Decided lines that go to QuickBooks/Xero. */
@@ -107,6 +117,10 @@ export function TransactionsTab({
   ledger,
   onSend,
   sendingIds,
+  bankAccounts,
+  named,
+  homeCurrency,
+  onRefreshAccounts,
 }: TransactionsTabProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>("review");
@@ -118,12 +132,22 @@ export function TransactionsTab({
   const [adding, setAdding] = useState<{ txnId: string; kind: "vendor" | "gl"; name: string } | null>(null);
 
   const vendorOptions = useMemo(() => lookups.vendors.map((v) => ({ id: v._id, label: v.displayName })), [lookups.vendors]);
-  const glOptions = useMemo(() => lookups.glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name })), [lookups.glAccounts]);
-  // Money coming in is coded to an income account; the backend's GL list only
-  // has accounts a bill can post to, so income comes from the chart itself.
-  const incomeOptions = useMemo(() => ledger.accounts.filter((a) => a.kind === "income").map((a) => ({ id: a.id, label: a.name })), [ledger.accounts]);
+  // The other side of the line's entry: the full chart of accounts without
+  // Bank-type accounts or the line's own account (glList.ts).
   const ledgerNameById = useMemo(() => new Map(ledger.accounts.map((a) => [a.id, a.name])), [ledger.accounts]);
-  const glOptionsFor = (t: BankTransaction) => (t.amount > 0 && incomeOptions.length > 0 ? [...incomeOptions, ...glOptions.filter((o) => !ledgerNameById.has(o.id) || !incomeOptions.some((i) => i.id === o.id))] : glOptions);
+  const glChoicesFor = (t: BankTransaction) => bankLineGlChoices({ chart: ledger.accounts, backendGl: lookups.glAccounts, lineLedgerId: lineLedgerId(t, bankAccounts, named), moneyIn: t.amount > 0 });
+  const glOptionsFor = (t: BankTransaction) => glChoicesFor(t).map(({ id, label }) => ({ id, label }));
+  /** Picking a GL account; Accounts Payable means the line pays a bill, so the bill is picked instead (a bill payment, no new expense). */
+  const setGl = (t: BankTransaction, id: string) => {
+    const choice = id ? glChoicesFor(t).find((c) => c.id === id) : undefined;
+    if (choice?.kind === "payable") {
+      if (t.amount > 0) showToast("Money coming in can't pay a bill. Pick an income account.", "error");
+      else onOpen(t.id, "payBill");
+      return;
+    }
+    onUpdate(t.id, { categoryId: id || undefined });
+  };
+  const refreshAction = onRefreshAccounts ? { label: "Missing an account? Refresh the list", onClick: onRefreshAccounts } : undefined;
   const glName = (id: string | undefined) => (id ? (lookups.glById.get(id)?.name ?? ledgerNameById.get(id)) : undefined);
   const blocked = ledgerBlock(ledger.reason, ledger.error, providerName);
   const taxOptions = useMemo(() => lookups.taxCodes.map((t) => ({ id: taxCodeId(t), label: taxCodeLabel(t) })), [lookups.taxCodes]);
@@ -312,26 +336,13 @@ export function TransactionsTab({
             placeholder="Vendor"
             clearLabel="No vendor"
             onSelect={(id) => setVendor(t, id)}
-            onAddNew={(name) => setAdding({ txnId: t.id, kind: "vendor", name: name || t.merchantName || "" })}
+            // One vendor box, like the invoice screen: a name that isn't a vendor
+            // yet is added from here, with ScanTrix's clean name offered first.
+            suggestedNew={newVendorName(t)}
+            onAddNew={(name) => setAdding({ txnId: t.id, kind: "vendor", name: name || newVendorName(t) })}
           />
         );
-        // A new payee (step 3) usually has no vendor yet: one click opens the
-        // create-vendor pop-up with the suggested name, GL account and tax code.
-        const newVendor = !c.vendorId && c.suggestion?.step === "similar" && c.suggestion.payee;
-        if (!newVendor) return box;
-        return (
-          <>
-            {box}
-            <button
-              type="button"
-              className="mt-0.5 block max-w-full truncate text-caption font-semibold text-accent hover:underline"
-              onClick={() => setAdding({ txnId: t.id, kind: "vendor", name: c.suggestion?.payee ?? "" })}
-              title="Create this vendor, with the suggested GL account and tax code"
-            >
-              + Create “{c.suggestion?.payee}”
-            </button>
-          </>
-        );
+        return box;
       },
     },
     {
@@ -374,8 +385,9 @@ export function TransactionsTab({
             placeholder="GL account"
             clearLabel="No GL account"
             picks={picksFor(t, lookups, glName).map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
-            onSelect={(id) => onUpdate(t.id, { categoryId: id || undefined })}
+            onSelect={(id) => setGl(t, id)}
             onAddNew={(name) => setAdding({ txnId: t.id, kind: "gl", name })}
+            footerAction={refreshAction}
           />
         );
       },
@@ -551,6 +563,21 @@ export function TransactionsTab({
   // The line a vendor or GL account is being added from, as it is shown now.
   const addingTxn = adding ? txns.find((x) => x.id === adding.txnId) : undefined;
   const addingCoding = addingTxn ? codingFor(addingTxn) : null;
+  // The vendor form, opened from a line: clean name, the bank account's currency, the suggested GL, no tax.
+  const vendorDefaults =
+    adding?.kind === "vendor" && addingTxn
+      ? vendorFormDefaults({
+          typed: adding.name,
+          suggestedName: newVendorName(addingTxn),
+          glAccountId: addingCoding?.glAccountId ?? addingCoding?.offered?.glAccountId,
+          currency: lineCurrency(addingTxn, { bankAccounts, named, chart: ledger.accounts, homeCurrency }),
+        })
+      : null;
+  /** A clean vendor name for a payee ScanTrix doesn't know ("Tim Hortons", not "TIM HORTONS #1234 TORONTO"). */
+  function newVendorName(t: BankTransaction): string {
+    const c = codingFor(t);
+    return c.suggestion?.payee || suggestedVendorName(t.merchantName, t.description);
+  }
 
   return (
     <div>
@@ -684,18 +711,13 @@ export function TransactionsTab({
       <AddVendorModalV2
         open={adding?.kind === "vendor"}
         onClose={() => setAdding(null)}
-        initialName={adding?.kind === "vendor" ? adding.name : ""}
-        initialGlAccountId={adding?.kind === "vendor" ? (addingCoding?.glAccountId ?? addingCoding?.offered?.glAccountId ?? "") : ""}
-        initialTaxCodeId={adding?.kind === "vendor" ? (addingCoding?.taxCodeId ?? addingCoding?.offered?.taxCodeId ?? "") : ""}
+        initialName={vendorDefaults?.name ?? ""}
+        initialGlAccountId={vendorDefaults?.glAccountId ?? ""}
+        initialTaxCodeId={vendorDefaults?.taxCodeId ?? ""}
+        initialCurrency={vendorDefaults?.currency}
         onCreated={(vendor) => {
           if (!adding) return;
-          const shown = addingCoding;
-          onUpdate(adding.txnId, {
-            vendorId: vendor._id,
-            payee: vendor.displayName,
-            ...(vendor.glAccountId && !shown?.glAccountId ? { categoryId: vendor.glAccountId } : {}),
-            ...(vendor.taxCodeId && !shown?.taxCodeId ? { taxCodeId: vendor.taxCodeId } : {}),
-          });
+          onUpdate(adding.txnId, newVendorPatch(vendor, addingCoding ?? {}));
         }}
       />
       <AddGlAccountModalV2

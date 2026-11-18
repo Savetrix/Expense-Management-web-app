@@ -45,6 +45,14 @@ interface CreatableComboboxProps {
    * Hidden while typing.
    */
   picks?: ComboboxPick[];
+  /**
+   * A name to offer on the add row before anything is typed ("Add "Tim
+   * Hortons" as new vendor"): ScanTrix's suggested name for a new payee.
+   * Ignored when an option already has that name.
+   */
+  suggestedNew?: string;
+  /** A last row under the list, e.g. "Refresh the account list" when an expected account is missing. */
+  footerAction?: { label: string; onClick: () => void };
 }
 
 export interface ComboboxPick {
@@ -52,6 +60,17 @@ export interface ComboboxPick {
   reason: string;
   /** The confidence label (ConfidenceLabel). */
   badge?: ReactNode;
+}
+
+/**
+ * The add row's words: what was typed, else ScanTrix's suggested name for a
+ * new entry (when nothing is picked and no option has that name yet).
+ */
+export function addRow(a: { typed: string; value: string; suggestedNew?: string; options: readonly ComboboxOption[]; noun: string }): { offerName: string; label: string } {
+  const suggested = a.suggestedNew?.trim() ?? "";
+  const offerName = !a.typed && !a.value && suggested && !a.options.some((o) => o.label?.trim().toLowerCase() === suggested.toLowerCase()) ? suggested : "";
+  const label = a.typed ? `Add "${a.typed}" as new ${a.noun}` : offerName ? `Add "${offerName}" as new ${a.noun}` : `Add new ${a.noun}`;
+  return { offerName, label };
 }
 
 // Type-to-filter picker (vendors, GL accounts). Replaces a native <select>
@@ -75,6 +94,8 @@ export function CreatableCombobox({
   tone = "default",
   title,
   picks,
+  suggestedNew,
+  footerAction,
 }: CreatableComboboxProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -109,7 +130,7 @@ export function CreatableCombobox({
   const leadCount = (showAddRow ? 1 : 0) + (showClearRow ? 1 : 0) + pickRows.length;
   const clearIndex = showAddRow ? 1 : 0;
   const pickStart = (showAddRow ? 1 : 0) + (showClearRow ? 1 : 0);
-  const addLabel = trimmed ? `Add "${trimmed}" as new ${noun}` : `Add new ${noun}`;
+  const { offerName, label: addLabel } = addRow({ typed: trimmed, value, suggestedNew, options, noun });
   const rowCount = leadCount + matches.length;
 
   useEffect(() => {
@@ -160,7 +181,7 @@ export function CreatableCombobox({
 
   const pick = (index: number) => {
     if (showAddRow && index === 0) {
-      const name = trimmed;
+      const name = trimmed || offerName;
       close();
       onAddNew?.(name);
       return;
@@ -324,9 +345,23 @@ export function CreatableCombobox({
               </li>
             );
           })}
-          {matches.length === 0 && trimmed && (
+          {matches.length === 0 && trimmed && !showAddRow && (
             <li className="px-[var(--space-sm)] py-[var(--space-xs)] text-[11px] text-content-secondary">
               No {noun}s match &ldquo;{trimmed}&rdquo;.
+            </li>
+          )}
+          {footerAction && (
+            <li
+              role="option"
+              aria-selected={false}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                close();
+                footerAction.onClick();
+              }}
+              className="cursor-pointer border-t border-border px-[var(--space-sm)] py-[var(--space-xs)] text-[11px] font-semibold text-accent hover:bg-surface-alt"
+            >
+              {footerAction.label}
             </li>
           )}
         </ul>,

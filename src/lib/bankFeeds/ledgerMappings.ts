@@ -21,7 +21,7 @@ export interface NamedAccountView {
 const keyOf = (qbConnectionId: string, label: string) => `${qbConnectionId}:${label.trim().toLowerCase()}`;
 
 /** Labels of the company's Plaid accounts → their account row ids. */
-async function plaidLabels(db: Db, qbConnectionId: string): Promise<Map<string, string>> {
+export async function plaidLabels(db: Db, qbConnectionId: string): Promise<Map<string, string>> {
   const accounts = await db.accounts.find({ qbConnectionId, removedAt: null }).toArray();
   if (accounts.length === 0) return new Map();
   const items = await db.items.find({ _id: { $in: [...new Set(accounts.map((a) => a.itemId))] } }).toArray();

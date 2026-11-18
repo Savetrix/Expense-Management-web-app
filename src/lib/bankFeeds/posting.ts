@@ -30,6 +30,13 @@ export interface PostingServices {
   bill(invoiceId: string): Promise<{ billId: string; vendorId: string } | null>;
   /** A fresh access token after QuickBooks/Xero refused the current one. */
   renewLedger?(): Promise<LedgerContext>;
+  /**
+   * True when every expense or deposit line needs a tax code: QuickBooks
+   * outside the US refuses a line without one ("Make sure all your
+   * transactions have a GST/HST rate before you save"). Xero falls back to the
+   * account's default tax rate, so it doesn't.
+   */
+  taxRequired?(): Promise<boolean>;
 }
 
 export interface PostOutcome {
@@ -85,6 +92,7 @@ async function buildPosting(db: Db, svc: PostingServices, chart: Map<string, Led
 
   // ready
   if (!txn.glAccountId) throw new LineRefused("Pick a GL account first.");
+  if (!txn.taxCodeId && (await svc.taxRequired?.())) throw new LineRefused(`Pick a tax code. ${name} needs one on every line for a company outside the US.`);
   let vendorId: string | null = null;
   if (txn.vendorId) {
     vendorId = (await svc.vendorIds()).get(txn.vendorId) ?? null;

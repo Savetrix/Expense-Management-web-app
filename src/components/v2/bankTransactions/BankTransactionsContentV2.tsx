@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { PageHeader, Tabs } from "@/components/v2/ui";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { showToast } from "@/lib/dialogManager";
+import { confirmDialog, showToast } from "@/lib/dialogManager";
 import {
   bulkUpdateBankTransactions,
   checkFoundInLedger,
@@ -23,6 +23,7 @@ import {
 } from "@/store/bankFeeds/bankFeedsApi";
 import { getInvoices } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
+import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
 import { requestHistoryRead, requestSimilarSync } from "@/components/v2/suggestions/historyClient";
 
 import { useBankLookups } from "./coding";
@@ -31,6 +32,7 @@ import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
 import { closedBills, toCandidates, type StrongSuggestion } from "./matching";
 import { TransactionModal } from "./TransactionModal";
+import { currencyMismatch, lineCurrency } from "./glList";
 import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
 
@@ -60,6 +62,13 @@ export function BankTransactionsContentV2() {
     error: bank.ledgerError,
   };
   const sendingIds = useMemo(() => new Set(bank.postingIds), [bank.postingIds]);
+  const named = bank.qbConnectionId === qbConnectionId ? bank.named : [];
+  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
+  const refreshAccounts = () => {
+    void dispatch(fetchLedgerAccounts({ refresh: true })).then((r) => {
+      if (fetchLedgerAccounts.fulfilled.match(r)) showToast("Account list read again.", "success");
+    });
+  };
   const bankAccounts: BankAccount[] = bank.qbConnectionId === qbConnectionId ? bank.accounts : [];
   const txns: BankTransaction[] = bank.transactionsConnectionId === qbConnectionId ? bank.transactions : [];
   const [connectOpen, setConnectOpen] = useState(false);
@@ -214,7 +223,25 @@ export function BankTransactionsContentV2() {
       picked.map((x) => ({ txn: x.txn, patch: { status: "matched" as const, matchedInvoiceId: x.invoice.id }, sendable: Boolean(x.invoice.billId) })),
       "match",
     );
-  const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
+  const postLines = async (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => {
+    // A vendor in another currency than the bank account would book the line in
+    // the wrong currency (Saurabh, 18 Nov: currency must be right): ask first.
+    const odd = items.flatMap(({ txn, patch }) => {
+      const vendorId = patch.vendorId ?? txn.vendorId;
+      const vendor = vendorId ? lookups.vendorById.get(vendorId) : undefined;
+      const bankCurrency = lineCurrency(txn, { bankAccounts, named, chart: ledger.accounts, homeCurrency });
+      return vendor && currencyMismatch(vendor.currency, bankCurrency) ? [`${vendor.displayName} is in ${vendor.currency}, but ${txn.accountName} is in ${bankCurrency}.`] : [];
+    });
+    if (odd.length > 0) {
+      const ok = await confirmDialog({
+        title: "Different currency",
+        message: `${odd.slice(0, 3).join(" ")}${odd.length > 3 ? ` (${odd.length - 3} more)` : ""} ${provider.name} may refuse the line or book it in the wrong currency. Post anyway?`,
+        confirmLabel: "Post anyway",
+      });
+      if (!ok) return;
+    }
+    return saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
+  };
   // Lines someone entered straight into QuickBooks/Xero leave To review by
   // themselves (lib/bankFeeds/foundInLedger.ts): checked when the page opens,
   // every 5 minutes while it is visible, and after an import.
@@ -258,7 +285,7 @@ export function BankTransactionsContentV2() {
     if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. ScanTrix won't link that ${provider.name} entry to this line again.`, "info");
     else showToast(result.payload?.message ?? "Couldn't put that line back.", "error");
   };
-  const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);
+  const [openFocus, setOpenFocus] = useState<"match" | "transfer" | "payBill" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
 
   return (
@@ -354,6 +381,10 @@ export function BankTransactionsContentV2() {
             onUnlinkFound={unlinkFound}
             onSend={canPost ? sendLines : undefined}
             sendingIds={sendingIds}
+            bankAccounts={bankAccounts}
+            named={named}
+            homeCurrency={homeCurrency}
+            onRefreshAccounts={canPost ? refreshAccounts : undefined}
           />
         ) : (
           <ConnectedAccountsTab
@@ -427,6 +458,10 @@ export function BankTransactionsContentV2() {
           onPost={(patch) => postLines([{ txn: openTxn, patch }])}
           onLinkFound={(key) => linkFound(openTxn.id, key)}
           onUnlinkFound={() => unlinkFound(openTxn.id)}
+          named={named}
+          chart={ledger.accounts}
+          homeCurrency={homeCurrency}
+          onRefreshAccounts={canPost ? refreshAccounts : undefined}
         />
       )}
     </div>
