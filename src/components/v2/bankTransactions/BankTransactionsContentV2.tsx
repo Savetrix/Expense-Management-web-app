@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, FileUp, Landmark } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -31,12 +32,14 @@ import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
 import { closedBills, toCandidates, type StrongSuggestion } from "./matching";
+import { fetchPaperwork } from "./paperworkClient";
+import { PaperworkTab } from "./PaperworkTab";
 import { TransactionModal } from "./TransactionModal";
 import { currencyMismatch, lineCurrency } from "./glList";
 import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
 
-type Tab = "transactions" | "accounts";
+type Tab = "transactions" | "accounts" | "requests";
 
 export function BankTransactionsContentV2() {
   const dispatch = useAppDispatch();
@@ -44,7 +47,11 @@ export function BankTransactionsContentV2() {
   const { pendingInvoices, autoPostedInvoices, manualPostedInvoices, invoices, loading } = useAppSelector((s) => s.invoice);
   const glAccounts = useAppSelector((s) => s.quickBooks.accounts);
 
-  const [tab, setTab] = useState<Tab>("transactions");
+  // ?tab=requests opens Paperwork requests (the link in the request email).
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>(searchParams.get("tab") === "requests" ? "requests" : "transactions");
+  const [openRequests, setOpenRequests] = useState<number | undefined>(undefined);
+  const [requestsKey, setRequestsKey] = useState(0);
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
   // Mirrors the server's role rules (lib/bankFeeds/door.ts): owners and admins
   // connect banks; accountants code and post; contributors have no bank access.
@@ -55,6 +62,18 @@ export function BankTransactionsContentV2() {
   const noAccess = role === "contributor";
   // Owners, admins and accountants may post (APPROVE_POST_QBO on the backend).
   const canPost = !noAccess;
+  // How many paperwork requests are still open, for the tab.
+  useEffect(() => {
+    if (!qbConnectionId || noAccess) return;
+    let cancelled = false;
+    fetchPaperwork(qbConnectionId).then(
+      (r) => !cancelled && setOpenRequests(r.requests.filter((x) => x.status === "open").length),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [qbConnectionId, noAccess, requestsKey]);
   const bank = useAppSelector((s) => s.bankFeeds);
   const ledger = {
     accounts: bank.ledgerAccountsConnectionId === qbConnectionId ? bank.ledgerAccounts : [],
@@ -312,9 +331,15 @@ export function BankTransactionsContentV2() {
       />
 
       {noAccess && (
-        <div role="alert" className="mt-[var(--space-lg)] rounded-md border border-border bg-surface p-[var(--space-lg)] text-body-sm text-content-secondary">
-          Bank transactions are for owners, admins and accountants of {active?.name ?? "this company"}. Ask an owner to change your role if you need them.
-        </div>
+        <>
+          <div role="alert" className="mt-[var(--space-lg)] rounded-md border border-border bg-surface p-[var(--space-lg)] text-body-sm text-content-secondary">
+            Bank transactions are for owners, admins and accountants of {active?.name ?? "this company"}. Below are the receipts someone asked you for.
+          </div>
+          {/* A contributor sees only the paperwork requests addressed to them. */}
+          <div className="mt-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-md)]">
+            <PaperworkTab />
+          </div>
+        </>
       )}
 
       {bankAccounts
@@ -353,6 +378,7 @@ export function BankTransactionsContentV2() {
             items={[
               { value: "transactions", label: "Transactions", count: txns.length },
               { value: "accounts", label: "Connected accounts", count: bankAccounts.length },
+              { value: "requests", label: "Paperwork requests", ...(openRequests !== undefined ? { count: openRequests } : {}) },
             ]}
             value={tab}
             onChange={(v) => setTab(v as Tab)}
@@ -385,7 +411,12 @@ export function BankTransactionsContentV2() {
             named={named}
             homeCurrency={homeCurrency}
             onRefreshAccounts={canPost ? refreshAccounts : undefined}
+            onPaperworkRequested={() => setRequestsKey((k) => k + 1)}
           />
+        ) : tab === "requests" ? (
+          <div className="p-[var(--space-md)]">
+            <PaperworkTab key={requestsKey} onChanged={setOpenRequests} />
+          </div>
         ) : (
           <ConnectedAccountsTab
             accounts={bankAccounts}

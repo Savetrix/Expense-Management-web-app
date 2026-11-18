@@ -43,6 +43,8 @@ export interface BankTransactionView {
   posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: FoundEntryView & { auto: boolean } };
   /** Entries already in QuickBooks/Xero that could be this line; a person picks (foundInLedger.ts). */
   ledgerCandidates?: FoundEntryView[];
+  /** Receipts uploaded for the line (paperwork requests). */
+  attachments?: { id: string; name: string; mimeType: string; size: number; uploadedAt: string }[];
   decidedAt?: string;
   version: number;
 }
@@ -92,6 +94,7 @@ export function toView(r: TxnDoc): BankTransactionView {
         }
       : undefined,
     ...(r.ledgerCandidates?.length ? { ledgerCandidates: r.ledgerCandidates.map(foundView) } : {}),
+    ...(r.attachments?.length ? { attachments: r.attachments.map((a) => ({ id: a.id, name: a.name, mimeType: a.mimeType, size: a.size, uploadedAt: new Date(a.uploadedAt).toISOString() })) } : {}),
     decidedAt: r.decidedAt ? r.decidedAt.toISOString() : undefined,
     version: r.version,
   };

@@ -34,6 +34,8 @@ export interface BankTransaction {
   posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: LedgerFoundEntry & { auto: boolean } };
   /** Entries already in QuickBooks/Xero that could be this line; a person picks. */
   ledgerCandidates?: LedgerFoundEntry[];
+  /** Receipts uploaded for the line (paperwork requests). */
+  attachments?: { id: string; name: string; mimeType: string; size: number; uploadedAt: string }[];
 }
 
 /** An entry already in QuickBooks/Xero (an expense, deposit, transfer or payment). */

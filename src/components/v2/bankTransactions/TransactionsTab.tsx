@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowLeftRight, CheckCircle2, ExternalLink, EyeOff, Landmark, Paperclip, Send, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CheckCircle2, ExternalLink, EyeOff, FileQuestion, Landmark, Paperclip, Send, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -26,6 +26,9 @@ import type { LedgerAccountDto, NamedAccountDto } from "@/store/bankFeeds/bankFe
 import { suggestedVendorName } from "@/lib/suggestions/similar";
 
 import { bankLineGlChoices, lineCurrency, lineLedgerId, newVendorPatch, vendorFormDefaults } from "./glList";
+import { openAttachment } from "./paperworkClient";
+import { RequestPaperworkModal } from "./RequestPaperworkModal";
+import { useAppSelector } from "@/store/hooks";
 
 import type { BankAccount, BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
 
@@ -70,6 +73,8 @@ interface TransactionsTabProps {
   homeCurrency: string | null;
   /** Reads the chart of accounts again (an account someone expects is missing). */
   onRefreshAccounts?: () => void;
+  /** A paperwork request was sent (the page refreshes its count). */
+  onPaperworkRequested?: () => void;
 }
 
 /** Decided lines that go to QuickBooks/Xero. */
@@ -121,6 +126,7 @@ export function TransactionsTab({
   named,
   homeCurrency,
   onRefreshAccounts,
+  onPaperworkRequested,
 }: TransactionsTabProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<StatusFilter>("review");
@@ -130,6 +136,8 @@ export function TransactionsTab({
   const [to, setTo] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState<{ txnId: string; kind: "vendor" | "gl"; name: string } | null>(null);
+  const [requesting, setRequesting] = useState<BankTransaction[] | null>(null);
+  const qbConnectionId = useAppSelector((st) => st.quickBooks.qbConnectionId);
 
   const vendorOptions = useMemo(() => lookups.vendors.map((v) => ({ id: v._id, label: v.displayName })), [lookups.vendors]);
   // The other side of the line's entry: the full chart of accounts without
@@ -236,6 +244,8 @@ export function TransactionsTab({
   const selectedRows = rows.filter((r) => selectedIds.includes(r.id));
   const postable = selectedRows.filter((r) => r.status === "review").map((r) => ({ r, patch: postPatch(r, lookups) }));
   const sendableSelected = selectedRows.filter(isUnsent);
+  // Lines with no receipt and no bill behind them (paperwork requests).
+  const needsPaperwork = selectedRows.filter((r) => !r.attachments?.length && !r.matchedInvoiceId);
   const unsentInTab = rows.filter(isUnsent);
   const postSelected = async () => {
     const ready = postable.filter((p) => p.patch);
@@ -433,9 +443,25 @@ export function TransactionsTab({
             </Link>
           );
         }
-        // "Ask" for missing paperwork returns with the Paperwork Requests page,
-        // which isn't on this branch yet (paperworkHref in matching.ts).
-        return null;
+        if (t.attachments?.length) {
+          const [first] = t.attachments;
+          return (
+            <button
+              type="button"
+              onClick={() => qbConnectionId && openAttachment(qbConnectionId, t.id, first.id).catch((e: Error) => showToast(e.message, "error"))}
+              title={`Receipt: ${t.attachments.map((a) => a.name).join(", ")}`}
+              className="inline-flex text-accent hover:opacity-80"
+            >
+              <Paperclip size={16} strokeWidth={2.25} />
+            </button>
+          );
+        }
+        // No bill and no receipt: shown faintly, so missing paperwork stands out.
+        return (
+          <span title="No receipt or bill yet. Select the line and use Request paperwork." className="inline-flex text-content-muted opacity-40">
+            <Paperclip size={16} strokeWidth={2.25} aria-label="No receipt" />
+          </span>
+        );
       },
     },
     {
@@ -663,6 +689,12 @@ export function TransactionsTab({
           >
             Exclude selected
           </Button>
+          {needsPaperwork.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setRequesting(needsPaperwork)} title="Ask a team member for the receipts of the selected lines that have none">
+              <FileQuestion size={14} strokeWidth={2.25} />
+              Request paperwork{needsPaperwork.length < selectedRows.length ? ` (${needsPaperwork.length})` : ""}
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>
             Clear
           </Button>
@@ -708,6 +740,16 @@ export function TransactionsTab({
         />
       )}
 
+      {requesting && (
+        <RequestPaperworkModal
+          lines={requesting}
+          onClose={() => setRequesting(null)}
+          onSent={() => {
+            setSelected(new Set());
+            onPaperworkRequested?.();
+          }}
+        />
+      )}
       <AddVendorModalV2
         open={adding?.kind === "vendor"}
         onClose={() => setAdding(null)}

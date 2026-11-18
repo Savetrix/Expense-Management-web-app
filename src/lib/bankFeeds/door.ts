@@ -20,17 +20,19 @@ import { SAVETRIX_API_BASE_URL } from "./config";
 export type BankRole = "owner" | "admin" | "accountant" | "contributor" | "unknown";
 
 /** What each role may do, mirroring the backend's ROLE_PERMISSIONS (Scantrix_API src/constants/permissions.js). */
-export type BankAbility = "view" | "code" | "post" | "connect" | "configure";
+/** "paperwork": see the paperwork requests addressed to you and upload their receipts (every role, contributors included). */
+export type BankAbility = "view" | "code" | "post" | "connect" | "configure" | "paperwork";
 
 const ABILITIES: Record<BankRole, BankAbility[]> = {
   // CONNECT_QBO, REVIEW_EDIT_GL, APPROVE_POST_QBO, VIEW_ALL_SCANS. "configure" =
   // company settings such as Smart Suggestions' Auto-classification (PRD: Owner or Admin).
-  owner: ["view", "code", "post", "connect", "configure"],
-  admin: ["view", "code", "post", "connect", "configure"],
+  owner: ["view", "code", "post", "connect", "configure", "paperwork"],
+  admin: ["view", "code", "post", "connect", "configure", "paperwork"],
   // REVIEW_EDIT_GL, APPROVE_POST_QBO, VIEW_ALL_SCANS — but not CONNECT_QBO
-  accountant: ["view", "code", "post"],
-  // Upload only: bank data is not theirs to see.
-  contributor: [],
+  accountant: ["view", "code", "post", "paperwork"],
+  // Upload only: bank data is not theirs to see, except the lines someone
+  // asked them for receipts for (paperwork.ts checks it's their request).
+  contributor: ["paperwork"],
   unknown: [],
 };
 

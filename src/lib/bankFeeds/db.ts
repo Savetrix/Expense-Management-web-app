@@ -18,6 +18,7 @@ import { MongoClient, MongoError, type Collection, type Db as MongoDatabase } fr
 import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, VectorDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
 import { ensureIndexes } from "./schema";
 import type { CompanyListsDoc } from "./companyLists";
+import type { PaperworkRequestDoc } from "./paperwork";
 
 export interface Db {
   database: MongoDatabase;
@@ -33,6 +34,7 @@ export interface Db {
   history: Collection<HistoryDoc>;
   vectors: Collection<VectorDoc>;
   companyLists: Collection<CompanyListsDoc>;
+  paperwork: Collection<PaperworkRequestDoc>;
 }
 
 /** Thrown when the database can't be reached; routes map it to 503. */
@@ -86,6 +88,7 @@ export function openDb(uri: string, dbName: string): Db {
     history: database.collection<HistoryDoc>("suggestion_history"),
     vectors: database.collection<VectorDoc>("suggestion_vectors"),
     companyLists: database.collection<CompanyListsDoc>("company_lists"),
+    paperwork: database.collection<PaperworkRequestDoc>("paperwork_requests"),
   };
 }
 

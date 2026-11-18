@@ -74,6 +74,19 @@ export interface AccountDoc {
   removedAt: Date | null;
 }
 
+/** A file attached to a bank line (paperwork.ts). */
+export interface AttachmentRef {
+  /** GridFS file id. */
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: Date;
+  /** The paperwork request it answered, if any. */
+  requestId: string | null;
+}
+
 export interface TxnDoc {
   _id: string;
   qbConnectionId: string;
@@ -101,6 +114,8 @@ export interface TxnDoc {
   categoryConfidence: string | null;
   /** Step 3, lines without a category (imported files): the kind of business, worked out once (shopKind.ts). null = it couldn't tell; missing = not asked yet. */
   shopKind?: string | null;
+  /** Receipts uploaded for this line (paperwork requests); the files are in GridFS bucket bank_attachments. */
+  attachments?: AttachmentRef[];
   paymentChannel: string | null;
   checkNumber: string | null;
 
@@ -368,6 +383,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.history.createIndex({ qbConnectionId: 1, nameKey: 1 }),
     db.history.createIndex({ qbConnectionId: 1, vendorId: 1 }),
     db.vectors.createIndex({ qbConnectionId: 1, role: 1 }),
+    db.paperwork.createIndex({ qbConnectionId: 1, createdAt: -1 }),
+    db.paperwork.createIndex({ qbConnectionId: 1, "assignee.userId": 1 }),
     db.txns.createIndex({ qbConnectionId: 1, vendorId: 1, decidedAt: -1 }),
   ]);
 }
