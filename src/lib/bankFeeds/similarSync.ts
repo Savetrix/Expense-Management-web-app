@@ -47,7 +47,9 @@ async function itemsFor(db: Db, qbConnectionId: string, invoices: InvoiceMemory[
     .toArray();
   const lines = all.flatMap((t) => {
     const byPerson = Boolean(t.decidedBy && t.decidedBy !== "autopilot" && t.decidedBy !== "system");
-    const memory = Boolean(byPerson && t.glAccountId && !t.posting?.found && (t.status === "review" || t.status === "ready"));
+    // Memory: lines POSTED to QuickBooks/Xero with an account (Saurabh, 18 Nov:
+    // a choice nobody posted teaches nothing), not ones found already entered there.
+    const memory = Boolean(t.postingStatus === "posted" && t.glAccountId && !t.posting?.found && t.status === "ready");
     const query = t.status === "review" && !t.postingStatus && !byPerson;
     return memory || query ? [{ t, memory }] : [];
   });
@@ -66,7 +68,7 @@ async function itemsFor(db: Db, qbConnectionId: string, invoices: InvoiceMemory[
       label: (t.payee ?? t.merchantName ?? t.counterpartyName ?? t.description).trim(),
       date: t.date,
       amountCents: Math.abs(t.amountCents),
-      decidedAt: iso(t.decidedAt ?? t.date),
+      decidedAt: iso(t.posting?.postedAt ?? t.decidedAt ?? t.date),
       source: "bank",
     });
   }

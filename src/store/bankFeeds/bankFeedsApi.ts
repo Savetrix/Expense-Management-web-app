@@ -323,9 +323,11 @@ export const importBankCsv = createAsyncThunk<
 export interface LedgerAccountDto {
   id: string;
   name: string;
-  kind: "bank" | "card" | "income" | "expense" | "other";
+  kind: "bank" | "card" | "income" | "expense" | "payable" | "receivable" | "other";
   type: string;
   currency: string | null;
+  /** QuickBooks sub-accounts: the parent account's id. */
+  parentId?: string | null;
 }
 
 export const fetchLedgerAccounts = createAsyncThunk<{ accounts: LedgerAccountDto[]; qbConnectionId: string }, void, { state: RootState; rejectValue: BankRequestError }>(

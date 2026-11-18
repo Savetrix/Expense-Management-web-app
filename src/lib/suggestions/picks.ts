@@ -75,34 +75,32 @@ const MAX_EVIDENCE = 3;
 
 /**
  * The accounts this vendor's or payee's past decisions went to, strongest
- * first, one pick per account. The tax code is the one most used with that
- * account. Votes older than a year carry no weight and are left out.
+ * first, one pick per account. Votes older than a year carry no weight and
+ * are left out. No tax code: tax is the vendor's saved tax code, never learned
+ * from past lines (Saurabh, 18 Nov); the caller adds it when the vendor has one.
  */
 export function historyPicks(votes: MemoryVote[], subject: string, now = Date.now()): SuggestionPick[] {
-  const groups = new Map<string, { weight: number; lines: number; tax: Map<string, number>; votes: MemoryVote[] }>();
+  const groups = new Map<string, { weight: number; lines: number; votes: MemoryVote[] }>();
   let total = 0;
   for (const v of votes) {
     const w = voteWeight(v.decidedAt, now);
     if (w <= 0 || !v.glAccountId) continue;
     total += w;
-    const g = groups.get(v.glAccountId) ?? { weight: 0, lines: 0, tax: new Map<string, number>(), votes: [] as MemoryVote[] };
+    const g = groups.get(v.glAccountId) ?? { weight: 0, lines: 0, votes: [] as MemoryVote[] };
     g.weight += w;
     g.lines += 1;
-    const t = v.taxCodeId ?? "";
-    g.tax.set(t, (g.tax.get(t) ?? 0) + w);
     g.votes.push(v);
     groups.set(v.glAccountId, g);
   }
   return [...groups.entries()]
     .sort((a, b) => b[1].weight - a[1].weight || b[1].lines - a[1].lines)
     .map(([glAccountId, g]) => {
-      const tax = [...g.tax.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
       const share = total > 0 ? g.weight / total : 0;
       const confidence: Confidence = g.weight >= MIN_AGREEING_WEIGHT && share >= MIN_AGREEMENT ? "high" : share >= MEDIUM_SHARE ? "medium" : "low";
       const evidence = [...g.votes].sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1)).slice(0, MAX_EVIDENCE).map((v) => v.evidence);
       const fromBooks = g.votes.filter((v) => isHistory(v.evidence));
       const history = fromBooks.length ? { historyLines: fromBooks.length, historySource: fromBooks[0].evidence.source as HistorySource } : {};
-      return { glAccountId, ...(tax ? { taxCodeId: tax } : {}), confidence, step: "history" as const, subject, lines: g.lines, weight: g.weight, evidence, ...history };
+      return { glAccountId, confidence, step: "history" as const, subject, lines: g.lines, weight: g.weight, evidence, ...history };
     });
 }
 

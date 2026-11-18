@@ -21,10 +21,23 @@ export interface LedgerContext {
 export interface LedgerAccount {
   id: string;
   name: string;
-  /** bank / card: money is paid from or into it. income / expense: a line's category. */
-  kind: "bank" | "card" | "income" | "expense" | "other";
+  /**
+   * bank / card: money is paid from or into it. income / expense: a line's
+   * category. payable / receivable: Accounts Payable / Receivable, which a
+   * bank line reaches only through a bill payment (or a customer payment).
+   */
+  kind: "bank" | "card" | "income" | "expense" | "payable" | "receivable" | "other";
   type: string;
   currency: string | null;
+  /** QuickBooks sub-accounts: the parent account's id. */
+  parentId?: string | null;
+}
+
+/** What the company itself says about where it is (tax rules depend on it). */
+export interface LedgerCompanyInfo {
+  /** "US", "CA", "GB"… */
+  country: string | null;
+  homeCurrency: string | null;
 }
 
 interface PostingBase {
@@ -134,6 +147,7 @@ export interface HistoryLine {
 
 export interface LedgerAdapter {
   listAccounts(ctx: LedgerContext): Promise<LedgerAccount[]>;
+  companyInfo?(ctx: LedgerContext): Promise<LedgerCompanyInfo>;
   /** Entries dated from..to ("YYYY-MM-DD", inclusive) that moved money in a bank or card account. */
   entriesBetween(ctx: LedgerContext, from: string, to: string): Promise<LedgerEntry[]>;
   /** The coded lines of bills, expenses, deposits and bill payments dated from..to. Absent where the provider's terms don't allow it. */

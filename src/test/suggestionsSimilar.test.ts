@@ -16,6 +16,7 @@ import { pickReason } from "../lib/suggestions/picks";
 import { bankText, cleanText, maskCardNumbers, similarPicks, suggestedVendorName, type MemoryItem } from "../lib/suggestions/similar";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { decideAndPost, markPosted } from "./helpers/posted";
 
 const NOW = Date.parse("2026-11-15T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
@@ -172,8 +173,9 @@ describe("step 3 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
       ],
     });
     const lines = await listTransactions(db, qb);
+    // Posted: only lines sent to QuickBooks teach (18 Nov).
     for (const l of lines.filter((x) => !x.description.startsWith("ESSO"))) {
-      assert.ok((await decide(db, { qbConnectionId: qb, id: l.id, userId: "u1", patch: { glAccountId: glForFuel, payee: l.description.split(" ")[0] } })).ok);
+      await decideAndPost(db, { qbConnectionId: qb, id: l.id, userId: "u1", patch: { glAccountId: glForFuel, payee: l.description.split(" ")[0] } });
     }
     return lines.find((x) => x.description.startsWith("ESSO"))!;
   }
@@ -275,7 +277,7 @@ describe("step 3 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.equal(sent.length, 4);
   });
 
-  it("a line coded with only a GL account teaches the other new payees at once", async () => {
+  it("a posted line teaches the other new payees at once; an unposted choice never does", async () => {
     const { embedder } = fakeEmbedder();
     await importCsv(db, {
       qbConnectionId: "qb-a",
@@ -293,11 +295,14 @@ describe("step 3 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     const zoom = lines.find((l) => l.description.startsWith("ZOOM"))!;
     assert.notEqual((zoom.suggestion as Suggestion | undefined)?.step, "similar", "nothing coded yet");
 
-    // Same text, so nothing is embedded again: only the line's role and account change.
+    // A choice nobody posted teaches nothing.
     assert.ok((await decide(db, { qbConnectionId: "qb-a", id: adobe.id, userId: "u1", patch: { glAccountId: "gl-software" } })).ok);
+    await embedNewDecision(db, "qb-a", embedder, null);
+    assert.notEqual(((await read("qb-a", zoom.id))?.suggestion as Suggestion | undefined)?.step, "similar", "unposted: no change");
+    // Posted: it becomes memory, and the other new payees are scored again at once.
+    await markPosted(db, "qb-a", [adobe.id]);
     const out = await embedNewDecision(db, "qb-a", embedder, null);
-    assert.equal(out.embedded, 0);
-    assert.equal(out.recoded, 1);
+    assert.equal(out.embedded + out.recoded, 1);
     const s = (await read("qb-a", zoom.id))?.suggestion as Suggestion;
     assert.equal(s.step, "similar");
     assert.equal(s.glAccountId, "gl-software");

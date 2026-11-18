@@ -58,7 +58,7 @@ export async function getLedgerContext(userToken: string, qbConnectionId: string
   };
 }
 
-async function getList<T>(userToken: string, qbConnectionId: string, path: string, pick: (data: Record<string, unknown>) => T[] | undefined): Promise<T[]> {
+export async function getList<T>(userToken: string, qbConnectionId: string, path: string, pick: (data: Record<string, unknown>) => T[] | undefined): Promise<T[]> {
   let res: Response;
   try {
     res = await fetch(`${SAVETRIX_API_BASE_URL}${path}`, { headers: headers(userToken, qbConnectionId), signal: AbortSignal.timeout(20_000), cache: "no-store" });

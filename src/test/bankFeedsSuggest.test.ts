@@ -7,10 +7,13 @@ import { payeeKey, refreshSuggestions, score, voteWeight, type Suggestion, type 
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { decideAndPost, saveVendorTax } from "./helpers/posted";
 
 const NOW = Date.parse("2026-10-22T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
 const line = { date: "2026-10-20", amountCents: -2415, description: "UBER *TRIP HELP.UBER.COM", payeeLabel: "Uber" };
+/** Uber has a saved tax code: tax is the vendor's, never learned from past lines. */
+const uberTax = { vendorTax: new Map([["v-uber", "tax-gst"]]) };
 const travel = (n: number, extra: Partial<Vote> = {}): Vote => ({
   kind: "expense",
   glAccountId: "gl-travel",
@@ -39,11 +42,20 @@ describe("scoring", () => {
   });
 
   it("codes the line itself when 3 recent decisions agree", () => {
-    const s = score(line, [travel(5), travel(20), travel(40)], NOW);
+    const s = score(line, [travel(5), travel(20), travel(40)], NOW, null, uberTax);
     assert.equal(s.autoCoded, true);
     assert.equal(s.confidence, "high");
     assert.equal(s.glAccountId, "gl-travel");
+    assert.equal(s.taxCodeId, "tax-gst", "the vendor's saved tax code");
     assert.match(s.reason, /^Coded by ScanTrix — 3 earlier lines/);
+  });
+
+  it("isn't sure when the vendor has no saved tax code, and never takes tax from past lines", () => {
+    const s = score(line, [travel(5, { taxCodeId: "tax-hst" }), travel(20, { taxCodeId: "tax-hst" }), travel(40, { taxCodeId: "tax-hst" })], NOW);
+    assert.equal(s.autoCoded, false);
+    assert.equal(s.glAccountId, "gl-travel", "the account is still suggested");
+    assert.equal(s.taxCodeId, undefined, "no tax from history");
+    assert.match(s.reason, /no saved tax code/);
   });
 
   it("waits with only 2 agreeing decisions, and says why", () => {
@@ -55,8 +67,8 @@ describe("scoring", () => {
 
   it("needs 3.0 of weight: six decisions from 4–10 months ago count as three", () => {
     const old = [200, 210, 220, 230, 240].map((d) => travel(d));
-    assert.equal(score(line, old, NOW).autoCoded, false, "2.5 weight");
-    assert.equal(score(line, [...old, travel(250)], NOW).autoCoded, true, "3.0 weight");
+    assert.equal(score(line, old, NOW, null, uberTax).autoCoded, false, "2.5 weight");
+    assert.equal(score(line, [...old, travel(250)], NOW, null, uberTax).autoCoded, true, "3.0 weight");
   });
 
   it("waits when past decisions disagree (below 90%)", () => {
@@ -102,31 +114,31 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
   const today = new Date().toISOString().slice(0, 10);
   const uberRows = (n: number) => Array.from({ length: n }, (_, i) => ({ date: today, description: `UBER *TRIP HELP.UBER.COM ${i}`, amount: -(10 + i) }));
 
-  it("learns from the user's decisions and codes the next line by itself", async () => {
+  it("learns from posted lines and codes the next line by itself", async () => {
     await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(4) });
+    await saveVendorTax(db, "qb-1", { "v-uber": "tax-gst" });
     const lines = await listTransactions(db, "qb-1");
-    for (const l of lines.slice(0, 3)) {
-      const r = await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", vendorId: "v-uber", payee: "Uber" } });
-      assert.ok(r.ok);
-    }
+    for (const l of lines.slice(0, 3)) await decideAndPost(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", vendorId: "v-uber", payee: "Uber" } });
     const out = await refreshSuggestions(db, "qb-1");
     assert.equal(out.autoCoded, 1);
     const fourth = (await listTransactions(db, "qb-1")).find((l) => l.id === lines[3].id);
     assert.equal(fourth?.categoryId, "gl-travel");
+    assert.equal(fourth?.taxCodeId, "tax-gst", "the vendor's saved tax code");
     assert.equal((fourth?.suggestion as Suggestion).autoCoded, true);
     const ev = await db.events.findOne({ transactionId: lines[3].id, action: "bank.autopilot_coded" });
     assert.equal(ev?.source, "autopilot", "ScanTrix's own coding is on the audit trail");
   });
 
   it("does not let its own coding vote, and undoes it when history changes", async () => {
-    await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(5) });
+    await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(7) });
+    await saveVendorTax(db, "qb-1", { "v-uber": "tax-gst" });
     const lines = await listTransactions(db, "qb-1");
-    for (const l of lines.slice(0, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", payee: "Uber" } });
+    for (const l of lines.slice(0, 3)) await decideAndPost(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", vendorId: "v-uber", payee: "Uber" } });
+    assert.equal((await refreshSuggestions(db, "qb-1")).autoCoded, 4);
+    // Two of the lines ScanTrix filled are changed and posted to Meals: the posted history now disagrees.
+    for (const l of lines.slice(3, 5)) await decideAndPost(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-meals" } });
     await refreshSuggestions(db, "qb-1");
-    // The user recodes two of their own decisions: history now disagrees.
-    for (const l of lines.slice(0, 2)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-meals" } });
-    await refreshSuggestions(db, "qb-1");
-    const rows = await db.txns.find({ _id: { $in: lines.slice(3).map((l) => l.id) } }).toArray();
+    const rows = await db.txns.find({ _id: { $in: lines.slice(5).map((l) => l.id) } }).toArray();
     for (const r of rows) {
       assert.equal(r.decidedBy, null, "ScanTrix's coding was taken back");
       assert.equal(r.glAccountId, null);
@@ -136,7 +148,7 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
   it("learns from posted (ready) lines too, and pre-fills a repeat after one decision", async () => {
     await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(2) });
     const [a, b] = await listTransactions(db, "qb-1");
-    await decide(db, { qbConnectionId: "qb-1", id: a.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-travel", vendorId: "v-uber" } });
+    await decideAndPost(db, { qbConnectionId: "qb-1", id: a.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-travel", vendorId: "v-uber" } });
     await refreshSuggestions(db, "qb-1");
     const repeat = (await listTransactions(db, "qb-1")).find((l) => l.id === b.id);
     const s = repeat?.suggestion as Suggestion;
@@ -149,7 +161,8 @@ describe("refreshSuggestions", { skip: URL ? false : "BANK_TEST_MONGODB_URI not 
   it("never touches a line the user has coded", async () => {
     await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "Chase", rows: uberRows(4) });
     const lines = await listTransactions(db, "qb-1");
-    for (const l of lines.slice(0, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", payee: "Uber" } });
+    await saveVendorTax(db, "qb-1", { "v-uber": "tax-gst" });
+    for (const l of lines.slice(0, 3)) await decideAndPost(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel", vendorId: "v-uber", payee: "Uber" } });
     await decide(db, { qbConnectionId: "qb-1", id: lines[3].id, userId: "u2", patch: { glAccountId: "gl-client-travel" } });
     await refreshSuggestions(db, "qb-1");
     const row = await db.txns.findOne({ _id: lines[3].id });

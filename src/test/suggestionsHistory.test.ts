@@ -14,6 +14,7 @@ import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactio
 import { pickReason } from "../lib/suggestions/picks";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { saveVendorTax } from "./helpers/posted";
 
 describe("reading coded lines from QuickBooks", () => {
   it("keeps each bill line with its account and tax code, and marks the biggest one", () => {
@@ -197,13 +198,14 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
   });
 
   it("counts toward the 3: a payee with 3 recent expenses in the books is filled in, and the reason names QuickBooks", async () => {
+    await saveVendorTax(db, QB, { "v-petro": "gst" });
     await read([purchase("1", 5), purchase("2", 10), purchase("3", 20)]);
     const line = await bankLine();
     await refreshSuggestions(db, QB);
     const next = await after_(line.id);
     const s = next?.suggestion as Suggestion;
     assert.equal(next?.categoryId, "gl-travel");
-    assert.equal(next?.taxCodeId, "gst");
+    assert.equal(next?.taxCodeId, "gst", "the vendor's saved tax code");
     assert.equal(next?.vendorId, "v-petro", "the ScanTrix vendor for the QuickBooks vendor");
     assert.match(s.reason, /QuickBooks history/);
     assert.equal(s.picks?.[0].historyLines, 3);

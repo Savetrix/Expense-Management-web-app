@@ -151,6 +151,8 @@ async function call(ctx: LedgerContext, req: LedgerRequest) {
 function kindOf(type: string): LedgerAccount["kind"] {
   if (type === "Bank") return "bank";
   if (type === "Credit Card") return "card";
+  if (type === "Accounts Payable") return "payable";
+  if (type === "Accounts Receivable") return "receivable";
   if (type === "Income" || type === "Other Income") return "income";
   if (type === "Expense" || type === "Other Expense" || type === "Cost of Goods Sold") return "expense";
   return "other";
@@ -404,11 +406,23 @@ export const quickbooks: LedgerAdapter = {
         FullyQualifiedName?: string;
         AccountType: string;
         CurrencyRef?: { value?: string };
+        SubAccount?: boolean;
+        ParentRef?: { value?: string };
       }[];
-      for (const a of rows) out.push({ id: String(a.Id), name: a.FullyQualifiedName || a.Name, kind: kindOf(a.AccountType), type: a.AccountType, currency: a.CurrencyRef?.value ?? null });
+      for (const a of rows) {
+        out.push({ id: String(a.Id), name: a.FullyQualifiedName || a.Name, kind: kindOf(a.AccountType), type: a.AccountType, currency: a.CurrencyRef?.value ?? null, parentId: a.SubAccount && a.ParentRef?.value ? String(a.ParentRef.value) : null });
+      }
       if (rows.length < 1000) break;
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async companyInfo(ctx) {
+    const data = await call(ctx, { method: "GET", path: "/query", query: { query: "select * from CompanyInfo" } });
+    const info = ((data.QueryResponse as { CompanyInfo?: Record<string, unknown>[] } | undefined)?.CompanyInfo ?? [])[0] as { Country?: string; CompanyAddr?: { Country?: string } } | undefined;
+    const prefs = await call(ctx, { method: "GET", path: "/query", query: { query: "select * from Preferences" } }).catch(() => null);
+    const currency = ((prefs?.QueryResponse as { Preferences?: { CurrencyPrefs?: { HomeCurrency?: { value?: string } } }[] } | undefined)?.Preferences ?? [])[0]?.CurrencyPrefs?.HomeCurrency?.value ?? null;
+    return { country: info?.Country ?? info?.CompanyAddr?.Country ?? null, homeCurrency: currency };
   },
 
   async paidBills(ctx, billIds) {

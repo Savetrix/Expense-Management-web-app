@@ -11,6 +11,7 @@ import { billVotes, invoicePicks, type PastBill } from "../lib/suggestions/invoi
 import { historyPicks, pickReason, topPicks, type MemoryVote } from "../lib/suggestions/picks";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { decideAndPost, saveVendorTax } from "./helpers/posted";
 
 const NOW = Date.parse("2026-11-10T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
@@ -22,10 +23,10 @@ const vote = (gl: string, days: number, tax: string | null = null): MemoryVote =
 });
 
 describe("top 3 picks from history", () => {
-  it("ranks accounts by weight, one pick per account, with the most used tax code", () => {
+  it("ranks accounts by weight, one pick per account, and never learns a tax code", () => {
     const picks = historyPicks([vote("travel", 1, "gst"), vote("travel", 2, "gst"), vote("travel", 3), vote("meals", 4), vote("office", 200)], "Petro Canada", NOW);
     assert.deepEqual(picks.map((p) => p.glAccountId), ["travel", "meals", "office"]);
-    assert.equal(picks[0].taxCodeId, "gst");
+    assert.equal(picks[0].taxCodeId, undefined, "tax is the vendor's saved tax code, not history's");
     assert.equal(picks[0].lines, 3);
     assert.equal(picks[2].weight, 0.5, "older than 90 days counts half");
   });
@@ -68,7 +69,7 @@ describe("a bank line's suggestion carries its picks", () => {
   });
 
   it("does not split agreement when a vendor was picked on only some of the lines", () => {
-    const s = score(line, [v("travel", 1, { vendorId: null }), v("travel", 2, { vendorId: null }), v("travel", 3)], NOW);
+    const s = score(line, [v("travel", 1, { vendorId: null }), v("travel", 2, { vendorId: null }), v("travel", 3)], NOW, null, { vendorTax: new Map([["v-petro", "gst"]]) });
     assert.equal(s.autoCoded, true);
     assert.equal(s.confidence, "high");
   });
@@ -118,12 +119,13 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
   async function codeLines(qb: string, n: number, total: number, patch: Parameters<typeof decide>[1]["patch"]) {
     await importCsv(db, { qbConnectionId: qb, userId: "u1", accountLabel: "RBC", rows: petro(total) });
     const lines = await listTransactions(db, qb);
-    for (const l of lines.slice(0, n)) assert.ok((await decide(db, { qbConnectionId: qb, id: l.id, userId: "u1", patch })).ok);
+    await saveVendorTax(db, qb, { "v-petro": "gst" });
+    for (const l of lines.slice(0, n)) await decideAndPost(db, { qbConnectionId: qb, id: l.id, userId: "u1", patch });
     return lines;
   }
 
-  it("with 3 agreeing decisions, the next line is High and filled in", async () => {
-    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", payee: "Petro Canada" });
+  it("with 3 agreeing posted lines, the next line is High and filled in", async () => {
+    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", vendorId: "v-petro", payee: "Petro Canada" });
     await refreshSuggestions(db, "qb-1");
     const next = await lineAfter("qb-1", lines[3].id);
     const s = next?.suggestion as Suggestion;
@@ -134,7 +136,7 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.equal(s.picks?.[0].evidence.length, 3, "the past lines it used");
   });
 
-  it("with 2 agreeing decisions, it is suggested but not filled in", async () => {
+  it("with 2 agreeing posted lines, it is suggested but not filled in", async () => {
     const lines = await codeLines("qb-1", 2, 3, { glAccountId: "gl-travel", payee: "Petro Canada" });
     await refreshSuggestions(db, "qb-1");
     const next = await lineAfter("qb-1", lines[2].id);
@@ -147,7 +149,7 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
 
   it("with Suggest only, fills nothing in but still shows the picks", async () => {
     await setAutoClassification(db, { qbConnectionId: "qb-1", userId: "u1", mode: "suggest" });
-    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", payee: "Petro Canada" });
+    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", vendorId: "v-petro", payee: "Petro Canada" });
     const out = await refreshSuggestions(db, "qb-1");
     assert.equal(out.autoCoded, 0);
     const next = await lineAfter("qb-1", lines[3].id);
@@ -171,24 +173,28 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
   it("counts the linked vendor as known: a vendor on the 1st line, accounts only on the next 2, fills the 4th", async () => {
     await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "RBC", rows: petro(4) });
     const lines = await listTransactions(db, "qb-1");
-    await decide(db, { qbConnectionId: "qb-1", id: lines[0].id, userId: "u1", patch: { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" } });
-    for (const l of lines.slice(1, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel" } });
+    await saveVendorTax(db, "qb-1", { "v-petro": "gst" });
+    await decideAndPost(db, { qbConnectionId: "qb-1", id: lines[0].id, userId: "u1", patch: { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" } });
+    for (const l of lines.slice(1, 3)) await decideAndPost(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel" } });
     await refreshSuggestions(db, "qb-1");
     const fourth = await lineAfter("qb-1", lines[3].id);
     assert.equal(fourth?.categoryId, "gl-travel");
     assert.equal(fourth?.vendorId, "v-petro");
+    assert.equal(fourth?.taxCodeId, "gst", "the vendor's saved tax code");
     assert.equal((fourth?.suggestion as Suggestion).confidence, "high");
   });
 
-  it("a payee typed on one line is enough: accounts only on the next 2 still fill the 4th", async () => {
+  it("a payee typed without a vendor isn't enough: no vendor means no saved tax code, so the 4th waits", async () => {
     await importCsv(db, { qbConnectionId: "qb-1", userId: "u1", accountLabel: "RBC", rows: petro(4) });
     const lines = await listTransactions(db, "qb-1");
-    await decide(db, { qbConnectionId: "qb-1", id: lines[0].id, userId: "u1", patch: { payee: "Petro Canada", glAccountId: "gl-travel" } });
-    for (const l of lines.slice(1, 3)) await decide(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel" } });
+    await decideAndPost(db, { qbConnectionId: "qb-1", id: lines[0].id, userId: "u1", patch: { payee: "Petro Canada", glAccountId: "gl-travel" } });
+    for (const l of lines.slice(1, 3)) await decideAndPost(db, { qbConnectionId: "qb-1", id: l.id, userId: "u1", patch: { glAccountId: "gl-travel" } });
     await refreshSuggestions(db, "qb-1");
     const fourth = await lineAfter("qb-1", lines[3].id);
-    assert.equal(fourth?.categoryId, "gl-travel");
-    assert.equal(fourth?.payee, "Petro Canada");
+    assert.equal(fourth?.categoryId, undefined, "not filled in");
+    const s = fourth?.suggestion as Suggestion;
+    assert.equal(s.glAccountId, "gl-travel", "the account is still suggested");
+    assert.equal(s.payee, "Petro Canada");
   });
 
   it("without any vendor or payee, 3 agreeing accounts still wait (nothing says who was paid)", async () => {
@@ -196,7 +202,7 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     await refreshSuggestions(db, "qb-1");
     const fourth = await lineAfter("qb-1", lines[3].id);
     assert.equal(fourth?.categoryId, undefined);
-    assert.equal((fourth?.suggestion as Suggestion).checks.completeness.detail, "No vendor to suggest.");
+    assert.match((fourth?.suggestion as Suggestion).checks.completeness.detail, /^No vendor to suggest/);
   });
 
   it("never lets one company's history, links or vendor memory reach another", async () => {
@@ -213,11 +219,12 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.equal((await vendorMemory(db, "qb-1", "v-petro")).length, 3);
   });
 
-  it("vendor memory counts only a person's decisions", async () => {
-    const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", vendorId: "v-petro", payee: "Petro Canada" });
+  it("vendor memory counts only posted lines", async () => {
+    const lines = await codeLines("qb-1", 3, 5, { glAccountId: "gl-travel", vendorId: "v-petro", payee: "Petro Canada" });
     await refreshSuggestions(db, "qb-1");
     const filled = await lineAfter("qb-1", lines[3].id);
     assert.equal(filled?.categoryId, "gl-travel", "ScanTrix filled the 4th line in");
-    assert.equal((await vendorMemory(db, "qb-1", "v-petro")).length, 3, "but its own coding is not memory");
+    assert.ok((await decide(db, { qbConnectionId: "qb-1", id: lines[4].id, userId: "u1", patch: { glAccountId: "gl-meals", vendorId: "v-petro" } })).ok);
+    assert.equal((await vendorMemory(db, "qb-1", "v-petro")).length, 3, "neither its own coding nor an unposted choice is memory");
   });
 });

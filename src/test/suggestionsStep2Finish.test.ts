@@ -13,6 +13,7 @@ import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactio
 import { autoPostLock, autoPostUnlockDays, earliest } from "../lib/suggestions/autoPostLock";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { decideAndPost, saveVendorTax } from "./helpers/posted";
 
 const suggestion = (over: Record<string, unknown> = {}) => ({
   kind: "expense",
@@ -135,33 +136,38 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
 
   const QB = "qb-fill";
   const today = new Date().toISOString().slice(0, 10);
-  const lines = async (n: number) => {
-    await importCsv(db, { qbConnectionId: QB, userId: "u1", accountLabel: "RBC", rows: Array.from({ length: n }, (_, i) => ({ date: today, description: `PETRO-CANADA 1234 ${i}`, amount: -(50 + i) })) });
-    return listTransactions(db, QB);
+  const lines = async (n: number, qb = QB) => {
+    await importCsv(db, { qbConnectionId: qb, userId: "u1", accountLabel: "RBC", rows: Array.from({ length: n }, (_, i) => ({ date: today, description: `PETRO-CANADA 1234 ${i}`, amount: -(50 + i) })) });
+    await saveVendorTax(db, qb, { "v-petro": "gst", "v-shell": "gst", "v-db": "gst", "v-sbux": "gst", "v-notax": null });
+    return listTransactions(db, qb);
   };
-  const code = async (id: string, patch: Parameters<typeof decide>[1]["patch"]) => assert.ok((await decide(db, { qbConnectionId: QB, id, userId: "u1", patch })).ok);
+  /** A person's choice, posted to QuickBooks: only posted lines teach (18 Nov). */
+  const code = async (id: string, patch: Parameters<typeof decide>[1]["patch"], qb = QB) => decideAndPost(db, { qbConnectionId: qb, id, userId: "u1", patch });
+  /** A person's choice that was never posted. */
+  const choose = async (id: string, patch: Parameters<typeof decide>[1]["patch"]) => assert.ok((await decide(db, { qbConnectionId: QB, id, userId: "u1", patch })).ok);
   const read = async (id: string) => (await listTransactions(db, QB)).find((l) => l.id === id);
 
-  it("fills a line after 3 past lines with the same GL and tax, and fills the vendor they had", async () => {
+  it("fills a line after 3 posted lines with the same GL, with the vendor they had and its saved tax code", async () => {
     const all = await lines(4);
-    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "hst" });
     await refreshSuggestions(db, QB);
     const next = await read(all[3].id);
     assert.equal(next?.categoryId, "gl-travel");
-    assert.equal(next?.taxCodeId, "gst");
+    assert.equal(next?.taxCodeId, "gst", "the vendor's saved tax code, not the lines' hst");
     assert.equal(next?.vendorId, "v-petro");
     assert.equal((next?.suggestion as Suggestion).autoCoded, true);
   });
 
-  it("doesn't fill when the 3 past lines disagree on the tax code", async () => {
+  it("never fills a line whose vendor has no saved tax code, whatever tax the past lines had", async () => {
     const all = await lines(4);
-    await code(all[0].id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
-    await code(all[1].id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
-    await code(all[2].id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "hst" });
+    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-notax", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
     await refreshSuggestions(db, QB);
     const next = await read(all[3].id);
-    assert.equal(next?.categoryId, undefined);
-    assert.notEqual((next?.suggestion as Suggestion).confidence, "high");
+    assert.equal(next?.categoryId, undefined, "stays in To code");
+    const s = next?.suggestion as Suggestion;
+    assert.notEqual(s.confidence, "high");
+    assert.equal(s.glAccountId, "gl-travel", "the account is still suggested");
+    assert.ok(!s.taxCodeId, "tax left blank");
   });
 
   it("doesn't fill when the 3 past lines name different vendors", async () => {
@@ -183,9 +189,10 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
     await refreshSuggestions(db, QB);
     const s = (await read(all[3].id))?.suggestion as Suggestion;
     assert.doesNotMatch(s.picks?.[0].subject ?? "", /Dinesh/, "only 2 of the 3 lines named him");
-    await code(all[2].id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" });
-    await refreshSuggestions(db, QB);
-    assert.equal(((await read(all[3].id))?.suggestion as Suggestion).picks?.[0].subject, "Dinesh Bhatt");
+    const other = await lines(4, "qb-named");
+    for (const l of other.slice(0, 3)) await code(l.id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" }, "qb-named");
+    await refreshSuggestions(db, "qb-named");
+    assert.equal(((await listTransactions(db, "qb-named")).find((l) => l.id === other[3].id)?.suggestion as Suggestion).picks?.[0].subject, "Dinesh Bhatt");
   });
 
   it("one past decision only suggests: it never spreads to every similar line (Starbucks)", async () => {
@@ -210,7 +217,7 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
   it("Suggest only fills nothing, however many past lines agree", async () => {
     await setAutoClassification(db, { qbConnectionId: QB, userId: "admin", mode: "suggest" });
     const all = await lines(7);
-    for (const l of all.slice(0, 6)) await code(l.id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    for (const l of all.slice(0, 6)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" });
     const out = await refreshSuggestions(db, QB);
     assert.equal(out.autoCoded, 0);
     const next = await read(all[6].id);
@@ -220,10 +227,10 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
 
   it("switching to Suggest only clears what ScanTrix filled, never what a person chose", async () => {
     const all = await lines(5);
-    for (const l of all.slice(0, 3)) await code(l.id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" });
     await refreshSuggestions(db, QB);
     assert.equal((await read(all[3].id))?.categoryId, "gl-travel", "filled by ScanTrix");
-    await code(all[4].id, { glAccountId: "gl-meals" });
+    await choose(all[4].id, { glAccountId: "gl-meals" });
 
     await setAutoClassification(db, { qbConnectionId: QB, userId: "admin", mode: "suggest" });
     assert.equal((await read(all[3].id))?.categoryId, undefined, "ScanTrix's fill is taken back");

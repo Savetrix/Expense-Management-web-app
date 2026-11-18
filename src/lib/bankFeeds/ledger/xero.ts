@@ -111,8 +111,10 @@ async function call(ctx: LedgerContext, req: LedgerRequest) {
   return res.data as Record<string, unknown>;
 }
 
-function kindOf(a: { Type?: string; BankAccountType?: string }): LedgerAccount["kind"] {
+function kindOf(a: { Type?: string; BankAccountType?: string; SystemAccount?: string }): LedgerAccount["kind"] {
   if (a.Type === "BANK") return a.BankAccountType === "CREDITCARD" ? "card" : "bank";
+  if (a.SystemAccount === "CREDITORS") return "payable";
+  if (a.SystemAccount === "DEBTORS") return "receivable";
   if (a.Type === "REVENUE" || a.Type === "SALES" || a.Type === "OTHERINCOME") return "income";
   if (a.Type === "EXPENSE" || a.Type === "DIRECTCOSTS" || a.Type === "OVERHEADS" || a.Type === "DEPRECIATN") return "expense";
   return "other";
@@ -233,11 +235,17 @@ export function entriesFromXeroAnswer(collection: string, data: Record<string, u
 export const xero: LedgerAdapter = {
   async listAccounts(ctx) {
     const data = await call(ctx, { method: "GET", path: "/Accounts" });
-    const rows = (data.Accounts ?? []) as { AccountID: string; Name: string; Code?: string; Type?: string; BankAccountType?: string; Status?: string; CurrencyCode?: string }[];
+    const rows = (data.Accounts ?? []) as { AccountID: string; Name: string; Code?: string; Type?: string; BankAccountType?: string; SystemAccount?: string; Status?: string; CurrencyCode?: string }[];
     return rows
       .filter((a) => a.Status !== "ARCHIVED" && a.Status !== "DELETED")
       .map((a) => ({ id: a.AccountID, name: a.Code ? `${a.Code} ${a.Name}` : a.Name, kind: kindOf(a), type: a.Type ?? "", currency: a.CurrencyCode ?? null }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async companyInfo(ctx) {
+    const data = await call(ctx, { method: "GET", path: "/Organisation" });
+    const org = ((data.Organisations ?? []) as { CountryCode?: string; BaseCurrency?: string }[])[0];
+    return { country: org?.CountryCode ?? null, homeCurrency: org?.BaseCurrency ?? null };
   },
 
   async paidBills(ctx, billIds) {
