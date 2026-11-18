@@ -120,7 +120,7 @@ export function LoginFormV2() {
       <div className="flex flex-col items-center justify-center px-[var(--space-lg)] py-[var(--space-xxl)]">
         <div className="w-full max-w-md">
           <div className="mb-[var(--space-xl)] text-center">
-            <h1 className="text-h1 font-bold text-content-primary">Welcome to Scantrix</h1>
+            <h1 className="text-h1 font-bold text-content-primary">Welcome to ScanTrix</h1>
             <p className="mt-[var(--space-sm)] text-body text-content-secondary">
               Sign in to upload and manage financial documents with AI.
             </p>
@@ -160,6 +160,9 @@ export function LoginFormV2() {
                   if (touched.email) setEmailError(validateEmail(event.target.value));
                 }}
                 onBlur={() => {
+                  // Tabbing past an empty field isn't an error yet — "required"
+                  // shows on submit; a typed value is checked as soon as it's left.
+                  if (!email.trim()) return;
                   setTouched((prev) => ({ ...prev, email: true }));
                   setEmailError(validateEmail(email));
                 }}
@@ -181,6 +184,7 @@ export function LoginFormV2() {
                     if (touched.password) setPasswordError(validatePassword(value));
                   }}
                   onBlur={() => {
+                    if (!password.trim()) return;
                     setTouched((prev) => ({ ...prev, password: true }));
                     setPasswordError(validatePassword(password));
                   }}

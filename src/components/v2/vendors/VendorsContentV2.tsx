@@ -12,6 +12,7 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
+import { defaultVendorCurrency, hasVendorErrors, validateVendorForm, type VendorFieldErrors } from "@/lib/vendorForm";
 import { taxCodeId as getTaxCodeId, taxCodeLabel as formatTaxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { useRefreshThrottle } from "@/lib/useRefreshThrottle";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -27,7 +28,7 @@ import {
   syncQuickBooksVendors,
   updateQuickBooksVendor,
 } from "@/store/quickBooks/quickBooksApi";
-import { selectConnectedAccounts, type Vendor } from "@/store/quickBooks/quickBooksSlice";
+import { selectActiveHomeCurrency, selectConnectedAccounts, type Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { VendorCleanupSuggestions } from "@/components/vendors/VendorCleanupSuggestions";
 import { VendorDetailV2 } from "@/components/v2/vendors/VendorDetailV2";
 import { CompactListRow, Modal, PageHeader, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
@@ -106,8 +107,10 @@ export function VendorsContentV2() {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [form, setForm] = useState<VendorFormState>(EMPTY_FORM);
+  // Field problems sit next to their field; formError is what the server said.
+  const [fieldErrors, setFieldErrors] = useState<VendorFieldErrors>({});
   const [formError, setFormError] = useState("");
-  const glMissing = formError === "GL account is required to create a vendor";
+  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
   const [saving, setSaving] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -203,7 +206,8 @@ export function VendorsContentV2() {
 
   const openCreateSheet = () => {
     setEditingVendor(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, currency: defaultVendorCurrency(homeCurrency, CURRENCY_OPTIONS) });
+    setFieldErrors({});
     setFormError("");
     setSheetVisible(true);
   };
@@ -235,6 +239,7 @@ export function VendorsContentV2() {
       phone: vendor.phone || "",
       address: vendor.address || "",
     });
+    setFieldErrors({});
     setFormError("");
     setSheetVisible(true);
   };
@@ -248,16 +253,14 @@ export function VendorsContentV2() {
     if (!accessToken) return;
 
     const trimmedName = form.displayName.trim();
-    if (!trimmedName) {
-      setFormError("Vendor name is required");
-      return;
-    }
     // Tax code is intentionally optional — it only applies to QB companies
     // that use tax codes (e.g. Canada).
-    if (!editingVendor && !form.glAccountId) {
-      setFormError("GL account is required to create a vendor");
-      return;
-    }
+    // Editing: an email already on the vendor (e.g. synced from the accounting
+    // software in a shape our check doesn't like) never blocks saving other fields.
+    const emailChanged = !editingVendor || form.email.trim() !== (editingVendor.email || "").trim();
+    const errors = validateVendorForm({ name: form.displayName, glAccountId: form.glAccountId, email: emailChanged ? form.email : "", requireGlAccount: !editingVendor });
+    setFieldErrors(errors);
+    if (hasVendorErrors(errors)) return;
 
     setFormError("");
     setSaving(true);
@@ -270,7 +273,7 @@ export function VendorsContentV2() {
             displayName: trimmedName,
             glAccountId: form.glAccountId,
             taxCodeId: form.taxCodeId,
-            email: form.email.trim(),
+            ...(emailChanged && { email: form.email.trim() }),
             phone: form.phone.trim(),
             address: form.address.trim(),
           }),
@@ -280,7 +283,7 @@ export function VendorsContentV2() {
           showToast(`${trimmedName} updated.`, "success");
         } else {
           const payload = result.payload as { message?: string } | undefined;
-          showToast(payload?.message || "Could not update vendor. Please try again.", "error");
+          setFormError(payload?.message || "Could not update vendor. Please try again.");
         }
       } else {
         const result = await dispatch(
@@ -301,7 +304,7 @@ export function VendorsContentV2() {
           refetchVendors();
         } else {
           const payload = result.payload as { message?: string } | undefined;
-          showToast(payload?.message || "Could not create vendor. Please try again.", "error");
+          setFormError(payload?.message || "Could not create vendor. Please try again.");
         }
       }
     } finally {
@@ -313,7 +316,7 @@ export function VendorsContentV2() {
     if (!accessToken) return;
     const confirmed = await confirmDialog({
       title: "Deactivate vendor?",
-      message: `"${vendor.displayName}" will be marked inactive in Scantrix and won't be matched against new invoices. It stays active in ${provider.name} — this only affects Scantrix. Existing bills already posted for this vendor are not affected.`,
+      message: `"${vendor.displayName}" will be marked inactive in ScanTrix and won't be matched against new invoices. It stays active in ${provider.name} — this only affects ScanTrix. Existing bills already posted for this vendor are not affected.`,
       confirmLabel: "Deactivate",
       tone: "destructive",
     });
@@ -338,7 +341,7 @@ export function VendorsContentV2() {
     if (!accessToken) return;
     const confirmed = await confirmDialog({
       title: "Reactivate vendor?",
-      message: `"${vendor.displayName}" will become active again in Scantrix and can be matched against new invoices.`,
+      message: `"${vendor.displayName}" will become active again in ScanTrix and can be matched against new invoices.`,
       confirmLabel: "Reactivate",
     });
     if (!confirmed) return;
@@ -654,11 +657,16 @@ export function VendorsContentV2() {
             <label className={FIELD_LABEL_CLASS}>Vendor name *</label>
             <input
               value={form.displayName}
-              onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, displayName: e.target.value }));
+                if (fieldErrors.name && e.target.value.trim()) setFieldErrors((prev) => ({ ...prev, name: undefined }));
+              }}
               placeholder="Enter vendor name"
               disabled={saving}
-              className={FIELD_INPUT_CLASS}
+              aria-invalid={!!fieldErrors.name}
+              className={`${FIELD_INPUT_CLASS} ${fieldErrors.name ? "border-status-danger-border" : ""}`}
             />
+            {fieldErrors.name && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{fieldErrors.name}</p>}
           </div>
 
           <div>
@@ -688,10 +696,10 @@ export function VendorsContentV2() {
               onChange={(e) => {
                 const glAccountId = e.target.value;
                 setForm((f) => ({ ...f, glAccountId }));
-                if (glAccountId && glMissing) setFormError("");
+                if (glAccountId && fieldErrors.glAccount) setFieldErrors((prev) => ({ ...prev, glAccount: undefined }));
               }}
               disabled={saving}
-              error={glMissing ? formError : undefined}
+              error={fieldErrors.glAccount}
             >
               <option value="">Select GL account</option>
               {glAccounts.map((account) => (
@@ -728,11 +736,16 @@ export function VendorsContentV2() {
             <input
               type="email"
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, email: e.target.value }));
+                if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+              }}
               placeholder="vendor@company.com"
               disabled={saving}
-              className={FIELD_INPUT_CLASS}
+              aria-invalid={!!fieldErrors.email}
+              className={`${FIELD_INPUT_CLASS} ${fieldErrors.email ? "border-status-danger-border" : ""}`}
             />
+            {fieldErrors.email && <p className="mt-[var(--space-xs)] text-caption font-medium text-status-danger-text">{fieldErrors.email}</p>}
           </div>
 
           <div>
@@ -757,8 +770,10 @@ export function VendorsContentV2() {
             />
           </div>
 
-          {formError && !glMissing && (
-            <p className="sm:col-span-2 text-caption font-semibold text-status-danger-text">{formError}</p>
+          {formError && (
+            <p role="alert" className="sm:col-span-2 rounded-md border-l-4 border-status-danger-border bg-status-danger-bg px-[var(--space-sm)] py-[var(--space-xs)] text-body-sm font-medium text-status-danger-text">
+              {formError}
+            </p>
           )}
         </div>
       </Modal>

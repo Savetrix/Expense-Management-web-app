@@ -14,7 +14,7 @@ const ADMIN_TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/admin/coupons", label: "Coupons", icon: TicketPercent },
 ];
 
-// The admin area: Scantrix's own admins only (User.isSuperAdmin, sent with
+// The admin area: ScanTrix's own admins only (User.isSuperAdmin, sent with
 // the signed-in user). Checked once here for every tab — and again by every
 // /superadmin API, which is what actually protects the data.
 export function AdminShellV2({ children }: { children: ReactNode }) {
@@ -25,7 +25,7 @@ export function AdminShellV2({ children }: { children: ReactNode }) {
   if (!isSuperAdmin) {
     return (
       <div className="mx-auto max-w-3xl p-[var(--space-lg)]">
-        <ErrorState message="This page is only for Scantrix admins." />
+        <ErrorState message="This page is only for ScanTrix admins." />
       </div>
     );
   }

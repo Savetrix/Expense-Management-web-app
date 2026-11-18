@@ -66,7 +66,7 @@ export function BankTransactionsContentV2() {
   const [relogin, setRelogin] = useState<BankAccount | null>(null);
   const lookups = useBankLookups();
   // After a decision the server re-scores lines with the same payee in the
-  // background; reload shortly after so lines Scantrix just coded show it.
+  // background; reload shortly after so lines ScanTrix just coded show it.
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refetchSoon = () => {
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
@@ -255,7 +255,7 @@ export function BankTransactionsContentV2() {
   };
   const unlinkFound = async (id: string) => {
     const result = await dispatch(unlinkFoundEntry(id));
-    if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. Scantrix won't link that ${provider.name} entry to this line again.`, "info");
+    if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. ScanTrix won't link that ${provider.name} entry to this line again.`, "info");
     else showToast(result.payload?.message ?? "Couldn't put that line back.", "error");
   };
   const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);

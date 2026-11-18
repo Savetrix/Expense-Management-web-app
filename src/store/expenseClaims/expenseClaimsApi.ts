@@ -67,7 +67,7 @@ export interface ExpenseClaimDto {
   approvedBy: string | null;
   publishedAt: string | null;
   paidAt: string | null;
-  /** "manual" = marked paid in Scantrix; "accounting" = a bill payment was recorded in QuickBooks/Xero. */
+  /** "manual" = marked paid in ScanTrix; "accounting" = a bill payment was recorded in QuickBooks/Xero. */
   paidVia: "manual" | "accounting" | null;
   rejectedAt: string | null;
   rejectionReason: string | null;
@@ -176,7 +176,8 @@ export const fetchClaimSummary = createAsyncThunk<
 });
 
 export interface CreateClaimInput {
-  claimant: { userId?: string | null; contactId?: string | null; name?: string; email?: string | null };
+  // No claimant: the backend makes the receipts' uploader the claimant (and
+  // refuses receipts uploaded by two people — MIXED_UPLOADERS).
   receiptIds: string[];
   /** receiptId → the claimant's note on that receipt. */
   notes?: Record<string, string>;

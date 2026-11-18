@@ -222,7 +222,7 @@ export const linkFoundEntry = createAsyncThunk<{ transaction: BankTransactionDto
   },
 );
 
-/** "Not this": a line Scantrix found in QuickBooks/Xero goes back to To review. */
+/** "Not this": a line ScanTrix found in QuickBooks/Xero goes back to To review. */
 export const unlinkFoundEntry = createAsyncThunk<{ transaction: BankTransactionDto }, string, { state: RootState; rejectValue: BankRequestError }>(
   "bankFeeds/unlinkFoundEntry",
   async (id, { getState, rejectWithValue }) => {

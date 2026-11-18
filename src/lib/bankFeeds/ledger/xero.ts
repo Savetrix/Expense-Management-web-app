@@ -85,7 +85,7 @@ function xeroError(status: number, headers: Headers, data: unknown): LedgerError
   const detail = validation || d?.Message || d?.Detail || d?.Title || "";
   if (status === 401 || status === 403) {
     const scope = /insufficient_scope/i.test(`${headers.get("www-authenticate") ?? ""} ${JSON.stringify(data ?? "")}`);
-    if (scope) return new LedgerError("Xero hasn't allowed Scantrix to post bank entries yet. Reconnect Xero once to allow it.", "definite", "scope");
+    if (scope) return new LedgerError("Xero hasn't allowed ScanTrix to post bank entries yet. Reconnect Xero once to allow it.", "definite", "scope");
     if (status === 401) return new LedgerError("Xero didn't accept the sign-in. Try again; if it keeps failing, reconnect Xero.", "definite", "reconnect");
     return new LedgerError(detail || "Xero refused this for this organisation.", "definite", "permission");
   }

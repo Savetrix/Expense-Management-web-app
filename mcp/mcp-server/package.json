@@ -2,7 +2,7 @@
   "name": "savetrix-mcp-server",
   "version": "1.0.0",
   "private": true,
-  "description": "MCP server exposing Savetrix/Scantrix invoice app operations to AI assistants",
+  "description": "MCP server exposing Savetrix/ScanTrix invoice app operations to AI assistants",
   "type": "module",
   "main": "dist/index.js",
   "engines": {

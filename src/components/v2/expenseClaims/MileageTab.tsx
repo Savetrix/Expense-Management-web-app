@@ -63,7 +63,7 @@ interface TripForm {
 
 const STATUS_ORDER: JourneyStatus[] = ["awaiting_review", "awaiting_reimbursement", "paid", "rejected"];
 // A trip waits for approval; the rest reads like a claim.
-const statusLabel = (s: JourneyStatus) => (s === "awaiting_review" ? "Awaiting approval" : CLAIM_STATUS_META[s].label);
+const statusLabel = (s: JourneyStatus) => CLAIM_STATUS_META[s].label;
 type View = JourneyStatus | "assigned";
 type Busy = "approve" | "approvePay" | "reject" | "markPaid" | "delete";
 
@@ -173,7 +173,7 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
     const ok = await confirmDialog({
       title: pay ? "Approve, post and mark as paid?" : `Approve and post to ${provider.name}?`,
       message: `This creates a bill in ${provider.name} payable to ${j.driver.name} for ${money(j.amount)} (${j.km} km × ${money(j.rate)}).${
-        pay ? ` It also records that they've been paid — Scantrix doesn't send the money.` : ""
+        pay ? ` It also records that they've been paid — ScanTrix doesn't send the money.` : ""
       }`,
       confirmLabel: pay ? "Approve & mark paid" : "Approve & post",
     });
@@ -210,7 +210,7 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
   const handleMarkPaid = async (j: JourneyDto) => {
     const ok = await confirmDialog({
       title: "Mark as paid?",
-      message: `Record that ${j.driver.name} has been paid back ${money(j.amount)}. Scantrix doesn't send the money.`,
+      message: `Record that ${j.driver.name} has been paid back ${money(j.amount)}. ScanTrix doesn't send the money.`,
       confirmLabel: "Mark as paid",
     });
     if (!ok) return;
@@ -251,25 +251,51 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
     setRejectReason(null);
   };
 
+  // Trips this approver can post right from the list, without opening each one.
+  const canPostFromList = (j: JourneyDto) => j.status === "awaiting_review" && canAct(j) && !selfBlocked(j);
+  const showPostColumn = visible.some(canPostFromList);
+
   const columns: DataTableColumn<JourneyDto>[] = [
-    { key: "date", header: "Date", width: "12%", render: (j) => <span className="block truncate">{shortDate(j.date)}</span> },
-    { key: "driver", header: "Who", width: "17%", render: (j) => <span className="block truncate font-bold">{j.driver.name}</span> },
-    { key: "purpose", header: "Purpose", width: "25%", render: (j) => <span className="block truncate text-content-secondary">{j.purpose}</span> },
-    { key: "km", header: "km", width: "9%", align: "right", render: (j) => j.km.toLocaleString("en-US") },
-    { key: "amount", header: "Amount", width: "13%", align: "right", render: (j) => <span className="font-bold">{money(j.amount)}</span> },
+    { key: "date", header: "Date", width: showPostColumn ? "11%" : "12%", render: (j) => <span className="block truncate">{shortDate(j.date)}</span> },
+    { key: "driver", header: "Who", width: showPostColumn ? "15%" : "17%", render: (j) => <span className="block truncate font-bold">{j.driver.name}</span> },
+    { key: "purpose", header: "Purpose", width: showPostColumn ? "20%" : "25%", render: (j) => <span className="block truncate text-content-secondary">{j.purpose}</span> },
+    { key: "km", header: "km", width: "8%", align: "right", render: (j) => j.km.toLocaleString("en-US") },
+    { key: "amount", header: "Amount", width: "12%", align: "right", render: (j) => <span className="font-bold">{money(j.amount)}</span> },
     {
       key: "approver",
       header: "Sent to",
-      width: "24%",
+      width: showPostColumn ? "16%" : "26%",
       align: "right",
       render: (j) => <span className="block truncate text-content-secondary">{j.approver ? (j.approver.userId === selfId ? "You" : j.approver.name) : "—"}</span>,
     },
+    ...(showPostColumn
+      ? [
+          {
+            key: "post",
+            header: "",
+            width: "18%",
+            align: "right" as const,
+            render: (j: JourneyDto) =>
+              canPostFromList(j) ? (
+                <span
+                  className="inline-block"
+                  // The row opens the trip — this button only posts it.
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Button size="sm" onClick={() => void handleApprove(j, false)} disabled={!!busy}>
+                    Approve & post
+                  </Button>
+                </span>
+              ) : null,
+          },
+        ]
+      : []),
   ];
 
   const canAdd = driverOptions.length > 0 && !driversLoading && !!settings && rate !== null;
   const emptyTitle: Record<View, string> = {
     assigned: "Nothing waiting on you",
-    awaiting_review: "No trips awaiting approval",
+    awaiting_review: "No trips awaiting review",
     awaiting_reimbursement: "Nothing awaiting reimbursement",
     paid: "No paid trips yet",
     rejected: "No rejected trips",
@@ -391,7 +417,7 @@ export function MileageTab({ journeys, loading, error, onRetry, drivers, drivers
               onChange={(e) => patch({ km: e.target.value })}
             />
             <TextInput label="Purpose *" placeholder="e.g. Client meeting at Acme" value={form.purpose} onChange={(e) => patch({ purpose: e.target.value })} />
-            <ApproverNotice loading={route.loading} preview={route.preview} error={route.error} providerName={provider.name} noun="trip" />
+            <ApproverNotice loading={route.loading} preview={route.preview} error={route.error} providerName={provider.name} noun="trip" selfId={selfId} />
 
             <div className="flex items-center justify-between rounded-md bg-surface-alt px-[var(--space-md)] py-[var(--space-sm)]">
               <span className="text-body-sm text-content-secondary">

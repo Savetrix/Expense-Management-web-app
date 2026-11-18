@@ -267,3 +267,18 @@ export const getSidebarPinned = (): boolean => {
 export const setSidebarPinned = (pinned: boolean): void => {
   setItem(SIDEBAR_PINNED_KEY, pinned ? "true" : "false");
 };
+
+// ==============================
+// LAST COMPANY (UI preference, per user — with 2+ companies, the one a user
+// last worked in is reopened after login instead of a blank dashboard)
+// ==============================
+
+const lastCompanyKey = (userId: string) => `lastCompany:${userId}`;
+
+export const getLastCompany = (userId: string): string | null => {
+  return getItem(lastCompanyKey(userId));
+};
+
+export const setLastCompany = (userId: string, qbConnectionId: string): void => {
+  setItem(lastCompanyKey(userId), qbConnectionId);
+};

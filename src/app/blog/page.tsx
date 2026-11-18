@@ -14,16 +14,16 @@ import {
 } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "Accounts Payable & QuickBooks Guides | Scantrix Blog",
+  title: "Accounts Payable & QuickBooks Guides | ScanTrix Blog",
   description: BLOG_DESCRIPTION,
   alternates: {
     canonical: "/blog",
-    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "Scantrix Blog" }] },
+    types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "ScanTrix Blog" }] },
   },
   openGraph: {
     type: "website",
     url: "/blog",
-    title: "Scantrix Blog",
+    title: "ScanTrix Blog",
     description: BLOG_DESCRIPTION,
   },
 };
@@ -54,7 +54,7 @@ export default function BlogIndexPage() {
           </h1>
           <p className="mt-5 max-w-2xl text-[17px] leading-relaxed text-text-secondary">
             Practical advice on bill entry, month-end and QuickBooks Online for
-            accountants and finance teams, useful whether or not you use Scantrix.
+            accountants and finance teams, useful whether or not you use ScanTrix.
           </p>
         </header>
       </div>

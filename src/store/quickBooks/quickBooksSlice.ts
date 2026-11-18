@@ -386,6 +386,12 @@ export const selectActiveProviderId = (state: { quickBooks: QuickBooksState }): 
   return activeProviderId ?? DEFAULT_PROVIDER;
 };
 
+// Home currency of the company picked in the header (null = not known yet).
+export const selectActiveHomeCurrency = (state: { quickBooks: QuickBooksState }): string | null => {
+  const { connections, qbConnectionId } = state.quickBooks;
+  return connections?.find((c) => c._id === qbConnectionId)?.homeCurrency ?? null;
+};
+
 // Companies the user can actually work in — the connection list also carries
 // disconnected ones (for the Integrations page's history). Same rule as the
 // header's company switcher, so a page and the switcher always agree on

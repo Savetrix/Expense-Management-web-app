@@ -217,7 +217,7 @@ describe("step 2 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     const lines = await codeLines("qb-1", 3, 4, { glAccountId: "gl-travel", vendorId: "v-petro", payee: "Petro Canada" });
     await refreshSuggestions(db, "qb-1");
     const filled = await lineAfter("qb-1", lines[3].id);
-    assert.equal(filled?.categoryId, "gl-travel", "Scantrix filled the 4th line in");
+    assert.equal(filled?.categoryId, "gl-travel", "ScanTrix filled the 4th line in");
     assert.equal((await vendorMemory(db, "qb-1", "v-petro")).length, 3, "but its own coding is not memory");
   });
 });

@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { VerifyOtpContent } from "@/components/auth/VerifyOtpContent";
 
 export const metadata: Metadata = {
-  title: "Verify Email — Scantrix",
+  title: "Verify Email — ScanTrix",
 };
 
 export default function VerifyOtpPage() {

@@ -1,6 +1,6 @@
 import { CONFIDENCE_LABEL, type Confidence } from "@/lib/suggestions/picks";
 
-// How sure Scantrix is about a suggestion (Smart Suggestions). Low is red so
+// How sure ScanTrix is about a suggestion (Smart Suggestions). Low is red so
 // nobody takes it for a sure answer; step 4's AI picks will always be Low.
 const STYLE: Record<Confidence, string> = {
   high: "bg-success/10 text-text-primary",

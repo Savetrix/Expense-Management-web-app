@@ -50,7 +50,7 @@ interface TransactionsTabProps {
   onPost: (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => void;
   /** Accepts suggested matches; the parent also sends them when it can. */
   onAcceptMatches: (picked: StrongSuggestion[]) => void;
-  /** "Not this" on a line Scantrix found already entered in QuickBooks/Xero. */
+  /** "Not this" on a line ScanTrix found already entered in QuickBooks/Xero. */
   onUnlinkFound?: (id: string) => void;
   lookups: Lookups;
   /** First load from the server still running. */
@@ -70,10 +70,10 @@ export const isUnsent = (t: BankTransaction) => SENDABLE.includes(t.status) && t
 export function ledgerBlock(reason: string | null, error: string | null, providerName: string): string | null {
   if (!reason) return null;
   if (reason === "posting_not_configured") return `Sending lines to ${providerName} isn't switched on on this server yet. Post still saves each line as ready.`;
-  if (reason === "scope") return `${providerName} hasn't allowed Scantrix to post bank entries yet. Reconnect ${providerName} once (Integrations) to allow it.`;
+  if (reason === "scope") return `${providerName} hasn't allowed ScanTrix to post bank entries yet. Reconnect ${providerName} once (Integrations) to allow it.`;
   if (reason === "reconnect") return error || `Reconnect ${providerName} (Integrations) to send lines.`;
   if (reason === "permission") return error || `Your role can't send lines to ${providerName}.`;
-  return error || `Scantrix couldn't reach ${providerName} just now.`;
+  return error || `ScanTrix couldn't reach ${providerName} just now.`;
 }
 
 const DATE_CLASS =
@@ -148,7 +148,7 @@ export function TransactionsTab({
       .filter((t) => !q || `${t.description} ${t.accountName} ${t.payee ?? ""} ${t.merchantName ?? ""}`.toLowerCase().includes(q))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }, [txns, status, account, from, to, search]);
-  // "Scantrix is sure": lines to review it filled in, or would ("Suggest only"),
+  // "ScanTrix is sure": lines to review it filled in, or would ("Suggest only"),
   // shown in their own section on top and not again below. A line in the
   // suggested bill matches stays there instead.
   const sureLines = useMemo(() => {
@@ -157,7 +157,7 @@ export function TransactionsTab({
     return rows.filter((t) => isSureLine(t) && !matching.has(t.id));
   }, [rows, status, suggestions]);
   const sureIds = useMemo(() => new Set(sureLines.map((t) => t.id)), [sureLines]);
-  // One list: the lines Scantrix picked first, lightly highlighted, then the rest (Saurabh, 13 Nov).
+  // One list: the lines ScanTrix picked first, lightly highlighted, then the rest (Saurabh, 13 Nov).
   const listRows = useMemo(() => (sureIds.size === 0 ? rows : [...sureLines, ...rows.filter((t) => !sureIds.has(t.id))]), [rows, sureIds, sureLines]);
 
   if (txns.length === 0 && loading) {
@@ -253,7 +253,7 @@ export function TransactionsTab({
   };
 
   const editable = (t: BankTransaction) => t.status === "review";
-  // Dashed outline: Scantrix filled it in and no person has confirmed it yet.
+  // Dashed outline: ScanTrix filled it in and no person has confirmed it yet.
   const fieldTone = (t: BankTransaction) => (isSuggestedField(t) ? "suggested" : "default");
 
   const columns: DataTableColumn<BankTransaction>[] = [
@@ -341,7 +341,7 @@ export function TransactionsTab({
       render: (t) => {
         if (sureIds.has(t.id)) {
           const v = sureValues(t);
-          const why = picksFor(t, lookups, glName).find((p) => p.pick.glAccountId === v.glAccountId)?.reason ?? codingFor(t).reason?.replace(/^Coded by Scantrix — /, "") ?? "";
+          const why = picksFor(t, lookups, glName).find((p) => p.pick.glAccountId === v.glAccountId)?.reason ?? codingFor(t).reason?.replace(/^Coded by ScanTrix — /, "") ?? "";
           return (
             <>
               <span className="block truncate font-semibold">{glName(v.glAccountId) || "—"}</span>
@@ -416,7 +416,7 @@ export function TransactionsTab({
         if (t.matchedInvoiceId) {
           const inv = invoiceById.get(t.matchedInvoiceId);
           return (
-            <Link href={`/invoices/${t.matchedInvoiceId}`} title={inv ? `${inv.vendor}${inv.number ? ` #${inv.number}` : ""} in Scantrix` : "Invoice in Scantrix"} className="inline-flex text-accent hover:opacity-80">
+            <Link href={`/invoices/${t.matchedInvoiceId}`} title={inv ? `${inv.vendor}${inv.number ? ` #${inv.number}` : ""} in ScanTrix` : "Invoice in ScanTrix"} className="inline-flex text-accent hover:opacity-80">
               <Paperclip size={16} strokeWidth={2.25} />
             </Link>
           );
@@ -448,7 +448,7 @@ export function TransactionsTab({
           // In the books: locked here; a change is made in QuickBooks/Xero itself.
           const label = `In ${providerName}`;
           if (t.posting?.found) {
-            // Entered straight into QuickBooks/Xero; Scantrix only linked it, so it can be put back.
+            // Entered straight into QuickBooks/Xero; ScanTrix only linked it, so it can be put back.
             return (
               <span className="inline-flex items-center gap-[var(--space-xs)]">
                 {t.posting.url ? (
@@ -526,7 +526,7 @@ export function TransactionsTab({
     },
   ];
 
-  /** What Scantrix would code a sure line to: its own fill, or the High suggestion ("Suggest only"). */
+  /** What ScanTrix would code a sure line to: its own fill, or the High suggestion ("Suggest only"). */
   const sureValues = (t: BankTransaction) => {
     const c = codingFor(t);
     return c.source === "autopilot" ? c : { ...c, ...(c.offered ?? {}) };
@@ -658,7 +658,7 @@ export function TransactionsTab({
         <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)] border-b border-border bg-status-success-bg/40 px-[var(--space-md)] py-[var(--space-xs)]">
           <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-primary">
             <CheckCircle2 size={14} strokeWidth={2.25} className="text-status-success-text" />
-            Scantrix picked {sureLines.length} line{sureLines.length === 1 ? "" : "s"} (highlighted, at the top): 3 past lines on the same vendor, GL and tax. Check, then post.
+            ScanTrix picked {sureLines.length} line{sureLines.length === 1 ? "" : "s"} (highlighted, at the top): 3 past lines on the same vendor, GL and tax. Check, then post.
           </p>
           <Button size="sm" onClick={() => void postSure(sureLines)}>
             Post all {sureLines.length}

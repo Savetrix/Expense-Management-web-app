@@ -18,7 +18,7 @@ export const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || "https://scantrix.ai"
 ).replace(/\/$/, "");
 
-export const SITE_NAME = "Scantrix";
+export const SITE_NAME = "ScanTrix";
 
 /** Absolute URL for a site-relative path. */
 export function absoluteUrl(path = "/"): string {
@@ -59,7 +59,7 @@ export const organizationJsonLd = {
   logo: absoluteUrl("/scantrix-icon.png"),
   foundingDate: "2025",
   description:
-    "Scantrix reads supplier invoices, matches the vendor in QuickBooks Online and posts the bill, holding low-confidence documents in a review queue.",
+    "ScanTrix reads supplier invoices, matches the vendor in QuickBooks Online and posts the bill, holding low-confidence documents in a review queue.",
   contactPoint: [
     {
       "@type": "ContactPoint",
@@ -203,7 +203,7 @@ export const faqPageJsonLd = {
 // the homepage, where a one-item trail pointing at itself is not a hierarchy
 // and Google discards it.
 
-export const BLOG_NAME = "Scantrix Blog";
+export const BLOG_NAME = "ScanTrix Blog";
 export const BLOG_DESCRIPTION =
   "Practical guides to accounts payable, bill entry and QuickBooks Online for accountants and finance teams.";
 
@@ -236,7 +236,7 @@ const BLOG_ID = `${SITE_URL}/blog#blog`;
 
 /**
  * BlogPosting. The author is the Organization rather than an invented person:
- * posts are written as "Scantrix Team", and a named author with no real
+ * posts are written as "ScanTrix Team", and a named author with no real
  * profile behind it is exactly the kind of signal Google's quality raters are
  * told to distrust.
  */

@@ -6,7 +6,7 @@ import { authFetch } from "@/lib/authFetch";
 import { useAppSelector } from "@/store/hooks";
 import type { BankTransactionDto } from "@/store/bankFeeds/bankFeedsApi";
 
-// What Scantrix noticed on one invoice (GET /api/invoices/:id/insights): the
+// What ScanTrix noticed on one invoice (GET /api/invoices/:id/insights): the
 // period it covers, and the bank line that paid it. Silent when the server has
 // nothing to say or isn't set up — the card simply shows no extra rows.
 

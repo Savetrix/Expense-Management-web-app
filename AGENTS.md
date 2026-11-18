@@ -8,7 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## What this is
 Expense-Management-web-app: Next.js 16 (App Router, Turbopack, TS
-strict, Tailwind v4) web port of the Scantrix mobile app (Expo/React
+strict, Tailwind v4) web port of the ScanTrix mobile app (Expo/React
 Native, repo Scantrix_v2). Ported logic layer (auth/invoice/vendor/
 quickBooks) lives in src/store/ (Redux Toolkit slices + thunks) and
 src/lib/ (api client, storage, firebase, quickbooks). Building the UI
@@ -69,7 +69,7 @@ the token from Redux and send it themselves. Policy helpers:
 - Typecheck: `npx tsc --noEmit`
 - Full gate (required, not optional — tsc alone misses SSR failures):
   `npx tsc --noEmit && npx next build`
-- Tests: `npm test` (node:test via tsx, `src/test/*.test.ts`). 270 tests.
+- Tests: `npm test` (node:test via tsx, `src/test/*.test.ts`). 530 tests.
   An earlier version of this file claimed no test suite existed; that was stale.
 
 ## During an active LOOP.md run

@@ -73,7 +73,7 @@ export type RejectionCode =
   /** The invoice backend refused the upload for a reason that will not change. */
   | "ingestion_failed"
   /**
-   * The upload was refused with 403: the Scantrix service account is no longer a
+   * The upload was refused with 403: the ScanTrix service account is no longer a
    * member of this company, so it cannot file anything there.
    *
    * Split out of `ingestion_failed` after a client hit it. The generic code made

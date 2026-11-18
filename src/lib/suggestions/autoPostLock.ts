@@ -1,9 +1,9 @@
 // Auto-post stays locked for a company until it has enough of its own coding
-// in Scantrix: at least AUTOPOST_UNLOCK_DAYS (default 15) since the first item
+// in ScanTrix: at least AUTOPOST_UNLOCK_DAYS (default 15) since the first item
 // a person coded — a posted bill or a bank line. Saurabh, 11 Nov call: a new
-// company shouldn't post on its own before Scantrix has seen how it codes.
+// company shouldn't post on its own before ScanTrix has seen how it codes.
 //
-// Only the web app's switch is locked; the Scantrix API still accepts the
+// Only the web app's switch is locked; the ScanTrix API still accepts the
 // setting from any client (see the note in usePreferencesSettings / the PR).
 
 export const DEFAULT_AUTOPOST_UNLOCK_DAYS = 15;
@@ -24,7 +24,7 @@ export interface AutoPostLock {
   note: string | null;
 }
 
-/** `firstCodedAt`: the earliest item a person coded in Scantrix (ISO), or null for none yet. */
+/** `firstCodedAt`: the earliest item a person coded in ScanTrix (ISO), or null for none yet. */
 export function autoPostLock(firstCodedAt: string | null, requiredDays: number, now = Date.now()): AutoPostLock {
   const first = firstCodedAt ? Date.parse(firstCodedAt) : NaN;
   const days = Number.isFinite(first) ? Math.max(0, Math.floor((now - first) / DAY)) : 0;
@@ -36,8 +36,8 @@ export function autoPostLock(firstCodedAt: string | null, requiredDays: number, 
     days,
     requiredDays,
     note: !Number.isFinite(first)
-      ? `Auto-post unlocks after ${requiredDays} days of coding in Scantrix, so it learns how this company codes first. Nothing has been coded yet.`
-      : `Auto-post unlocks after ${requiredDays} days of coding in Scantrix, so it learns how this company codes first. ${left} day${left === 1 ? "" : "s"} to go.`,
+      ? `Auto-post unlocks after ${requiredDays} days of coding in ScanTrix, so it learns how this company codes first. Nothing has been coded yet.`
+      : `Auto-post unlocks after ${requiredDays} days of coding in ScanTrix, so it learns how this company codes first. ${left} day${left === 1 ? "" : "s"} to go.`,
   };
 }
 

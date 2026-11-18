@@ -6,7 +6,7 @@ import { SignupLink } from "./SignupLink";
 export function BlogCta() {
   return (
     <aside
-      aria-label="Try Scantrix"
+      aria-label="Try ScanTrix"
       className="relative overflow-hidden rounded-3xl px-6 py-10 text-center sm:px-10"
       style={{ background: "linear-gradient(165deg, var(--lp-navy) 0%, var(--lp-navy-950) 100%)" }}
     >
@@ -19,7 +19,7 @@ export function BlogCta() {
           Stop typing invoices into QuickBooks.
         </p>
         <p className="mx-auto mt-3 max-w-lg text-[15px] leading-relaxed text-white/70">
-          Scantrix reads your supplier invoices, matches the vendors and posts the
+          ScanTrix reads your supplier invoices, matches the vendors and posts the
           bills, and holds anything uncertain for a quick human check.
         </p>
         <SignupLink className="group mt-7 inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-7 text-[15px] font-semibold text-[color:var(--lp-navy)] shadow-lg transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--lp-teal)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--lp-navy)]">

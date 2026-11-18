@@ -11,7 +11,7 @@ import { refreshAccessToken } from "@/lib/api";
 import { SESSION_EXPIRED, TOKEN_REFRESHED, handleSessionExpired, sessionEmitter } from "@/lib/sessionManager";
 import { getUser } from "@/lib/storage";
 import { AppShell } from "@/components/shell/AppShell";
-import { Spinner } from "@/components/ui/Spinner";
+import { FullScreenLoader } from "@/components/ui/FullScreenLoader";
 
 // Routes reachable regardless of auth state. /invite/accept and
 // /register/verify-otp both have their own internal auth-aware logic
@@ -38,15 +38,6 @@ function isPublicRoute(pathname: string): boolean {
 
 function isNoShellRoute(pathname: string): boolean {
   return matchesRoute(pathname, NO_SHELL_ROUTES);
-}
-
-function FullScreenLoader() {
-  return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-[var(--space-md)] bg-background-soft">
-      <Spinner size="lg" />
-      <p className="text-body-sm font-medium text-text-secondary">Loading…</p>
-    </div>
-  );
 }
 
 // Ported from Scantrix_v2 App.tsx's AppContent restoreSession() effect +

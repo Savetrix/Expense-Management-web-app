@@ -1,12 +1,12 @@
-// SERVER-ONLY. Smart Suggestions, history: Scantrix learns from the last 12
+// SERVER-ONLY. Smart Suggestions, history: ScanTrix learns from the last 12
 // months of the company's own coding in QuickBooks, so suggestions work from
 // day one (Saurabh, 11 Nov call). No AI and no rule screen: the coded lines are
 // saved in the company memory (suggestion_history), marked as coming from the
-// books, and step 2 counts them like decisions a person made in Scantrix.
+// books, and step 2 counts them like decisions a person made in ScanTrix.
 //
 //   read  — bills, expenses and card charges, deposits, bill payments dated in
 //           the last 12 months (ledger adapter historyBetween)
-//   skip  — entries Scantrix posted itself (bank lines it sent, bills it
+//   skip  — entries ScanTrix posted itself (bank lines it sent, bills it
 //           posted), so nothing is counted twice
 //   match — a bank payee to a vendor in the books by the cleaned-up name
 //           ("PETRO-CANADA 1234 TORONTO" ↔ "Petro-Canada"), or through the
@@ -86,7 +86,7 @@ async function saveStatus(db: Db, qbConnectionId: string, status: HistoryImportS
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-/** Ids of entries Scantrix posted itself from bank lines (not lines someone entered in the books directly). */
+/** Ids of entries ScanTrix posted itself from bank lines (not lines someone entered in the books directly). */
 async function scantrixPostedIds(db: Db, qbConnectionId: string): Promise<Set<string>> {
   const rows = await db.txns.find({ qbConnectionId, "posting.externalId": { $ne: null }, "posting.found": null }, { projection: { posting: 1 } }).toArray();
   return new Set(rows.map((r) => r.posting?.externalId).filter((id): id is string => Boolean(id)));
@@ -96,9 +96,9 @@ export interface ImportArgs {
   qbConnectionId: string;
   userId: string;
   ledger: { ctx: LedgerContext; adapter: LedgerAdapter };
-  /** Scantrix vendor id → the vendor's id in QuickBooks/Xero. */
+  /** ScanTrix vendor id → the vendor's id in QuickBooks/Xero. */
   vendorIds: Map<string, string>;
-  /** Bills Scantrix posted (their QuickBooks/Xero ids). */
+  /** Bills ScanTrix posted (their QuickBooks/Xero ids). */
   scantrixBillIds: Set<string>;
   allowRealCompanies?: boolean;
   now?: number;

@@ -16,7 +16,7 @@ export const post: BlogPostSource = {
   publishedAt: "2026-09-30",
   category: "Workflow",
   tags: ["Email forwarding", "QuickBooks Online", "Security"],
-  author: "Scantrix Team",
+  author: "ScanTrix Team",
   body: `
 Almost every supplier invoice already arrives by email. Yet in many finance teams, the next step is still download the PDF, find the right company, upload it, and delete the download. It is only a few clicks, but it happens hundreds of times a month, and every download that isn't cleaned up is a copy of a financial document sitting on a laptop.
 
@@ -67,12 +67,12 @@ Forwarding should be a new way *in*, not a shortcut past your process. A forward
 
 If an address leaks or starts attracting spam, you should be able to generate a new one in seconds, and the old one should stop working immediately.
 
-## Setting it up in Scantrix
+## Setting it up in ScanTrix
 
-[Scantrix](/#email) builds each of the safeguards above into email forwarding for QuickBooks Online. Setup takes a couple of minutes per company:
+[ScanTrix](/#email) builds each of the safeguards above into email forwarding for QuickBooks Online. Setup takes a couple of minutes per company:
 
 1. **Connect the QuickBooks company** you want invoices to go to.
-2. **Open Integrations** in Scantrix and choose **Turn on email forwarding** for that company.
+2. **Open Integrations** in ScanTrix and choose **Turn on email forwarding** for that company.
 3. **Choose a custom username** if you want a memorable address, then copy it.
 4. **Add the colleagues who may forward.** Your own address is already on the sender list; add anyone else who will forward invoices for this company.
 5. **Forward a test invoice.** It appears in the company's recent email imports within moments, with a clear reason if anything was rejected.

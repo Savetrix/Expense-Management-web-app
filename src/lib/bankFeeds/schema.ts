@@ -118,7 +118,7 @@ export interface TxnDoc {
 
   /** Who the line was paid to, normalised (suggest.ts payeeKey). */
   payeeKey: string | null;
-  /** What Scantrix suggested, and why (suggest.ts). */
+  /** What ScanTrix suggested, and why (suggest.ts). */
   suggestion: unknown;
   /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
   postingStatus: "processing" | "posted" | "failed" | null;
@@ -145,7 +145,7 @@ export interface EventDoc {
   itemId: string | null;
   /** A user id, or "plaid" / "autopilot" / "system". */
   actor: string;
-  /** Where the change came from: the web app, Plaid, Scantrix's Autopilot, or the server itself. */
+  /** Where the change came from: the web app, Plaid, ScanTrix's Autopilot, or the server itself. */
   source: "web" | "plaid" | "autopilot" | "system";
   action: string;
   detail: unknown;
@@ -194,8 +194,8 @@ export interface PostingRecord {
   postedAt: Date | null;
   postedBy: string;
   /**
-   * Set when Scantrix didn't make this entry: someone entered the line straight
-   * into QuickBooks/Xero and Scantrix found it there (foundInLedger.ts).
+   * Set when ScanTrix didn't make this entry: someone entered the line straight
+   * into QuickBooks/Xero and ScanTrix found it there (foundInLedger.ts).
    */
   found?: (FoundEntry & { auto: boolean }) | null;
 }
@@ -226,7 +226,7 @@ export interface PayeeLinkDoc {
   _id: string;
   qbConnectionId: string;
   payeeKey: string;
-  /** The vendor's id in Scantrix (the same id bank lines store). */
+  /** The vendor's id in ScanTrix (the same id bank lines store). */
   vendorId: string;
   /** The payee as the person wrote it on that line. */
   payee: string | null;
@@ -255,7 +255,7 @@ export interface HistoryImportStatus {
   /** Coded lines saved, and the entries they came from. */
   lines: number;
   entries: number;
-  /** Entries left out because Scantrix posted them itself. */
+  /** Entries left out because ScanTrix posted them itself. */
   skippedScantrix: number;
   error?: string | null;
 }
@@ -306,7 +306,7 @@ export interface HistoryDoc {
   line: number;
   date: string;
   amountCents: number;
-  /** The vendor (or customer) in QuickBooks/Xero, and the Scantrix vendor it is, when known. */
+  /** The vendor (or customer) in QuickBooks/Xero, and the ScanTrix vendor it is, when known. */
   vendorExternalId: string | null;
   vendorId: string | null;
   vendorName: string | null;
@@ -322,7 +322,7 @@ export interface HistoryDoc {
   importedAt: Date;
 }
 
-/** What Scantrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
+/** What ScanTrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
 export interface InsightDoc {
   _id: string;
   qbConnectionId: string;

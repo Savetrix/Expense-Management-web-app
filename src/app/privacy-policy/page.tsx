@@ -4,7 +4,7 @@ import { LegalContents } from "@/components/legal/LegalContents";
 import { SUPPORT_EMAIL } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Scantrix",
+  title: "Privacy Policy | ScanTrix",
   description: "How ScanTrix Technologies Inc. collects, uses, stores, and protects personal information.",
   alternates: { canonical: "/privacy-policy" },
 };
@@ -28,7 +28,7 @@ export default function PrivacyPolicyPage() {
         ScanTrix Privacy Policy
       </h1>
       <p className="mt-4 text-[15px] text-text-secondary">
-        <strong>Effective date:</strong> August 1, 2026
+        <strong>Effective date:</strong> November 3, 2026
       </p>
 
       <LegalContents sections={SECTIONS} />
@@ -112,50 +112,64 @@ export default function PrivacyPolicyPage() {
 
         <h2 id="sharing">4. Sharing and service providers</h2>
         <p>
-          We do not sell personal information. We share it only with the following, as needed to provide the Service:
+          We do not sell personal information. We share it only with service providers and other recipients that help us
+          provide, secure, and support the Service, such as providers of AI processing, cloud hosting and
+          infrastructure, workflow automation, analytics and crash reporting, payments and subscriptions, and the app
+          store through which the iOS app is distributed, as well as the accounting, banking, and storage services you
+          choose to connect, and our legal, accounting, and insurance advisers.
         </p>
-        <div className="lp-prose-table">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Provider</th>
-                <th scope="col">Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Anthropic (Claude API)</td>
-                <td>AI extraction and classification of invoice images and data</td>
-              </tr>
-              <tr>
-                <td>Amazon Web Services (AWS)</td>
-                <td>Hosting and storage of Service data</td>
-              </tr>
-              <tr>
-                <td>Intuit QuickBooks Online</td>
-                <td>Reading vendor, account, and bill data and posting bills, on your authorization</td>
-              </tr>
-              <tr>
-                <td>Make.com</td>
-                <td>Workflow automation and webhook processing in our backend</td>
-              </tr>
-              <tr>
-                <td>Connected drives you choose</td>
-                <td>Saving invoice files to a drive you have connected to ScanTrix</td>
-              </tr>
-              <tr>
-                <td>Savetrix Accounting Services LLP (India)</td>
-                <td>Apple App Store publisher only</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
         <p>
           We may also disclose information where required by law, court order, or a governmental authority, or to
           protect the rights, property, or safety of ScanTrix, our users, or others. If ScanTrix is involved in a
           merger, acquisition, or sale of assets, personal information may be transferred, and we will give notice
           before it becomes subject to a different privacy policy.
         </p>
+        <p>
+          <strong>How we manage service providers</strong>
+        </p>
+        <p>
+          ScanTrix runs a third-party risk management program so that the providers who handle your information protect
+          it. Under this program:
+        </p>
+        <ul>
+          <li>
+            <strong>Before engagement.</strong> Before a provider handles personal information or customer data, we
+            assess what data it will access and where it will be processed, review its security documentation (for
+            example a SOC 2 or ISO 27001 report or equivalent), and confirm that our contract includes confidentiality,
+            security, and data-protection terms.
+          </li>
+          <li>
+            <strong>Risk-based oversight.</strong> We rank providers by the sensitivity of the data they handle.
+            Providers that process invoice data or support our production systems receive the closest review.
+          </li>
+          <li>
+            <strong>Ongoing review.</strong> We review these providers at least once a year, and sooner if a provider
+            changes how it handles data, changes its terms, or has a security incident.
+          </li>
+          <li>
+            <strong>Minimum access.</strong> We share only the information a provider needs to perform its service.
+            Integrations request the minimum permissions required, and we revoke integration access when you disconnect
+            an integration or close your account.
+          </li>
+          <li>
+            <strong>AI providers.</strong> AI providers are engaged under written terms. We do not permit them to use
+            your data to train their models, and their use of your data is limited to providing the service to
+            ScanTrix.
+          </li>
+          <li>
+            <strong>Incidents.</strong> We expect providers to notify us promptly of any security incident that affects
+            ScanTrix data, and we handle it under our incident response procedure, including notifying you and
+            regulators where the law requires.
+          </li>
+          <li>
+            <strong>Provider list.</strong> We keep a register of the providers that handle customer data. You can
+            request the current list by contacting the Privacy Officer at support@scantrix.ai.
+          </li>
+          <li>
+            <strong>Ending a relationship.</strong> When we stop using a provider, we revoke its access and ask it to
+            delete ScanTrix data, subject to legal retention requirements.
+          </li>
+        </ul>
         <p>
           Your use of QuickBooks Online and other third-party services is governed by their own terms and privacy
           policies. ScanTrix is independent of and not affiliated with Intuit.

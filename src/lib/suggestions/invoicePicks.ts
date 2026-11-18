@@ -1,6 +1,6 @@
 // Smart Suggestions, step 2, on the invoice review screen: the top 3 GL
 // accounts for a bill.
-//   1st: the vendor's default GL from the Scantrix API, as today;
+//   1st: the vendor's default GL from the ScanTrix API, as today;
 //   2nd and 3rd: company memory — the accounts people chose for this vendor's
 //        bills they posted themselves, and for its bank lines.
 // Pure, so it can be tested without a screen.

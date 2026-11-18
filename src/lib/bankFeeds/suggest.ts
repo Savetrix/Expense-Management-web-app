@@ -13,18 +13,18 @@
 //      user's own decisions on lines with the same payee. Weight 1.0 if decided
 //      within 90 days, 0.5 within a year, 0 older. Pass when the agreeing weight
 //      is ≥ 3.0 AND ≥ 90% of all weight for that payee.
-// When all three pass, Scantrix fills in the coding itself (decided_by =
+// When all three pass, ScanTrix fills in the coding itself (decided_by =
 // "autopilot") and says so on the line; the user can change it. It never
 // changes a line's status (exclude, transfer, match) by itself, and never posts.
 //
 // Smart Suggestions, step 1: the company's own coding in QuickBooks (the last
 // 12 months, history.ts) counts like decisions a person made here, so a payee
-// the books already know is suggested from day one. There are no Scantrix
+// the books already know is suggested from day one. There are no ScanTrix
 // rules: the company's rules live in QuickBooks (Saurabh, 13 Nov call).
 //
 // Step 2: every suggestion also carries the top 3 accounts (`picks`, from
 // lib/suggestions/picks.ts) with the past lines behind each, for the account
-// dropdown and "How Scantrix decided". Once a person picks a vendor for a
+// dropdown and "How ScanTrix decided". Once a person picks a vendor for a
 // payee, the payee is linked to that vendor (payee_links), and later lines
 // from that payee get that vendor.
 import type { AnyBulkWriteOperation } from "mongodb";
@@ -94,7 +94,7 @@ export interface Suggestion {
   /** One plain sentence for the line. */
   reason: string;
   checks: { legibility: CheckResult; completeness: CheckResult; history: CheckResult };
-  /** Scantrix filled the coding in itself (all three checks passed). */
+  /** ScanTrix filled the coding in itself (all three checks passed). */
   autoCoded: boolean;
   /** Weighted votes behind the suggestion, and how many past lines. */
   basis: { agreeing: number; total: number; lines: number };
@@ -231,7 +231,7 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   const confidence = historyOk && leg.ok && completeness.ok ? "high" : agreement >= 0.6 ? "medium" : "low";
   const autoCoded = confidence === "high" && v.kind === "expense";
   const reason = autoCoded
-    ? `Coded by Scantrix — ${historyDetail.charAt(0).toLowerCase()}${historyDetail.slice(1)}`
+    ? `Coded by ScanTrix — ${historyDetail.charAt(0).toLowerCase()}${historyDetail.slice(1)}`
     : !leg.ok
       ? leg.detail
       : !historyOk
@@ -274,7 +274,7 @@ function describe(v: Vote): string {
 /** Auto-classification "Suggest only": the same suggestion, never filled in. */
 export function suggestOnly(s: Suggestion): Suggestion {
   if (!s.autoCoded) return s;
-  const reason = s.reason.replace(/^Coded by Scantrix — /, "");
+  const reason = s.reason.replace(/^Coded by ScanTrix — /, "");
   return { ...s, autoCoded: false, reason: reason.charAt(0).toUpperCase() + reason.slice(1) };
 }
 
@@ -303,11 +303,11 @@ function toVote(r: VoteRow): Vote | null {
  * Re-scores every undecided line of a company (or only those with the given
  * payee keys) and codes the ones that pass all three checks. Called after a
  * sync, a CSV import, a history read, any decision the user makes, and any
- * change to the Auto-classification setting. Returns how many lines Scantrix
+ * change to the Auto-classification setting. Returns how many lines ScanTrix
  * coded by itself in this pass.
  *
  * Auto-classification: "off" clears every suggestion; "suggest" keeps them but
- * fills nothing in; either way, what Scantrix filled in earlier is taken back.
+ * fills nothing in; either way, what ScanTrix filled in earlier is taken back.
  */
 export async function refreshSuggestions(
   db: Db,
@@ -328,7 +328,7 @@ export async function refreshSuggestions(
   }
   const keyFilter = onlyKeys ? { payeeKey: { $in: onlyKeys } } : {};
 
-  // 2. Votes: the USER's own decisions in the last year. Lines Scantrix coded by
+  // 2. Votes: the USER's own decisions in the last year. Lines ScanTrix coded by
   //    itself do not vote, or one early guess would keep confirming itself.
   const voteRows = await db.txns
     .find({
@@ -428,11 +428,11 @@ export async function refreshSuggestions(
   const now = Date.now();
   // One round trip per line was slow on a large company (every setting change
   // re-scores all of them): plain suggestions go in one bulk write, and the
-  // lines Scantrix codes or uncodes are updated side by side.
+  // lines ScanTrix codes or uncodes are updated side by side.
   const plain: AnyBulkWriteOperation<TxnDoc>[] = [];
   const coding: Promise<void>[] = [];
   const before = (c: TxnDoc) => ({ glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee });
-  // Takes back what Scantrix filled in by itself; the line keeps `suggestion` (null = none).
+  // Takes back what ScanTrix filled in by itself; the line keeps `suggestion` (null = none).
   const uncode = async (c: TxnDoc, suggestion: Suggestion | null, reason: string) => {
     const r = await db.txns.updateOne(
       { _id: c._id, qbConnectionId, status: "review", decidedBy: "autopilot" },
@@ -492,7 +492,7 @@ export async function refreshSuggestions(
         }
       })());
     } else if (c.decidedBy === "autopilot") {
-      // History or the setting no longer supports the coding Scantrix chose: undo it, keep the explanation.
+      // History or the setting no longer supports the coding ScanTrix chose: undo it, keep the explanation.
       coding.push(uncode(c, s, s.reason));
     } else {
       plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: s, updatedAt: new Date() } } } });
@@ -506,7 +506,7 @@ export async function refreshSuggestions(
  * Company memory for one vendor from bank lines (and, when "Learn from
  * QuickBooks or Xero history" is on, its entries in the books): the accounts
  * people coded this vendor's lines to in the last year. Only a person's decisions count
- * (a line Scantrix filled in counts once a person posts it).
+ * (a line ScanTrix filled in counts once a person posts it).
  */
 export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: string): Promise<MemoryVote[]> {
   if (!vendorId) return [];

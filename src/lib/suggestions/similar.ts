@@ -1,5 +1,5 @@
 // Smart Suggestions, step 3: similar past items. When a vendor or payee is new
-// (step 2 has nothing for it), Scantrix finds past items from ANY vendor that
+// (step 2 has nothing for it), ScanTrix finds past items from ANY vendor that
 // mean the same thing — "ESSO 5521" fuel looks like "Petro-Canada" fuel — and
 // lets them vote, so the company's own choice wins (fuel → Travel, not some
 // generic "Petrol expense"). Pure: text building and voting, no network.

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ForgotPasswordContent } from "@/components/auth/ForgotPasswordContent";
 
 export const metadata: Metadata = {
-  title: "Forgot Password — Scantrix",
+  title: "Forgot Password — ScanTrix",
 };
 
 export default function ForgotPasswordPage() {

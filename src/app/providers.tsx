@@ -7,6 +7,7 @@ import { PersistGate } from "redux-persist/integration/react";
 import { Persistor, persistStore } from "redux-persist";
 
 import { store } from "@/store";
+import { FullScreenLoader } from "@/components/ui/FullScreenLoader";
 import { DialogHost } from "@/components/ui/DialogHost";
 
 // persistStore(store) starts redux-persist's storage read/rehydrate cycle.
@@ -28,7 +29,9 @@ export function Providers({ children }: PropsWithChildren) {
     // next-themes sets this class before hydration via an inline script.
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <Provider store={store}>
-        <PersistGate loading={null} persistor={persistorRef.current}>
+        {/* Also what the server renders, so a page opened by URL shows a
+            loader instead of a blank white screen until the app starts. */}
+        <PersistGate loading={<FullScreenLoader />} persistor={persistorRef.current}>
           {children}
           <DialogHost />
         </PersistGate>

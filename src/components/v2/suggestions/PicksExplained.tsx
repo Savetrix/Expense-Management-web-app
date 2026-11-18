@@ -3,7 +3,7 @@ import type { PickStep, SuggestionPick } from "@/lib/suggestions/picks";
 
 import { ConfidenceLabel } from "./ConfidenceLabel";
 
-// "How Scantrix decided", step 2: which step found each of the top 3
+// "How ScanTrix decided", step 2: which step found each of the top 3
 // accounts, and the past items each one is based on.
 
 const STEP_LABEL: Record<PickStep, string> = {

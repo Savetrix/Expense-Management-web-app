@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { GLTaxCodeContentV2 } from "@/components/v2/glTaxCode/GLTaxCodeContentV2";
 
 export const metadata: Metadata = {
-  title: "GL Account & TaxCode — Scantrix",
+  title: "GL Account & TaxCode — ScanTrix",
 };
 
 export default function GLTaxCodeV2Page() {

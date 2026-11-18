@@ -1,5 +1,5 @@
 // Smart Suggestions, finishing step 2 (Saurabh, 11 Nov): the fill-in rule,
-// "Suggest only" vs "Fill in when sure", what a line shows, the "Scantrix is
+// "Suggest only" vs "Fill in when sure", what a line shows, the "ScanTrix is
 // sure" section, and the auto-post lock.
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -21,7 +21,7 @@ const suggestion = (over: Record<string, unknown> = {}) => ({
   vendorId: "v-petro",
   payee: "Petro Canada",
   confidence: "high",
-  reason: "Coded by Scantrix — 3 earlier lines for this payee were coded the same way.",
+  reason: "Coded by ScanTrix — 3 earlier lines for this payee were coded the same way.",
   checks: {},
   autoCoded: true,
   basis: { agreeing: 3, total: 3, lines: 3 },
@@ -39,14 +39,14 @@ const line = (over: Partial<BankTransaction> = {}): BankTransaction => ({
 });
 
 describe("what a bank line shows", () => {
-  it("a line Scantrix filled in shows its values, marked as Scantrix's", () => {
+  it("a line ScanTrix filled in shows its values, marked as ScanTrix's", () => {
     const c = codingFor(line({ categoryId: "gl-travel", taxCodeId: "gst", vendorId: "v-petro", suggestion: suggestion() }));
     assert.equal(c.source, "autopilot");
     assert.equal(c.glAccountId, "gl-travel");
     assert.equal(c.offered, null);
   });
 
-  it("a suggestion Scantrix didn't fill in stays out of the boxes, even when High ('Suggest only')", () => {
+  it("a suggestion ScanTrix didn't fill in stays out of the boxes, even when High ('Suggest only')", () => {
     const c = codingFor(line({ suggestion: suggestion({ autoCoded: false }) }));
     assert.equal(c.source, "none");
     assert.equal(c.glAccountId, undefined, "the GL box is empty");
@@ -67,8 +67,8 @@ describe("what a bank line shows", () => {
   });
 });
 
-describe("the 'Scantrix is sure' section", () => {
-  it("holds lines Scantrix filled in, and High suggestions under 'Suggest only'", () => {
+describe("the 'ScanTrix is sure' section", () => {
+  it("holds lines ScanTrix filled in, and High suggestions under 'Suggest only'", () => {
     assert.equal(isSureLine(line({ categoryId: "gl-travel", taxCodeId: "gst", vendorId: "v-petro", suggestion: suggestion() })), true);
     assert.equal(isSureLine(line({ suggestion: suggestion({ autoCoded: false }) })), true);
   });
@@ -218,15 +218,15 @@ describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_U
     assert.equal((next?.suggestion as Suggestion).confidence, "high", "still High, so it shows in the 'sure' section");
   });
 
-  it("switching to Suggest only clears what Scantrix filled, never what a person chose", async () => {
+  it("switching to Suggest only clears what ScanTrix filled, never what a person chose", async () => {
     const all = await lines(5);
     for (const l of all.slice(0, 3)) await code(l.id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
     await refreshSuggestions(db, QB);
-    assert.equal((await read(all[3].id))?.categoryId, "gl-travel", "filled by Scantrix");
+    assert.equal((await read(all[3].id))?.categoryId, "gl-travel", "filled by ScanTrix");
     await code(all[4].id, { glAccountId: "gl-meals" });
 
     await setAutoClassification(db, { qbConnectionId: QB, userId: "admin", mode: "suggest" });
-    assert.equal((await read(all[3].id))?.categoryId, undefined, "Scantrix's fill is taken back");
+    assert.equal((await read(all[3].id))?.categoryId, undefined, "ScanTrix's fill is taken back");
     assert.equal((await read(all[4].id))?.categoryId, "gl-meals", "the person's choice stays");
     assert.equal((await read(all[0].id))?.categoryId, "gl-travel");
   });

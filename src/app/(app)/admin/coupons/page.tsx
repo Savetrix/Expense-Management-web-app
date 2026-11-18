@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { CouponsAdminContentV2 } from "@/components/v2/admin/CouponsAdminContentV2";
 
 export const metadata: Metadata = {
-  title: "Coupons — Scantrix",
+  title: "Coupons — ScanTrix",
 };
 
 export default function CouponsAdminPage() {

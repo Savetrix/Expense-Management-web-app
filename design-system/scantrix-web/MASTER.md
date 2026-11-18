@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** Scantrix Web
+**Project:** ScanTrix Web
 **Generated:** 2026-07-25 00:35:40
 **Category:** B2B Service
 

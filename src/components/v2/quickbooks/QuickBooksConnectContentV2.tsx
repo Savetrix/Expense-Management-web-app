@@ -45,7 +45,7 @@ export function QuickBooksConnectContentV2() {
 
       <PageHeader
         title="Accounting connections"
-        subtitle="Manage the QuickBooks and Xero companies connected to Scantrix."
+        subtitle="Manage the QuickBooks and Xero companies connected to ScanTrix."
         action={
           <Button type="button" size="sm" onClick={() => handleConnect()} loading={connecting} className="shrink-0">
             {!connecting && <Plug size={14} strokeWidth={2.25} />}

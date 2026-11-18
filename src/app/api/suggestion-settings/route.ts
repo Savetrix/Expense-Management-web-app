@@ -2,7 +2,7 @@
 //   { autoClassification: "off" | "suggest" | "fill", canChange }.
 // PUT /api/suggestion-settings — { autoClassification }. Owner or Admin only.
 //   Applied to the lines to review at once: Off clears every suggestion,
-//   Suggest only takes back what Scantrix filled in by itself.
+//   Suggest only takes back what ScanTrix filled in by itself.
 import { can } from "@/lib/bankFeeds/door";
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { setAutoClassification } from "@/lib/bankFeeds/settings";

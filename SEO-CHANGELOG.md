@@ -179,7 +179,7 @@ comment. Two deliberate omissions:
 
 ```ts
 metadataBase: new URL(SITE_URL),   // required before any relative metadata URL
-title: { default: "…", template: "%s" },  // "%s" — pages already carry "— Scantrix"
+title: { default: "…", template: "%s" },  // "%s" — pages already carry "— ScanTrix"
 openGraph: { type, siteName, locale: "en_US", url },
 twitter:   { card: "summary_large_image" },
 robots:    { index: true, follow: true, googleBot: { "max-image-preview": "large", … } },
@@ -194,7 +194,7 @@ declare their own.
 ### `src/app/page.tsx`
 
 - Title rewritten to lead with the category:
-  `"QuickBooks Invoice Scanning & AP Automation | Scantrix"`.
+  `"QuickBooks Invoice Scanning & AP Automation | ScanTrix"`.
 - `alternates: { canonical: "/" }`.
 - Renders the three JSON-LD blocks. **They are emitted from the Server Component
   wrapper, not from inside `LandingPage`** (which is `"use client"`) — so they
@@ -379,5 +379,5 @@ Delivers the content surface SEO-AUDIT.md §4–§7 called for: the first proble
 - **Markdown renders at build time only** (`marked`, the one new dependency). It never ships to the browser: the homepage receives plain summaries as props. Raw HTML in a post is escaped, not rendered.
 - **Nav anchors are now `/#section`**, so they work from `/blog`. "About" left the top nav to make room for "Blog" at the same width; it remains in the footer and on the page.
 - **No tag or category pages.** With three posts they would be thin, near-duplicate pages. Add them once a category has enough posts to stand alone.
-- **Product claims are guarded.** A test fails if any sentence mentioning Scantrix also mentions duplicates or merging, the unsupported claims in SEO-AUDIT.md §3. The month-end post covers duplicate *payments* as manual controls only.
+- **Product claims are guarded.** A test fails if any sentence mentioning ScanTrix also mentions duplicates or merging, the unsupported claims in SEO-AUDIT.md §3. The month-end post covers duplicate *payments* as manual controls only.
 - **Drafts:** `draft: true` shows a post in `next dev` only.

@@ -32,6 +32,8 @@ export interface QBConnection {
   autoPostEnabled?: boolean;
   /** Contributors: the sidebar pages they can open (lib/pageAccess.ts); null/absent = all. */
   pageAccess?: string[] | null;
+  /** The company's home (base) currency — null/absent until the backend has read it. */
+  homeCurrency?: string | null;
 }
 
 // Shared between QuickBooksConnectContent (the dedicated /quickbooks page)

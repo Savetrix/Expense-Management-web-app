@@ -1189,7 +1189,7 @@ describe("inbound pipeline", () => {
 
   // ── A LOST MEMBERSHIP ─────────────────────────────────────────────────────
   // A client forwarded invoices for days into a company that had removed the
-  // Scantrix service account from its Team page. Every upload came back 403; the
+  // ScanTrix service account from its Team page. Every upload came back 403; the
   // panel said "Active" and "The invoice couldn't be processed."
 
   it("names a 403 as lost access rather than a generic processing failure", async () => {

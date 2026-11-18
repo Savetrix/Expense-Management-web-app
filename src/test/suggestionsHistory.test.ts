@@ -165,7 +165,7 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
   };
   const after_ = async (id: string) => (await listTransactions(db, QB)).find((l) => l.id === id);
 
-  it("saves a sandbox company's coded lines, marked as from QuickBooks, with the Scantrix vendor", async () => {
+  it("saves a sandbox company's coded lines, marked as from QuickBooks, with the ScanTrix vendor", async () => {
     const status = await read([purchase("1", 5), purchase("2", 10)]);
     assert.equal(status.outcome, "done");
     assert.equal(status.lines, 2);
@@ -176,12 +176,12 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     ]);
   });
 
-  it("leaves out entries Scantrix posted itself: its bank lines and its bills", async () => {
+  it("leaves out entries ScanTrix posted itself: its bank lines and its bills", async () => {
     const line = await bankLine("UBER TRIP", -12);
     await setNamedMapping(db, { qbConnectionId: QB, accountLabel: "RBC", ledger: { id: "35", name: "Chequing" }, userId: "u1" });
     assert.ok((await decide(db, { qbConnectionId: QB, id: line.id, userId: "u1", patch: { status: "ready", glAccountId: "gl-travel" } })).ok);
     const sent = await postLines(db, { ledger: sandbox, adapter: fakeBooks([]), vendorIds: async () => new Map(), taxRates: async () => new Map(), bill: async () => null }, { qbConnectionId: QB, ids: [line.id], userId: "u1" });
-    assert.equal(sent[0].ok, true, "Scantrix posted it as entry 301");
+    assert.equal(sent[0].ok, true, "ScanTrix posted it as entry 301");
     const status = await read([purchase("301", 1), purchase("302", 2), { ...purchase("900", 3), entity: "Bill", bankAccountId: null }], { scantrixBillIds: new Set(["900"]) });
     assert.equal(status.skippedScantrix, 2);
     assert.deepEqual((await db.history.find({ qbConnectionId: QB }).toArray()).map((r) => r.entryId), ["302"]);
@@ -204,7 +204,7 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     const s = next?.suggestion as Suggestion;
     assert.equal(next?.categoryId, "gl-travel");
     assert.equal(next?.taxCodeId, "gst");
-    assert.equal(next?.vendorId, "v-petro", "the Scantrix vendor for the QuickBooks vendor");
+    assert.equal(next?.vendorId, "v-petro", "the ScanTrix vendor for the QuickBooks vendor");
     assert.match(s.reason, /QuickBooks history/);
     assert.equal(s.picks?.[0].historyLines, 3);
     assert.equal(pickReason(s.picks![0], "Travel").startsWith("From your QuickBooks history: Petro-Canada"), true);

@@ -1,5 +1,5 @@
 // Smart Suggestions, step 2: the top 3 accounts for an item, from a company
-// the company's past decisions for the same vendor or payee (in Scantrix and in
+// the company's past decisions for the same vendor or payee (in ScanTrix and in
 // its QuickBooks history), and from similar past items (step 3).
 // Pure and shared: the server uses it for bank lines (lib/bankFeeds/suggest.ts),
 // the invoice screen uses it in the browser.
@@ -26,7 +26,7 @@ export function voteWeight(decidedAt: string, now = Date.now()): number {
   return 0;
 }
 
-/** One past item a pick is based on, for "How Scantrix decided". */
+/** One past item a pick is based on, for "How ScanTrix decided". */
 export interface Evidence {
   /** "Petro Canada", or the bill's vendor and number. */
   label: string;
@@ -34,7 +34,7 @@ export interface Evidence {
   date: string;
   /** Size of the amount, in cents; null when unknown. */
   amountCents: number | null;
-  /** A Scantrix bank line or bill, or a line from the company's own books (history). */
+  /** A ScanTrix bank line or bill, or a line from the company's own books (history). */
   source: "bank" | "invoice" | HistorySource;
 }
 

@@ -58,7 +58,7 @@ export interface InboundEmailConfig {
   /** AES-256-GCM key for secrets at rest. 32 bytes, base64 or hex. */
   tokenEncryptionKey: Buffer;
   /**
-   * The dedicated Scantrix account that performs every inbound upload.
+   * The dedicated ScanTrix account that performs every inbound upload.
    *
    * WHY A SERVICE ACCOUNT AND NOT THE USER'S OWN SESSION. This backend allows
    * exactly ONE live session per account — a second login invalidates the

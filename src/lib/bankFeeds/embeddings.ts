@@ -3,7 +3,7 @@
 // change later: every stored vector carries `model`, and a vector made by a
 // different model is simply made again.
 //
-// Today: OpenAI text-embedding-3-small on the key Scantrix already uses
+// Today: OpenAI text-embedding-3-small on the key ScanTrix already uses
 // (OPENAI_API_KEY), shortened to 512 numbers per vector, which keeps a
 // company's vectors small enough to compare in the app.
 import OpenAI from "openai";

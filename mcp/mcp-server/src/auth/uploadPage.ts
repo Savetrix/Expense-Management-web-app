@@ -27,7 +27,7 @@ export const uploadPage = (opts: {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Upload an invoice to Scantrix</title>
+<title>Upload an invoice to ScanTrix</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -83,7 +83,7 @@ export const uploadPage = (opts: {
         <path d="M18 17.5v2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
     </div>
-    <span class="logo-text">Scantrix</span>
+    <span class="logo-text">ScanTrix</span>
   </a>
 
   <div class="card">

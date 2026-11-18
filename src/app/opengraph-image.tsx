@@ -3,14 +3,14 @@ import { ImageResponse } from "next/og";
 // Generated at build time rather than committed as a binary, so the card can
 // never drift from the positioning on the page. Applies to "/" and is
 // inherited by the routes below it, which is what makes a pasted app link
-// render as a Scantrix card instead of a bare URL.
+// render as a ScanTrix card instead of a bare URL.
 //
 // Rendered by satori: only a small CSS subset is supported, every element with
 // more than one child needs an explicit `display: flex`, and no webfont is
 // fetched (the system stack keeps the build offline-safe).
 
 export const alt =
-  "Scantrix — invoices read, vendors matched, and bills posted to QuickBooks Online automatically";
+  "ScanTrix — invoices read, vendors matched, and bills posted to QuickBooks Online automatically";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -47,7 +47,7 @@ export default function OpengraphImage() {
             }}
           />
           <div style={{ fontSize: 34, fontWeight: 700, color: "#ffffff" }}>
-            Scantrix
+            ScanTrix
           </div>
         </div>
 
@@ -75,7 +75,7 @@ export default function OpengraphImage() {
               display: "flex",
             }}
           >
-            Scantrix reads every invoice, matches the vendor, and posts the bill
+            ScanTrix reads every invoice, matches the vendor, and posts the bill
             — you review only the exceptions.
           </div>
         </div>

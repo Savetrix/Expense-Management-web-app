@@ -148,6 +148,8 @@ function SettingsEditor({ settings, role }: { settings: ExpenseSettingsDto; role
                 clearLabel="No account"
                 placeholder="Search GL accounts"
                 uiSize="md"
+                // The card clips overflow — draw the list above it instead.
+                floating
               />
             </div>
           </div>

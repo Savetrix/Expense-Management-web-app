@@ -37,14 +37,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const post = getPostBySlug(slug);
   if (!post) return {};
   return {
-    title: `${post.title} | Scantrix Blog`,
+    title: `${post.title} | ScanTrix Blog`,
     description: post.description,
     keywords: post.tags,
     alternates: {
       canonical: post.href,
       // Restated: a page's `alternates` replaces the layout's wholesale, so
       // omitting this would drop the feed link from every article.
-      types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "Scantrix Blog" }] },
+      types: { "application/rss+xml": [{ url: "/blog/rss.xml", title: "ScanTrix Blog" }] },
     },
     authors: [{ name: post.author }],
     openGraph: {

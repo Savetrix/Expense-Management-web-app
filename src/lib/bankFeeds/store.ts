@@ -125,9 +125,9 @@ export async function upsertAccounts(db: Db, item: Pick<ItemDoc, "_id" | "qbConn
 function reloginReason(status: ItemStatus): string {
   switch (status) {
     case "pending_expiration":
-      return "The bank's permission for Scantrix expires soon. Sign in again to keep transactions coming.";
+      return "The bank's permission for ScanTrix expires soon. Sign in again to keep transactions coming.";
     case "pending_disconnect":
-      return "The bank is about to stop sharing with Scantrix. Sign in again to keep transactions coming.";
+      return "The bank is about to stop sharing with ScanTrix. Sign in again to keep transactions coming.";
     case "revoked":
       return "Access was withdrawn at the bank. Sign in again to reconnect.";
     default:

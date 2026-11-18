@@ -35,12 +35,12 @@ interface CreatableComboboxProps {
    * inside table cells and other containers that clip their content.
    */
   floating?: boolean;
-  /** "suggested": the shown value is Scantrix's suggestion, not yet saved. */
+  /** "suggested": the shown value is ScanTrix's suggestion, not yet saved. */
   tone?: "default" | "suggested";
   /** Tooltip on the input (e.g. why a value was suggested). */
   title?: string;
   /**
-   * Scantrix's suggestions (at most 3), listed first under "Suggested" with
+   * ScanTrix's suggestions (at most 3), listed first under "Suggested" with
    * their reason and confidence label. Only ids that are in `options` show.
    * Hidden while typing.
    */

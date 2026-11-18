@@ -11,7 +11,7 @@ import { HistorySetting } from "./HistorySetting";
 
 // The company's Smart Suggestions settings (Autopilot > Settings):
 // Auto-classification, and learning from the company's QuickBooks history.
-// There are no Scantrix rules: the company's rules live in QuickBooks, and a
+// There are no ScanTrix rules: the company's rules live in QuickBooks, and a
 // line a QuickBooks rule coded shows here as already handled.
 
 const MODES: { value: AutoClassification; label: string; detail: string }[] = [
@@ -19,7 +19,7 @@ const MODES: { value: AutoClassification; label: string; detail: string }[] = [
   {
     value: "suggest",
     label: "Suggest only",
-    detail: "The vendor, GL and tax boxes stay empty. Lines Scantrix is sure about go to the top of Bank Transactions, and other ideas appear in each box's dropdown under \"Suggested\".",
+    detail: "The vendor, GL and tax boxes stay empty. Lines ScanTrix is sure about go to the top of Bank Transactions, and other ideas appear in each box's dropdown under \"Suggested\".",
   },
   {
     value: "fill",
@@ -62,7 +62,7 @@ export function SettingsPanel({ providerName }: { providerName: string }) {
     <div className="flex flex-col gap-[var(--space-md)] p-[var(--space-md)]">
       <section className="rounded-md border border-border bg-surface px-[var(--space-md)] py-[var(--space-sm)]">
         <p className="text-body-sm font-bold text-content-primary">Auto-classification</p>
-        <p className="text-caption text-content-secondary">How Scantrix uses what it learned from your coding, on bank lines and invoices.</p>
+        <p className="text-caption text-content-secondary">How ScanTrix uses what it learned from your coding, on bank lines and invoices.</p>
         {settings ? (
           <div className="mt-[var(--space-sm)] grid gap-[var(--space-sm)] md:grid-cols-3" role="radiogroup" aria-label="Auto-classification">
             {MODES.map((m) => {

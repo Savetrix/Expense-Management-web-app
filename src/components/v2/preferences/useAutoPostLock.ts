@@ -16,7 +16,7 @@ function postedAt(inv: InvoiceRecord): string | null {
 
 /**
  * The auto-post lock for the company picked in the header (lib/suggestions/autoPostLock.ts):
- * locked until it has N days of coding in Scantrix — posted bills or coded bank lines.
+ * locked until it has N days of coding in ScanTrix — posted bills or coded bank lines.
  * While the numbers load, the switch can't be turned on.
  */
 export function useAutoPostLock(): AutoPostLock & { loading: boolean } {
@@ -56,5 +56,5 @@ export function useAutoPostLock(): AutoPostLock & { loading: boolean } {
   const loading = !bank || bank.for !== qbConnectionId || (noInvoices && invoicesLoading);
   const requiredDays = bank?.requiredDays ?? DEFAULT_AUTOPOST_UNLOCK_DAYS;
   const lock = autoPostLock(earliest(firstBill, bank?.firstAt), requiredDays);
-  return loading ? { ...lock, locked: true, note: "Checking how long this company has been coding in Scantrix…", loading } : { ...lock, loading };
+  return loading ? { ...lock, locked: true, note: "Checking how long this company has been coding in ScanTrix…", loading } : { ...lock, loading };
 }

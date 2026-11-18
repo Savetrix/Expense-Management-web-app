@@ -14,7 +14,7 @@ Retool. What makes them read as *premium* rather than *template*:
    glass blobs, no icon-grid soup. Applied here: teal is the *only* accent;
    navy carries depth; everything else is neutral.
 2. **The product is the hero.** The best pages show the actual UI — layered,
-   annotated, alive — instead of stock art. We recreate real Scantrix screens
+   annotated, alive — instead of stock art. We recreate real ScanTrix screens
    (extraction, dashboard summary cards, QuickBooks post) as in-browser
    mockups. Every pixel maps to something the app genuinely does.
 3. **One signature motion moment.** Stripe/Linear anchor the hero on a single
@@ -29,7 +29,7 @@ Retool. What makes them read as *premium* rather than *template*:
 
 ## Messaging hierarchy
 
-1. **What it is:** Scantrix reads your invoices and posts them to QuickBooks.
+1. **What it is:** ScanTrix reads your invoices and posts them to QuickBooks.
 2. **Who it's for:** Accountants and small-business finance teams.
 3. **Problem:** Manual accounts-payable — retyping invoices into QuickBooks,
    matching vendors by hand, month-end pileups, error-prone data entry.

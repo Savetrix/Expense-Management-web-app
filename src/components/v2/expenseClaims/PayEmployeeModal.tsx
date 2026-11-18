@@ -31,7 +31,7 @@ interface PayEmployeeModalProps {
 
 // "Pay employee": records the payment of a claim's or trip's bill in
 // QuickBooks/Xero from one of the company's bank accounts and marks it paid.
-// Scantrix doesn't send the money — the payment is made as usual, this books it.
+// ScanTrix doesn't send the money — the payment is made as usual, this books it.
 export function PayEmployeeModal({ target, providerName, onPay, onClose }: PayEmployeeModalProps) {
   const dispatch = useAppDispatch();
   const [accounts, setAccounts] = useState<{ forId: string; list: BankAccountDto[]; error: string } | null>(null);
@@ -127,7 +127,7 @@ export function PayEmployeeModal({ target, providerName, onPay, onClose }: PayEm
 
         <p className="text-caption text-content-secondary">
           This records a payment of the {target.noun}&apos;s bill in {providerName} for whatever is still open on it, and marks the {target.noun}{" "}
-          paid. Scantrix doesn&apos;t send the money — pay {target.payee} as you usually do.
+          paid. ScanTrix doesn&apos;t send the money — pay {target.payee} as you usually do.
         </p>
       </div>
     </Modal>

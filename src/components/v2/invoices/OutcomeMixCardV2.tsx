@@ -13,7 +13,7 @@ const RADIUS = 15.9155;
 const STROKE_WIDTH = 4;
 
 interface Segment {
-  key: "auto" | "manual" | "failed";
+  key: "auto" | "manual" | "failed" | "rejected";
   label: string;
   count: number;
   colorClass: string;
@@ -37,6 +37,8 @@ export function OutcomeMixCardV2({ invoices }: { invoices: InvoiceRecord[] }) {
     { key: "auto", label: "Auto", count: totals.auto, colorClass: "text-status-success-text" },
     { key: "manual", label: "Manual", count: totals.manual, colorClass: "text-status-info-text" },
     { key: "failed", label: "Failed", count: totals.failed, colorClass: "text-status-danger-text" },
+    // A person's decision, not an error — kept out of the red.
+    { key: "rejected", label: "Rejected", count: totals.rejected, colorClass: "text-content-muted" },
   ];
 
   const autoPct = Math.round((totals.auto / totals.total) * 100);
@@ -128,16 +130,18 @@ export function OutcomeMixCardV2({ invoices }: { invoices: InvoiceRecord[] }) {
             const autoHeight = (bucket.auto / max) * 100;
             const manualHeight = (bucket.manual / max) * 100;
             const failedHeight = (bucket.failed / max) * 100;
+            const rejectedHeight = (bucket.rejected / max) * 100;
             return (
               <div key={i} className="flex flex-col items-center gap-[var(--space-xs)]">
                 <span className="text-tiny font-semibold text-content-secondary">{bucket.total || ""}</span>
                 <div
                   className="flex h-16 w-full flex-col-reverse overflow-hidden rounded-sm bg-page"
-                  title={`Week ${i + 1}: ${bucket.total} invoice${bucket.total === 1 ? "" : "s"} (${bucket.auto} auto, ${bucket.manual} manual, ${bucket.failed} failed)`}
+                  title={`Week ${i + 1}: ${bucket.total} invoice${bucket.total === 1 ? "" : "s"} (${bucket.auto} auto, ${bucket.manual} manual, ${bucket.failed} failed, ${bucket.rejected} rejected)`}
                 >
                   <div className="w-full bg-status-success-text" style={{ height: `${autoHeight}%` }} />
                   <div className="w-full bg-status-info-text" style={{ height: `${manualHeight}%` }} />
                   <div className="w-full bg-status-danger-text" style={{ height: `${failedHeight}%` }} />
+                  <div className="w-full bg-content-muted" style={{ height: `${rejectedHeight}%` }} />
                 </div>
                 <span className="text-tiny font-semibold text-content-secondary">W{i + 1}</span>
               </div>

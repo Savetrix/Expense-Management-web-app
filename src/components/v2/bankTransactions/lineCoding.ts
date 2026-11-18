@@ -2,10 +2,10 @@
 // from. Pure, so it can be tested without a screen; coding.ts re-exports it.
 //
 // A box shows a value only when it is saved on the line: chosen by a person,
-// or filled in by Scantrix ("Fill in when sure", a High suggestion). Anything
-// Scantrix only suggests (Medium, Low, or High with "Suggest only") stays out
+// or filled in by ScanTrix ("Fill in when sure", a High suggestion). Anything
+// ScanTrix only suggests (Medium, Low, or High with "Suggest only") stays out
 // of the boxes: it is offered in the account dropdown, in the line dialog
-// ("Use this") and, when High, in the "Scantrix is sure" section on top.
+// ("Use this") and, when High, in the "ScanTrix is sure" section on top.
 import type { SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { BankTransaction } from "./types";
@@ -38,7 +38,7 @@ export function suggestionOf(txn: BankTransaction): LineSuggestion | null {
 
 export type CodingSource = "user" | "autopilot" | "none";
 
-/** What Scantrix suggests for a line but hasn't filled in. */
+/** What ScanTrix suggests for a line but hasn't filled in. */
 export interface Offered {
   vendorId?: string;
   payee?: string;
@@ -58,12 +58,12 @@ export interface Coding {
   offered: Offered | null;
 }
 
-/** What a line shows: the user's own coding, Scantrix's coding, or nothing. */
+/** What a line shows: the user's own coding, ScanTrix's coding, or nothing. */
 export function codingFor(txn: BankTransaction): Coding {
   const suggestion = suggestionOf(txn);
   const own = { vendorId: txn.vendorId, payee: txn.payee, glAccountId: txn.categoryId, taxCodeId: txn.taxCodeId };
   const hasOwn = Boolean(own.vendorId || own.glAccountId || own.taxCodeId);
-  // Scantrix coded it itself: the values are saved, but not yet confirmed by a person.
+  // ScanTrix coded it itself: the values are saved, but not yet confirmed by a person.
   if (hasOwn && suggestion?.autoCoded && own.glAccountId === suggestion.glAccountId) {
     return { ...own, source: "autopilot", reason: suggestion.reason, suggestion, offered: null };
   }
@@ -77,13 +77,13 @@ export function codingFor(txn: BankTransaction): Coding {
   return { source: "none", reason: suggestion?.reason ?? null, suggestion, offered };
 }
 
-/** True when this field shows a value Scantrix filled in and no person has confirmed yet. */
+/** True when this field shows a value ScanTrix filled in and no person has confirmed yet. */
 export function isSuggestedField(txn: BankTransaction): boolean {
   return codingFor(txn).source === "autopilot";
 }
 
 /**
- * A line for the "Scantrix is sure" section: still to review, and Scantrix
+ * A line for the "ScanTrix is sure" section: still to review, and ScanTrix
  * either filled it in or has a High suggestion a person hasn't changed.
  */
 export function isSureLine(txn: BankTransaction): boolean {

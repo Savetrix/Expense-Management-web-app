@@ -75,7 +75,7 @@ export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: strin
     };
   }, [dispatch, qbConnectionId, memoryVendorId, mode]);
 
-  // Step 3: a vendor Scantrix doesn't know yet gets the accounts similar past
+  // Step 3: a vendor ScanTrix doesn't know yet gets the accounts similar past
   // items from any vendor went to (server: /api/suggestions/similar).
   const [similar, setSimilar] = useState<{ key: string; picks: SuggestionPick[] }>({ key: "", picks: [] });
   const similarKey = `${vendorName.trim()}|${linesKey}`;

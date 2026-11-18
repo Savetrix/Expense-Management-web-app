@@ -45,8 +45,8 @@ export function HistorySetting({ providerName }: { providerName: string }) {
     else if (on) {
       const read = await requestHistoryRead(qbConnectionId, true);
       if (read.error) showToast(read.error, "error");
-      else showToast(`Scantrix is learning from your ${providerName} history.`, "success");
-    } else showToast(`Scantrix no longer uses your ${providerName} history. What it read was removed.`, "success");
+      else showToast(`ScanTrix is learning from your ${providerName} history.`, "success");
+    } else showToast(`ScanTrix no longer uses your ${providerName} history. What it read was removed.`, "success");
     await load();
     setBusy(false);
   };
@@ -55,7 +55,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
   const s = state.status;
   const line =
     !state.learnFromHistory
-      ? "Off. Suggestions come only from what your team codes in Scantrix."
+      ? "Off. Suggestions come only from what your team codes in ScanTrix."
       : state.running
         ? `Reading the last 12 months from ${providerName}…`
         : !s
@@ -69,7 +69,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
                 : `Read ${s.entries.toLocaleString()} entries (${s.lines.toLocaleString()} coded lines) from ${formatPlainDate(s.from ?? "", { day: "numeric", month: "short", year: "numeric" })} to ${formatPlainDate(
                     s.to ?? "",
                     { day: "numeric", month: "short", year: "numeric" },
-                  )}${s.skippedScantrix ? `, leaving out ${s.skippedScantrix} that Scantrix posted itself` : ""}.`;
+                  )}${s.skippedScantrix ? `, leaving out ${s.skippedScantrix} that ScanTrix posted itself` : ""}.`;
 
   return (
     <section className="rounded-md border border-border bg-surface px-[var(--space-md)] py-[var(--space-sm)]">
@@ -79,7 +79,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
           <div className="min-w-0">
             <p className="text-body-sm font-bold text-content-primary">Learn from QuickBooks or Xero history</p>
             <p className="text-caption text-content-secondary">
-              Scantrix reads the last 12 months of your coding in {providerName} (bills, expenses, card charges, deposits and bill payments) and suggests
+              ScanTrix reads the last 12 months of your coding in {providerName} (bills, expenses, card charges, deposits and bill payments) and suggests
               the same accounts from day one. Nothing is posted. To find similar items for new vendors, the vendor names and line descriptions are sent to OpenAI.
             </p>
             <p className="mt-[var(--space-xs)] text-caption font-semibold text-content-primary">{line}</p>
