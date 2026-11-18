@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
-import { historyMatches, importHistory, nameKey, payeeMatchStats, removeHistory } from "../lib/bankFeeds/history";
+import { __resetHistoryChecks, historyMatches, importHistory, nameKey, noteConnections, payeeMatchStats, readDecision, readHistoryStatus, readLearnFromHistory, removeHistory } from "../lib/bankFeeds/history";
 import { entriesFromQbAnswer, historyFromQbAnswer } from "../lib/bankFeeds/ledger/quickbooks";
 import type { HistoryLine, LedgerAdapter, LedgerContext } from "../lib/bankFeeds/ledger/types";
 import { setNamedMapping } from "../lib/bankFeeds/ledgerMappings";
@@ -249,5 +249,48 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     const stats = await payeeMatchStats(db, QB);
     assert.deepEqual([stats.total, stats.matched], [2, 1]);
     assert.equal(stats.unmatched.length, 1);
+  });
+  it("starts off for a real company and on for a sandbox company, until an Owner or Admin chooses", async () => {
+    assert.equal(await readLearnFromHistory(db, QB), false, "nothing known yet counts as real");
+    await db.companyLists.updateOne({ _id: QB }, { $set: { environment: "production" } }, { upsert: true });
+    assert.equal(await readLearnFromHistory(db, QB), false, "a real company starts off");
+    await db.companyLists.updateOne({ _id: QB }, { $set: { environment: "sandbox" } });
+    assert.equal(await readLearnFromHistory(db, QB), true, "a sandbox company starts on");
+    await db.suggestionSettings.updateOne({ _id: QB }, { $set: { learnFromHistory: false } }, { upsert: true });
+    assert.equal(await readLearnFromHistory(db, QB), false, "a person's choice wins");
+  });
+
+  it("reads once: after a read, opening the page reads nothing; off then on reads again", async () => {
+    assert.equal(readDecision({ on: true, chosen: false, status: null, environment: "sandbox" }), "read");
+    await read([purchase("1", 5)]);
+    const status = await readHistoryStatus(db, QB);
+    assert.equal(readDecision({ on: true, chosen: false, status, environment: "sandbox" }), "read_once");
+    await removeHistory(db, QB);
+    assert.equal(readDecision({ on: true, chosen: true, status: await readHistoryStatus(db, QB), environment: "sandbox" }), "read", "switched off and on: read again");
+    assert.equal(readDecision({ on: false, chosen: false, status: null, environment: null }), "check", "unknown company: find out first");
+    assert.equal(readDecision({ on: false, chosen: false, status: null, environment: "production" }), "off");
+  });
+
+  it("switching it off deletes the rows and the vectors made from them", async () => {
+    await read([purchase("1", 5), purchase("2", 10)]);
+    await db.vectors.insertOne({ _id: `${QB}:history:x`, qbConnectionId: QB, kind: "history", role: "memory", ref: "x", text: "Petro-Canada", textHash: "h", model: "m", vector: [1], out: true, glAccountId: "gl-travel", taxCodeId: null, label: "Petro-Canada", date: "2026-11-01", amountCents: 1, decidedAt: "2026-11-01T12:00:00.000Z", source: "quickbooks", embeddedAt: new Date() });
+    await removeHistory(db, QB);
+    assert.equal(await db.history.countDocuments({ qbConnectionId: QB }), 0);
+    assert.equal(await db.vectors.countDocuments({ qbConnectionId: QB, kind: "history" }), 0);
+  });
+
+  it("a disconnected company's rows are gone, and so are those of a company nobody used while connected for 30 days", async () => {
+    __resetHistoryChecks();
+    await read([purchase("1", 5)]);
+    await read([purchase("2", 5)], { qbConnectionId: "qb-stale" });
+    const now = Date.now();
+    await noteConnections(db, [{ id: QB, status: "disconnected" }], "qb-other", now);
+    assert.equal(await db.history.countDocuments({ qbConnectionId: QB }), 0, "disconnected: deleted at once");
+    assert.ok(await db.events.findOne({ qbConnectionId: QB, action: "suggestion.history_removed" }));
+    assert.equal(await db.history.countDocuments({ qbConnectionId: "qb-stale" }), 1, "still connected: kept");
+    __resetHistoryChecks();
+    await db.suggestionSettings.updateOne({ _id: "qb-stale" }, { $set: { lastLiveAt: new Date(now - 31 * 86_400_000) } });
+    await noteConnections(db, [], "qb-other", now);
+    assert.equal(await db.history.countDocuments({ qbConnectionId: "qb-stale" }), 0, "unused while connected for 30 days: deleted");
   });
 });

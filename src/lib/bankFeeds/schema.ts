@@ -237,8 +237,13 @@ export interface PayeeLinkDoc {
 export interface SuggestionSettingsDoc {
   _id: string;
   autoClassification: AutoClassification;
-  /** "Learn from QuickBooks or Xero history": on unless someone turned it off. */
+  /**
+   * "Learn from QuickBooks history", as an Owner or Admin set it. Unset: on for
+   * sandbox (test) companies, off for real ones (history.ts).
+   */
   learnFromHistory?: boolean;
+  /** The last time a person used this company while its accounting connection was live (history.ts deletes on disconnect). */
+  lastLiveAt?: Date;
   /** The last read of the company's books (history.ts). */
   historyImport?: HistoryImportStatus | null;
   updatedBy: string;

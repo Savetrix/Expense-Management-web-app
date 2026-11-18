@@ -10,9 +10,10 @@ import { formatPlainDate } from "@/lib/plainDate";
 import { useAppSelector } from "@/store/hooks";
 
 /**
- * "Learn from QuickBooks or Xero history" (lib/bankFeeds/history.ts): on by
- * default. Shows what was read and how many bank payees matched a vendor in
- * the books; the rest are left for step 3 (similar items).
+ * "Learn from QuickBooks history" (lib/bankFeeds/history.ts): read once, the
+ * first time it is on. Until an Owner or Admin chooses, on for a sandbox
+ * (test) company and off for a real one. Shows what was read and how many
+ * bank payees matched a vendor in the books; the rest are left for step 3.
  */
 export function HistorySetting({ providerName }: { providerName: string }) {
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
@@ -28,7 +29,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
     if (!qbConnectionId) return;
     let cancelled = false;
     void (async () => {
-      // Opening the page reads the books if the last read is over a day old.
+      // Opening the page reads the books the first time only (read once).
       await requestHistoryRead(qbConnectionId);
       if (!cancelled) setState(await fetchHistoryState(qbConnectionId));
     })();
@@ -55,7 +56,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
   const s = state.status;
   const line =
     !state.learnFromHistory
-      ? "Off. Suggestions come only from what your team codes in ScanTrix."
+      ? "Off. Suggestions come only from lines your team posted from ScanTrix."
       : state.running
         ? `Reading the last 12 months from ${providerName}…`
         : !s
@@ -63,10 +64,10 @@ export function HistorySetting({ providerName }: { providerName: string }) {
           : s.outcome === "provider_terms"
             ? `Not available for ${providerName}: its developer terms don't allow learning from its data.`
             : s.outcome === "real_company"
-              ? "Coming soon for live companies. For now it works on sandbox (test) companies only."
+              ? "Switched off for real companies on this server for now. It works on sandbox (test) companies."
               : s.outcome === "error"
                 ? `The last read didn't finish${s.error ? `: ${s.error}` : ""}.`
-                : `Read ${s.entries.toLocaleString()} entries (${s.lines.toLocaleString()} coded lines) from ${formatPlainDate(s.from ?? "", { day: "numeric", month: "short", year: "numeric" })} to ${formatPlainDate(
+                : `Read once on ${formatPlainDate(new Date(s.at).toISOString().slice(0, 10), { day: "numeric", month: "short", year: "numeric" })}: ${s.entries.toLocaleString()} entries (${s.lines.toLocaleString()} coded lines) from ${formatPlainDate(s.from ?? "", { day: "numeric", month: "short", year: "numeric" })} to ${formatPlainDate(
                     s.to ?? "",
                     { day: "numeric", month: "short", year: "numeric" },
                   )}${s.skippedScantrix ? `, leaving out ${s.skippedScantrix} that ScanTrix posted itself` : ""}.`;
@@ -77,10 +78,11 @@ export function HistorySetting({ providerName }: { providerName: string }) {
         <div className="flex min-w-0 items-start gap-[var(--space-sm)]">
           <History size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-accent" />
           <div className="min-w-0">
-            <p className="text-body-sm font-bold text-content-primary">Learn from QuickBooks or Xero history</p>
+            <p className="text-body-sm font-bold text-content-primary">Learn from QuickBooks history</p>
             <p className="text-caption text-content-secondary">
-              ScanTrix reads the last 12 months of your coding in {providerName} (bills, expenses, card charges, deposits and bill payments) and suggests
-              the same accounts from day one. Nothing is posted. To find similar items for new vendors, the vendor names and line descriptions are sent to OpenAI.
+              ScanTrix reads your last 12 months of posted entries in {providerName} once (bills, expenses, card charges, deposits and bill payments), to learn
+              how your team codes. This stays in ScanTrix and is only used for your company. Nothing is posted. To compare new vendors with past items, vendor
+              names and line descriptions are sent to OpenAI; amounts and accounts are not.
             </p>
             <p className="mt-[var(--space-xs)] text-caption font-semibold text-content-primary">{line}</p>
             {state.learnFromHistory && s?.outcome === "done" && state.payees.total > 0 && (
@@ -92,7 +94,7 @@ export function HistorySetting({ providerName }: { providerName: string }) {
           </div>
         </div>
         <span title={state.canChange ? undefined : "Only an Owner or Admin can change this."}>
-          <Switch checked={state.learnFromHistory} onChange={(v) => void toggle(v)} disabled={busy || !state.canChange} label="Learn from QuickBooks or Xero history" />
+          <Switch checked={state.learnFromHistory} onChange={(v) => void toggle(v)} disabled={busy || !state.canChange} label="Learn from QuickBooks history" />
         </span>
       </div>
     </section>

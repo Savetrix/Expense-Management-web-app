@@ -27,9 +27,9 @@ import type { HistoryDoc, HistoryImportStatus } from "./schema";
 import { logEvent } from "./store";
 
 export const HISTORY_DAYS = 365;
-/** A company's books are read again when the last read is older than this. */
-export const HISTORY_REFRESH_MS = 24 * 3_600_000;
 const DAY_MS = 86_400_000;
+/** Intuit 8.2(f): what was read is deleted within 30 days of a disconnect. */
+export const FORGET_AFTER_DAYS = 30;
 
 /** Reading real (not sandbox) companies' books needs this switch: the terms question is still open. */
 export const historyAllowedForRealCompanies = () => process.env.SUGGESTIONS_HISTORY_REAL_COMPANIES?.trim() === "true";
@@ -69,9 +69,26 @@ export function historyMatches(lineKey: string | null | undefined, key: string |
   return false;
 }
 
+/**
+ * "Learn from QuickBooks history": what an Owner or Admin chose; until then, on
+ * for a sandbox (test) company and off for a real one (18 Nov: Saurabh still
+ * has to confirm in writing what he wants for real companies, given Intuit's
+ * terms from 12 Dec 2026). The environment is known once ScanTrix has reached
+ * QuickBooks for this company (companyLists.ts); unknown counts as real.
+ */
 export async function readLearnFromHistory(db: Db, qbConnectionId: string): Promise<boolean> {
   const doc = await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { learnFromHistory: 1 } });
-  return doc?.learnFromHistory !== false;
+  if (typeof doc?.learnFromHistory === "boolean") return doc.learnFromHistory;
+  return learnByDefault((await db.companyLists.findOne({ _id: qbConnectionId }, { projection: { environment: 1 } }))?.environment ?? null);
+}
+
+/** The setting before anyone chose: on only for a sandbox (test) company. */
+export const learnByDefault = (environment: string | null) => environment === "sandbox";
+
+/** True when an Owner or Admin has set the switch for this company. */
+export async function learnSettingChosen(db: Db, qbConnectionId: string): Promise<boolean> {
+  const doc = await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { learnFromHistory: 1 } });
+  return typeof doc?.learnFromHistory === "boolean";
 }
 
 export async function readHistoryStatus(db: Db, qbConnectionId: string): Promise<HistoryImportStatus | null> {
@@ -113,6 +130,8 @@ export async function importHistory(db: Db, args: ImportArgs): Promise<HistoryIm
   const { ctx, adapter } = args.ledger;
   const now = args.now ?? Date.now();
   const base = { at: new Date(now), provider: ctx.provider, from: null, to: null, lines: 0, entries: 0, skippedScantrix: 0 };
+  // Reaching the books says whether this is a sandbox company (the setting's default).
+  await db.companyLists.updateOne({ _id: qbConnectionId }, { $set: { environment: ctx.environment, provider: ctx.provider } }, { upsert: true });
   if (!adapter.historyBetween) return saveStatus(db, qbConnectionId, { ...base, outcome: "provider_terms" });
   if (ctx.environment !== "sandbox" && !(args.allowRealCompanies ?? historyAllowedForRealCompanies())) {
     return saveStatus(db, qbConnectionId, { ...base, outcome: "real_company" });
@@ -158,11 +177,77 @@ export async function importHistory(db: Db, args: ImportArgs): Promise<HistoryIm
   return saveStatus(db, qbConnectionId, { ...base, outcome: "done", from, to, lines: docs.length, entries, skippedScantrix: skipped.size });
 }
 
-/** Removes everything read from the books (the setting was switched off). */
+/**
+ * Removes everything read from the books, and the vectors made from it (the
+ * setting was switched off, or the company disconnected). The next switch-on
+ * reads again.
+ */
 export async function removeHistory(db: Db, qbConnectionId: string): Promise<number> {
   const r = await db.history.deleteMany({ qbConnectionId });
+  await db.vectors.deleteMany({ qbConnectionId, kind: "history" });
   await db.suggestionSettings.updateOne({ _id: qbConnectionId }, { $set: { historyImport: null } });
   return r.deletedCount;
+}
+
+/** True when the books were read and kept: they are read once, not again. */
+export const historyRead = (status: HistoryImportStatus | null) => status?.outcome === "done";
+
+/**
+ * What opening a page does about the books:
+ *   "read_once" — already read: nothing (read again only after off → on);
+ *   "off"       — the setting is off (chosen, or a real company's default);
+ *   "check"     — nobody chose and ScanTrix doesn't know yet whether this is a
+ *                 sandbox company: reach QuickBooks, then decide;
+ *   "read"      — read the last 12 months now.
+ */
+export function readDecision(a: { on: boolean; chosen: boolean; status: HistoryImportStatus | null; environment: string | null }): "read_once" | "off" | "check" | "read" {
+  if (a.on && historyRead(a.status)) return "read_once";
+  if (a.on) return "read";
+  return a.chosen || a.environment ? "off" : "check";
+}
+
+const checkedAt = new Map<string, number>();
+const CHECK_EVERY_MS = 3_600_000;
+let sweptAt = 0;
+
+/**
+ * Intuit 8.2(f): a company's history goes when it disconnects. Called with
+ * every bank request's caller (throttled per company to once an hour):
+ *   - a company the caller sees as "disconnected" loses its history now;
+ *   - the company in use is marked live (lastLiveAt);
+ *   - once a day, history of companies nobody has used while connected for
+ *     FORGET_AFTER_DAYS is removed, which covers a disconnect nobody saw here.
+ */
+export async function noteConnections(db: Db, connections: readonly { id: string; status: string | null }[], current: string, now = Date.now()): Promise<number> {
+  let removed = 0;
+  for (const c of connections) {
+    if ((checkedAt.get(c.id) ?? 0) > now - CHECK_EVERY_MS) continue;
+    checkedAt.set(c.id, now);
+    if (c.status === "disconnected") {
+      if (await db.history.countDocuments({ qbConnectionId: c.id }, { limit: 1 })) removed += await forget(db, c.id, "disconnected");
+    } else if (c.id === current) {
+      await db.suggestionSettings.updateOne({ _id: c.id }, { $set: { lastLiveAt: new Date(now) } }, { upsert: true });
+    }
+  }
+  if (sweptAt < now - DAY_MS) {
+    sweptAt = now;
+    const cutoff = new Date(now - FORGET_AFTER_DAYS * DAY_MS);
+    const stale = await db.suggestionSettings.find({ "historyImport.outcome": "done", $or: [{ lastLiveAt: { $lt: cutoff } }, { lastLiveAt: { $exists: false }, "historyImport.at": { $lt: cutoff } }] }, { projection: { _id: 1 } }).toArray();
+    for (const s of stale) removed += await forget(db, s._id, "not_used_while_connected");
+  }
+  return removed;
+}
+
+async function forget(db: Db, qbConnectionId: string, reason: string): Promise<number> {
+  const n = await removeHistory(db, qbConnectionId);
+  await logEvent(db, { qbConnectionId, transactionId: null, actor: "system", action: "suggestion.history_removed", detail: { reason, rows: n } });
+  return n;
+}
+
+/** Tests only: forget the per-instance throttles. */
+export function __resetHistoryChecks(): void {
+  checkedAt.clear();
+  sweptAt = 0;
 }
 
 export type HistoryPurpose = "bank" | "invoice";

@@ -4,6 +4,7 @@
 //         categoryId?, taxCodeId?, vendorId?, payee?, version }
 import { after } from "next/server";
 
+import { ensureVendorKnown } from "@/lib/bankFeeds/companyLists";
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
 import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
@@ -33,6 +34,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!result.ok) return fail(result.status, result.error, result.current ? { current: result.current } : undefined);
     // Learn from the decision: re-score the other lines with the same payee.
     after(async () => {
+      // A vendor just created on this line brings its saved tax code (companyLists.ts).
+      if (patch.vendorId) await ensureVendorKnown(ctx.db, ctx.caller.accessToken, ctx.connection.id, patch.vendorId).catch(() => false);
       const key = await payeeKeyOf(ctx.db, ctx.connection.id, id);
       if (key) await refreshSuggestions(ctx.db, ctx.connection.id, [key]).catch((e) => console.error("[bank] suggestions", e?.message));
       // A person's decision is new memory for step 3 (similar items): embed it now.

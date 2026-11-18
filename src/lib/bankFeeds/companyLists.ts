@@ -135,6 +135,17 @@ export async function vendorsFor(db: Db, userToken: string, qbConnectionId: stri
   }
 }
 
+/**
+ * Makes sure the cached vendors include this one (a vendor created a moment
+ * ago isn't in a day-old list). True when the list was read again.
+ */
+export async function ensureVendorKnown(db: Db, userToken: string, qbConnectionId: string, vendorId: string): Promise<boolean> {
+  const cached = await readLists(db, qbConnectionId);
+  if (cached?.vendors?.some((v) => v.id === vendorId)) return false;
+  await vendorsFor(db, userToken, qbConnectionId, { force: true });
+  return true;
+}
+
 /** The bank or card accounts this company's bank lines are mapped to (Connected accounts). */
 export async function mappedLedgerIds(db: Db, qbConnectionId: string): Promise<string[]> {
   const [plaid, named] = await Promise.all([

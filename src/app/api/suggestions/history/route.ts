@@ -1,12 +1,16 @@
 // /api/suggestions/history — Smart Suggestions learns from the company's own
-// coding in QuickBooks/Xero over the last 12 months (lib/bankFeeds/history.ts).
+// coding in QuickBooks over the last 12 months (lib/bankFeeds/history.ts).
 //   GET   { learnFromHistory, canChange, status, payees: { total, matched } }
-//   POST  { force? } reads the books when the last read is over a day old (or
-//         force), then re-scores the bank lines. The bank and Autopilot pages
-//         call it when they open. Needs a role that may post (the token route).
-//   PUT   { learnFromHistory } Owner or Admin. Off removes everything read.
+//   POST  reads the books ONCE per company, the first time the setting is on
+//         (Saurabh, 18 Nov: read once and keep it), then re-scores the bank
+//         lines. The bank and Autopilot pages call it when they open; after a
+//         successful read it does nothing. Needs a role that may post.
+//   PUT   { learnFromHistory } Owner or Admin. Off removes everything read
+//         (and its vectors); switching on again reads again.
+// Until someone chooses, it is on for a sandbox (test) company and off for a
+// real one; reaching QuickBooks tells which.
 import { can } from "@/lib/bankFeeds/door";
-import { HISTORY_REFRESH_MS, importHistory, payeeMatchStats, readHistoryStatus, readLearnFromHistory, removeHistory } from "@/lib/bankFeeds/history";
+import { importHistory, learnByDefault, learnSettingChosen, payeeMatchStats, readDecision, readHistoryStatus, readLearnFromHistory, removeHistory } from "@/lib/bankFeeds/history";
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { adapterFor, ledgerErrorResponse } from "@/lib/bankFeeds/ledger";
 import { getLedgerContext, scantrixBillIds, vendorExternalIds } from "@/lib/bankFeeds/ledger/backend";
@@ -42,15 +46,21 @@ export async function POST(request: Request) {
   const ctx = await bankContext(request, "code");
   if (ctx instanceof Response) return ctx;
   const company = ctx.connection.id;
-  const body = await readJson(request);
   try {
-    if (!(await readLearnFromHistory(ctx.db, company))) return json({ imported: false, reason: "off" });
-    const last = await readHistoryStatus(ctx.db, company);
-    const fresh = last && last.outcome !== "error" && Date.now() - new Date(last.at).getTime() < HISTORY_REFRESH_MS;
-    if ((fresh && body?.force !== true) || running.has(company)) return json({ imported: false, reason: running.has(company) ? "running" : "fresh", status: last });
+    if (running.has(company)) return json({ imported: false, reason: "running" });
+    const [on, chosen, last, lists] = await Promise.all([
+      readLearnFromHistory(ctx.db, company),
+      learnSettingChosen(ctx.db, company),
+      readHistoryStatus(ctx.db, company),
+      ctx.db.companyLists.findOne({ _id: company }, { projection: { environment: 1 } }),
+    ]);
+    const decision = readDecision({ on, chosen, status: last, environment: lists?.environment ?? null });
+    if (decision === "read_once" || decision === "off") return json({ imported: false, reason: decision, status: last });
     running.add(company);
     try {
       const ledger = await getLedgerContext(ctx.caller.accessToken, company);
+      await ctx.db.companyLists.updateOne({ _id: company }, { $set: { environment: ledger.environment, provider: ledger.provider } }, { upsert: true });
+      if (!chosen && !learnByDefault(ledger.environment)) return json({ imported: false, reason: "off" });
       const adapter = adapterFor(ledger.provider);
       const [vendorIds, billIds] = adapter.historyBetween
         ? await Promise.all([vendorExternalIds(ctx.caller.accessToken, company), scantrixBillIds(ctx.caller.accessToken, company)])

@@ -6,6 +6,7 @@
 import { bankContext, errorResponse, json } from "@/lib/bankFeeds/http";
 import { openAiEmbedder } from "@/lib/bankFeeds/embeddings";
 import { scantrixInvoices } from "@/lib/bankFeeds/ledger/backend";
+import { chartFor, readLists, vendorsFor } from "@/lib/bankFeeds/companyLists";
 import { syncChanged, syncVectors } from "@/lib/bankFeeds/similarSync";
 import { openAiLabeller } from "@/lib/bankFeeds/shopKind";
 import { refreshSuggestions } from "@/lib/bankFeeds/suggest";
@@ -29,9 +30,16 @@ export async function POST(request: Request) {
       (all) => all.filter((i) => i.byPerson && i.billId && i.glAccountId),
       () => undefined,
     );
+    // The chart (which accounts are Bank) and vendors' saved tax codes, read at
+    // most once a day: suggestions are checked against them.
+    const before = await readLists(ctx.db, company);
+    await Promise.all([chartFor(ctx.db, ctx.caller.accessToken, company), vendorsFor(ctx.db, ctx.caller.accessToken, company)]);
+    const listsAfter = await readLists(ctx.db, company);
+    const listsChanged = String(before?.vendorsAt) !== String(listsAfter?.vendorsAt) || String(before?.chartAt) !== String(listsAfter?.chartAt);
     const outcome = await syncVectors(ctx.db, company, openAiEmbedder(), { invoices, labeller: openAiLabeller() });
-    if (syncChanged(outcome)) await refreshSuggestions(ctx.db, company);
-    return json(outcome);
+    if (syncChanged(outcome) || listsChanged) await refreshSuggestions(ctx.db, company);
+    // New lists can change suggestions too: counted as a change, so the page reloads its lines.
+    return json({ ...outcome, recoded: outcome.recoded + (listsChanged ? 1 : 0) });
   } catch (error) {
     lastRun.delete(company);
     return errorResponse("similar sync", error);
