@@ -148,16 +148,21 @@ export interface SyncOutcome {
   skipped?: "off" | "no_embedder";
   items: number;
   embedded: number;
+  /** Items whose text stayed the same but whose coding or role changed (a line a person just coded becomes memory). */
+  recoded: number;
   removed: number;
 }
 
+/** True when the lines to review should be scored again: memory or lines changed. */
+export const syncChanged = (o: SyncOutcome) => !o.skipped && o.embedded + o.recoded + o.removed > 0;
+
 /** Brings the company's vectors in step with its memory. Sends only new or changed text to the embedder. */
 export async function syncVectors(db: Db, qbConnectionId: string, embedder: Embedder | null, opts: { invoices?: InvoiceMemory[]; labeller?: Labeller | null } = {}): Promise<SyncOutcome> {
-  if ((await readAutoClassification(db, qbConnectionId)) === "off") return { skipped: "off", items: 0, embedded: 0, removed: 0 };
-  if (!embedder) return { skipped: "no_embedder", items: 0, embedded: 0, removed: 0 };
+  if ((await readAutoClassification(db, qbConnectionId)) === "off") return { skipped: "off", items: 0, embedded: 0, recoded: 0, removed: 0 };
+  if (!embedder) return { skipped: "no_embedder", items: 0, embedded: 0, recoded: 0, removed: 0 };
 
   const items = await itemsFor(db, qbConnectionId, opts.invoices, opts.labeller ?? null);
-  const existing = new Map((await db.vectors.find({ qbConnectionId }, { projection: { textHash: 1, model: 1, kind: 1 } }).toArray()).map((d) => [d._id, d]));
+  const existing = new Map((await db.vectors.find({ qbConnectionId }, { projection: { textHash: 1, model: 1, kind: 1, role: 1, glAccountId: 1, taxCodeId: 1, out: 1 } }).toArray()).map((d) => [d._id, d]));
 
   const toEmbed = items.filter((i) => {
     const d = existing.get(i._id);
@@ -166,6 +171,10 @@ export async function syncVectors(db: Db, qbConnectionId: string, embedder: Embe
   const vectors = toEmbed.length ? await embedder.embed(toEmbed.map((i) => i.text)) : [];
   const now = new Date();
   const fresh = new Set(toEmbed.map((i) => i._id));
+  const recoded = items.filter((i) => {
+    const d = existing.get(i._id);
+    return d && !fresh.has(i._id) && (d.role !== i.role || (d.glAccountId ?? null) !== (i.glAccountId ?? null) || (d.taxCodeId ?? null) !== (i.taxCodeId ?? null) || d.out !== i.out);
+  }).length;
   const ops = [
     ...toEmbed.map((i, n) => ({
       replaceOne: { filter: { _id: i._id, qbConnectionId }, replacement: { ...i, textHash: hash(embedder.model, i.text), model: embedder.model, vector: vectors[n], embeddedAt: now }, upsert: true },
@@ -180,7 +189,7 @@ export async function syncVectors(db: Db, qbConnectionId: string, embedder: Embe
   const wanted = new Set(items.map((i) => i._id));
   const gone = [...existing.values()].filter((d) => !wanted.has(d._id) && (opts.invoices !== undefined || d.kind !== "invoice")).map((d) => d._id);
   if (gone.length) await db.vectors.deleteMany({ qbConnectionId, _id: { $in: gone } });
-  return { items: items.length, embedded: toEmbed.length, removed: gone.length };
+  return { items: items.length, embedded: toEmbed.length, recoded, removed: gone.length };
 }
 
 /** The company's memory vectors, ready to vote (lib/suggestions/similar.ts). */
@@ -203,6 +212,6 @@ export async function loadMemory(db: Db, qbConnectionId: string) {
  */
 export async function embedNewDecision(db: Db, qbConnectionId: string, embedder: Embedder | null = openAiEmbedder(), labeller: Labeller | null = openAiLabeller()): Promise<SyncOutcome> {
   const outcome = await syncVectors(db, qbConnectionId, embedder, { labeller });
-  if (!outcome.skipped && (outcome.embedded > 0 || outcome.removed > 0)) await refreshSuggestions(db, qbConnectionId);
+  if (syncChanged(outcome)) await refreshSuggestions(db, qbConnectionId);
   return outcome;
 }

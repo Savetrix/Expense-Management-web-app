@@ -6,7 +6,7 @@
 import { bankContext, errorResponse, json } from "@/lib/bankFeeds/http";
 import { openAiEmbedder } from "@/lib/bankFeeds/embeddings";
 import { scantrixInvoices } from "@/lib/bankFeeds/ledger/backend";
-import { syncVectors } from "@/lib/bankFeeds/similarSync";
+import { syncChanged, syncVectors } from "@/lib/bankFeeds/similarSync";
 import { openAiLabeller } from "@/lib/bankFeeds/shopKind";
 import { refreshSuggestions } from "@/lib/bankFeeds/suggest";
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       () => undefined,
     );
     const outcome = await syncVectors(ctx.db, company, openAiEmbedder(), { invoices, labeller: openAiLabeller() });
-    if (!outcome.skipped && outcome.embedded > 0) await refreshSuggestions(ctx.db, company);
+    if (syncChanged(outcome)) await refreshSuggestions(ctx.db, company);
     return json(outcome);
   } catch (error) {
     lastRun.delete(company);

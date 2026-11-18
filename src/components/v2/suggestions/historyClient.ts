@@ -59,12 +59,13 @@ export async function saveLearnFromHistory(qbConnectionId: string, learnFromHist
   }
 }
 
-/** Step 3: keeps the company's meaning vectors current. Returns how many items were newly embedded. */
+/** Step 3: keeps the company's meaning vectors current. Returns how many items changed (newly embedded, recoded or removed); above 0 the lines were scored again. */
 export async function requestSimilarSync(qbConnectionId: string): Promise<number> {
   try {
     const res = await authFetch("/api/suggestions/similar/sync", { method: "POST", headers: headers(qbConnectionId) });
     const body = res.ok ? await res.json().catch(() => null) : null;
-    return typeof body?.embedded === "number" ? body.embedded : 0;
+    const count = (n: unknown) => (typeof n === "number" ? n : 0);
+    return count(body?.embedded) + count(body?.recoded) + count(body?.removed);
   } catch {
     return 0;
   }

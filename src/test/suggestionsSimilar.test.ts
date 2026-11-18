@@ -9,7 +9,7 @@ import type { Embedder } from "../lib/bankFeeds/embeddings";
 import { setAutoClassification } from "../lib/bankFeeds/settings";
 import type { Labeller } from "../lib/bankFeeds/shopKind";
 import { cleanKind } from "../lib/bankFeeds/shopKind";
-import { syncVectors } from "../lib/bankFeeds/similarSync";
+import { embedNewDecision, syncVectors } from "../lib/bankFeeds/similarSync";
 import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 import { pickReason } from "../lib/suggestions/picks";
@@ -273,6 +273,34 @@ describe("step 3 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     const { labeller, sent } = fakeLabeller();
     await syncVectors(db, "qb-a", embedder, { labeller });
     assert.equal(sent.length, 4);
+  });
+
+  it("a line coded with only a GL account teaches the other new payees at once", async () => {
+    const { embedder } = fakeEmbedder();
+    await importCsv(db, {
+      qbConnectionId: "qb-a",
+      userId: "u1",
+      accountLabel: "RBC",
+      rows: [
+        { date: today, description: "ADOBE CREATIVE CLOUD", amount: -89.99 },
+        { date: today, description: "ZOOM.US 888-799-9666", amount: -21 },
+      ],
+    });
+    await syncVectors(db, "qb-a", embedder);
+    await refreshSuggestions(db, "qb-a");
+    const lines = await listTransactions(db, "qb-a");
+    const adobe = lines.find((l) => l.description.startsWith("ADOBE"))!;
+    const zoom = lines.find((l) => l.description.startsWith("ZOOM"))!;
+    assert.notEqual((zoom.suggestion as Suggestion | undefined)?.step, "similar", "nothing coded yet");
+
+    // Same text, so nothing is embedded again: only the line's role and account change.
+    assert.ok((await decide(db, { qbConnectionId: "qb-a", id: adobe.id, userId: "u1", patch: { glAccountId: "gl-software" } })).ok);
+    const out = await embedNewDecision(db, "qb-a", embedder, null);
+    assert.equal(out.embedded, 0);
+    assert.equal(out.recoded, 1);
+    const s = (await read("qb-a", zoom.id))?.suggestion as Suggestion;
+    assert.equal(s.step, "similar");
+    assert.equal(s.glAccountId, "gl-software");
   });
 
   it("step 2 wins for a payee the company already coded", async () => {
