@@ -85,7 +85,10 @@ export function BankTransactionsContentV2() {
   const homeCurrency = useAppSelector(selectActiveHomeCurrency);
   const refreshAccounts = () => {
     void dispatch(fetchLedgerAccounts({ refresh: true })).then((r) => {
-      if (fetchLedgerAccounts.fulfilled.match(r)) showToast("Account list read again.", "success");
+      if (!fetchLedgerAccounts.fulfilled.match(r)) return;
+      // The server also read the vendors again and re-scored the lines.
+      dispatch(fetchBankTransactions());
+      showToast("Account and vendor lists read again.", "success");
     });
   };
   const bankAccounts: BankAccount[] = bank.qbConnectionId === qbConnectionId ? bank.accounts : [];
