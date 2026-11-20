@@ -34,7 +34,7 @@ import { similarPicks, suggestedVendorName, type MemoryItem } from "@/lib/sugges
 import { HISTORY_LABEL, historyPicks, isHistory, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
-import { bankSideIds, vendorTaxCodes } from "./companyLists";
+import { accountNames, bankSideIds, vendorTaxCodes } from "./companyLists";
 import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
 import { loadMemory } from "./similarSync";
 import type { HistoryDoc, PayeeLinkDoc, TxnDoc } from "./schema";
@@ -117,6 +117,8 @@ const groupKey = (v: Vote) => (v.kind === "expense" ? `expense|${v.glAccountId}`
 export interface ScoreOptions {
   /** Vendor id → its saved tax code (companyLists.ts). A vendor without one can't make a line sure. */
   vendorTax?: ReadonlyMap<string, string>;
+  /** Account id → name (companyLists.ts), for the "coded differently" reason. */
+  accountNames?: ReadonlyMap<string, string>;
 }
 
 function memoryVotes(votes: Vote[], fallbackLabel: string): MemoryVote[] {
@@ -209,14 +211,14 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   // How many of the agreeing lines came from the company's own books.
   const topBooks = weighted.filter((x) => groupKey(x.v) === groupKey(top.vote) && x.v.evidence && isHistory(x.v.evidence)).map((x) => x.v.evidence!.source as keyof typeof HISTORY_LABEL);
   const booksNote = topBooks.length === 0 ? "" : topBooks.length === top.lines ? ` in your ${HISTORY_LABEL[topBooks[0]]} history` : ` (${topBooks.length} of them in your ${HISTORY_LABEL[topBooks[0]]} history)`;
-  const others = ranked.slice(1, 3).map((g) => `${describe(g.vote)} ${g.lines}×`);
+  const others = ranked.slice(1, 3).map((g) => `${describe(g.vote, opts.accountNames)} ${g.lines}×`);
   const historyDetail = historyOk
     ? `${plural(top.lines, "earlier line")} for this payee${booksNote} were coded the same way.`
     : top.weight < MIN_AGREEING_WEIGHT
       ? `Only ${fmt(top.weight)} recent agreeing ${top.weight === 1 ? "decision" : "decisions"} — at least 3 are needed.`
       : !vendorsAgree
         ? "Earlier lines for this payee were coded the same way but to different vendors."
-      : `Earlier lines for this payee were coded differently (${[`${describe(top.vote)} ${top.lines}×`, ...others].join(", ")}).`;
+      : `Earlier lines for this payee were coded differently (${[`${describe(top.vote, opts.accountNames)} ${top.lines}×`, ...others].join(", ")}).`;
 
   const v = top.vote;
   // Who was paid: the linked vendor, else the newest agreeing line that names a vendor or payee.
@@ -272,11 +274,18 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   };
 }
 
-function describe(v: Vote): string {
+/** What a group of past lines was coded to, for "coded differently (…)". Every vote is for the same payee, so name the account. */
+function describe(v: Vote, accountNames?: ReadonlyMap<string, string>): string {
   if (v.kind === "transfer") return "transfer";
   if (v.kind === "exclude") return "excluded";
   if (v.kind === "bill") return "bill payment";
-  return v.payee ? `${v.payee}` : "expense";
+  return (v.glAccountId && accountNames?.get(v.glAccountId)) || "another account";
+}
+
+/** Step 3's reason: each similar payee named once ("City Water Co" ×3 reads as one). */
+export function similarReason(lines: number, labels: readonly string[]): string {
+  const names = [...new Set(labels)].slice(0, 3).join(", ");
+  return `New payee. ${lines} similar past item${lines === 1 ? "" : "s"} (${names}) went to the same account.`;
 }
 
 /** Auto-classification "Suggest only": the same suggestion, never filled in. */
@@ -347,7 +356,7 @@ export async function refreshSuggestions(
   //    nothing. A line found already entered in QuickBooks/Xero says nothing
   //    about coding. Bank-type accounts never vote: on a bank line that side is
   //    the line's own bank account.
-  const [bankSide, vendorTax] = await Promise.all([bankSideIds(db, qbConnectionId), vendorTaxCodes(db, qbConnectionId)]);
+  const [bankSide, vendorTax, names] = await Promise.all([bankSideIds(db, qbConnectionId), vendorTaxCodes(db, qbConnectionId), accountNames(db, qbConnectionId)]);
   const voteRows = await db.txns
     .find({
       qbConnectionId,
@@ -408,7 +417,6 @@ export async function refreshSuggestions(
     const picks = similarPicks({ vector, out: c.amountCents < 0 }, memory, now);
     if (picks.length === 0) return null;
     const top = picks[0];
-    const items = top.evidence.map((e) => e.label).slice(0, 3).join(", ");
     // A payee linked to a vendor (picked or created on an earlier line) keeps
     // that vendor and its saved tax code; otherwise the name to create.
     const tax = link ? vendorTax.get(link.vendorId) : undefined;
@@ -419,7 +427,7 @@ export async function refreshSuggestions(
       ...(link ? { vendorId: link.vendorId, linkedVendor: true } : {}),
       payee: (link?.payee ?? suggestedVendorName(c.merchantName ?? c.counterpartyName, c.description)) || undefined,
       confidence: top.confidence,
-      reason: `New payee. ${top.lines} similar past item${top.lines === 1 ? "" : "s"} (${items}) went to the same account.`,
+      reason: similarReason(top.lines, top.evidence.map((e) => e.label)),
       checks: {
         legibility: legibility(facts, new Date(now).toISOString().slice(0, 10)),
         completeness: { ok: false, detail: "New vendor: pick or create it." },
@@ -482,7 +490,7 @@ export async function refreshSuggestions(
     // A payee a person linked to a vendor gets that vendor, even with no coding history yet.
     const link = vendorByKey.get(lineKey) ?? null;
     const pastVotes = [...(key ? (votesByKey.get(key) ?? []) : []), ...historyVotesFor(lineKey, link?.vendorId ?? null, c.amountCents < 0)];
-    const fromHistory = score(facts, pastVotes, now, link, { vendorTax });
+    const fromHistory = score(facts, pastVotes, now, link, { vendorTax, accountNames: names });
     // Step 3: a payee nothing posted speaks for yet gets the accounts that
     // similar past items from any vendor went to. Never filled in. A linked
     // vendor alone (picked but never posted) doesn't stop it: it brings no

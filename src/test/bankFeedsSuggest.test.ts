@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
-import { payeeKey, refreshSuggestions, score, voteWeight, type Suggestion, type Vote } from "../lib/bankFeeds/suggest";
+import { payeeKey, refreshSuggestions, score, similarReason, voteWeight, type Suggestion, type Vote } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
@@ -75,6 +75,20 @@ describe("scoring", () => {
     const s = score(line, [travel(1), travel(2), travel(3), travel(4), travel(5, { glAccountId: "gl-meals" })], NOW);
     assert.equal(s.autoCoded, false);
     assert.match(s.reason, /coded differently/);
+  });
+
+  it("names the accounts, not the payee, when past lines disagree", () => {
+    const accountNames = new Map([["gl-travel", "Travel"], ["gl-meals", "Meals"]]);
+    const votes = [travel(1), travel(2), travel(3), travel(4), travel(5, { glAccountId: "gl-meals" })];
+    const s = score(line, votes, NOW, null, { accountNames });
+    assert.match(s.reason, /coded differently \(Travel 4×, Meals 1×\)/);
+    assert.doesNotMatch(s.reason, /Uber \d×/);
+    assert.match(score(line, votes, NOW).reason, /another account 1×/, "an account missing from the list still reads plainly");
+  });
+
+  it("step 3 says each similar payee once", () => {
+    assert.equal(similarReason(8, ["City Water Co", "City Water Co", "City Water Co", "Town Water"]), "New payee. 8 similar past items (City Water Co, Town Water) went to the same account.");
+    assert.equal(similarReason(1, ["Adobe Inc."]), "New payee. 1 similar past item (Adobe Inc.) went to the same account.");
   });
 
   it("suggests but never auto-applies an exclusion or a transfer", () => {

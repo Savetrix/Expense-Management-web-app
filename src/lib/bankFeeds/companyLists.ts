@@ -189,3 +189,9 @@ export async function vendorTaxCodes(db: Db, qbConnectionId: string): Promise<Ma
   const lists = await readLists(db, qbConnectionId);
   return new Map((lists?.vendors ?? []).filter((v) => v.taxCodeId).map((v) => [v.id, v.taxCodeId as string]));
 }
+
+/** Account id → its name, from the cache, so a reason can say which accounts disagree. */
+export async function accountNames(db: Db, qbConnectionId: string): Promise<Map<string, string>> {
+  const lists = await readLists(db, qbConnectionId);
+  return new Map((lists?.chart ?? []).map((a) => [a.id, a.name]));
+}
