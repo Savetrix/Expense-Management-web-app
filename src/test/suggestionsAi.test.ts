@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 
 import { isSureLine, surePatch } from "../components/v2/bankTransactions/lineCoding";
 import type { BankTransaction } from "../components/v2/bankTransactions/types";
-import { needsAi, runAiPicks, type AiPicker } from "../lib/bankFeeds/aiPick";
+import { lineInput, needsAi, runAiPicks, type AiPicker } from "../lib/bankFeeds/aiPick";
 import type { ChartAccount } from "../lib/bankFeeds/companyLists";
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
@@ -88,6 +88,16 @@ describe("step 4: what is sent and what is kept", () => {
     assert.equal(needsAi({ kind: "expense", step: "similar", confidence: "low" }), true);
     assert.equal(needsAi({ kind: "expense", step: "similar", confidence: "medium" }), false);
     assert.equal(needsAi({ kind: "expense", step: "history", confidence: "low" }), false, "step 2 found something");
+  });
+});
+
+describe("step 4: lines from a connected bank (Plaid)", () => {
+  it("send Plaid's merchant name and category; an imported line its kind of business", () => {
+    const plaid = lineInput({ payee: null, merchantName: "Purolator", counterpartyName: null, description: "PUROLATOR 2231 MISSISSAUGA", categoryDetailed: "TRANSPORTATION_SHIPPING", categoryPrimary: "TRANSPORTATION", shopKind: undefined, amountCents: -4250, currency: "CAD" });
+    assert.deepEqual([plaid.payee, plaid.category, plaid.out, plaid.amount], ["Purolator", "TRANSPORTATION_SHIPPING", true, 42.5]);
+    const csv = lineInput({ payee: null, merchantName: null, counterpartyName: null, description: "PUROLATOR 2231 MISSISSAUGA ON", categoryDetailed: null, categoryPrimary: null, shopKind: "courier service", amountCents: 4250, currency: "CAD" });
+    assert.deepEqual([csv.payee, csv.category, csv.out], ["Purolator", "courier service", false]);
+    assert.match(aiUserMessage({ line: plaid, accounts: [], past: [] }), /"bank_category":"transportation shipping"/);
   });
 });
 
