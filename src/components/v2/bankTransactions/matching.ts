@@ -106,7 +106,9 @@ export interface StrongSuggestion {
 /**
  * For each money-out line still to review, its best-ranked bill when that bill is a
  * strong match. A bill is offered to one line only, and never when it is
- * closed (see closedBills).
+ * closed (see closedBills). When two open bills are both strong matches (the
+ * same vendor billed the same amount twice), none is offered: a person picks
+ * the bill in the Match dialog (Saurabh, 20 Nov).
  */
 export function findStrongSuggestions(txns: BankTransaction[], candidates: InvoiceCandidate[], closed: ReadonlySet<string> = new Set()): StrongSuggestion[] {
   const taken = new Set(closed);
@@ -115,8 +117,8 @@ export function findStrongSuggestions(txns: BankTransaction[], candidates: Invoi
   for (const txn of txns) {
     // Only money out pays a bill; a deposit of the same amount is not a match.
     if (txn.status !== "review" || txn.amount >= 0) continue;
-    const best = rankInvoices(txn, candidates.filter((c) => !taken.has(c.id)))[0];
-    if (best && isStrongMatch(txn, best)) {
+    const [best, next] = rankInvoices(txn, candidates.filter((c) => !taken.has(c.id)));
+    if (best && isStrongMatch(txn, best) && !(next && isStrongMatch(txn, next))) {
       taken.add(best.id);
       out.push({ txn, invoice: best });
     }

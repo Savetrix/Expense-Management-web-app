@@ -356,13 +356,8 @@ export function TransactionModal({
                             </span>
                           </span>
                           {vendorAgrees(txn, c) && <Badge variant="success">Same vendor</Badge>}
-                          {i === 0 &&
-                            !search &&
-                            (isExactAmount(txn, c) ? (
-                              <Badge variant="success">Same amount</Badge>
-                            ) : (
-                              <Badge>Closest</Badge>
-                            ))}
+                          {/* Every bill of the same amount says so: two of them means the person picks (20 Nov). */}
+                          {isExactAmount(txn, c) ? <Badge variant="success">Same amount</Badge> : i === 0 && !search && <Badge>Closest</Badge>}
                         </label>
                       </li>
                     ))}
