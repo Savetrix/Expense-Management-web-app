@@ -32,7 +32,7 @@ import type { AnyBulkWriteOperation } from "mongodb";
 import { payeeKey, type AutoClassification } from "@/lib/suggestions/match";
 import { similarPicks, suggestedVendorName, type MemoryItem } from "@/lib/suggestions/similar";
 import { pickReason } from "@/lib/suggestions/picks";
-import { HISTORY_LABEL, historyPicks, isPrior, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, postsReason, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
+import { historyPicks, isPrior, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, postsReason, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
 import { aiAccountsFor, aiPicksFrom, needsAi } from "./aiPick";

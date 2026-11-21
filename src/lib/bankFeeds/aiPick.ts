@@ -62,7 +62,10 @@ export interface AiPicker {
 export function openAiPicker(apiKey = process.env.OPENAI_API_KEY?.trim(), timeoutMs = AI_TIMEOUT_MS): AiPicker | null {
   if (!apiKey) return null;
   const client = new OpenAI({ apiKey });
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
+  // SUGGESTIONS_AI_MODEL changes step 4 alone; else the app's model (OPENAI_MODEL), as the shop-kind labeller.
+  const model = process.env.SUGGESTIONS_AI_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
+  // Only reasoning models take reasoning_effort; another model would refuse every call.
+  const reasoning = /^(gpt-5|o\d)/i.test(model) ? { reasoning_effort: "low" as const } : {};
   return {
     model: `openai:${model}`,
     async pick(input) {
@@ -70,7 +73,7 @@ export function openAiPicker(apiKey = process.env.OPENAI_API_KEY?.trim(), timeou
       const call = client.chat.completions.create(
         {
           model,
-          reasoning_effort: "low",
+          ...reasoning,
           response_format: { type: "json_schema", json_schema: aiSchema(ids) as never },
           messages: [
             { role: "system", content: AI_SYSTEM_PROMPT },
@@ -258,6 +261,9 @@ export interface AiRunOutcome {
 
 const CONCURRENCY = 4;
 
+const isOff = async (db: Db, qbConnectionId: string) =>
+  ((await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { autoClassification: 1 } }))?.autoClassification ?? "fill") === "off";
+
 /**
  * Step 4 for a company's lines to review (or only `lineIds`): asks the AI for
  * lines that need it and have no answer that still holds, saves the answers
@@ -270,8 +276,7 @@ export async function runAiPicks(
   opts: { lineIds?: string[]; now?: number; maxCalls?: number; timeoutMs?: number; refresh?: (keys?: string[]) => Promise<unknown> } = {},
 ): Promise<AiRunOutcome> {
   const outcome: AiRunOutcome = { lines: 0, asked: 0, reused: 0, kept: 0, failed: 0, keys: [] };
-  const settings = await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { autoClassification: 1 } });
-  if ((settings?.autoClassification ?? "fill") === "off") return { ...outcome, skipped: "off" };
+  if (await isOff(db, qbConnectionId)) return { ...outcome, skipped: "off" };
   if (!picker) return { ...outcome, skipped: "no_picker" };
   const { accounts, hash, ids } = await aiAccountsFor(db, qbConnectionId);
   if (accounts.length === 0) return { ...outcome, skipped: "no_accounts" };
@@ -328,6 +333,8 @@ export async function runAiPicks(
         outcome.reused += g.lines.length;
       } else {
         if (outcome.asked >= maxCalls) continue;
+        // Switched Off while this ran: nothing more goes to the AI.
+        if (await isOff(db, qbConnectionId)) continue;
         outcome.asked += 1;
         rec = await askAi(picker, { line: lineInput(first.t), accounts, past: first.basis.map((m) => ({ label: m.label, accountId: m.glAccountId as string })) }, { hash, basis: first.basis, out: g.out, now, timeoutMs: opts.timeoutMs });
         if (rec.status === "failed") outcome.failed += 1;

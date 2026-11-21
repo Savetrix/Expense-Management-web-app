@@ -52,6 +52,13 @@ describe("QuickBooks requests", () => {
     }
   });
 
+  it("a deposit carries the tax lines too, on the code's purchase rate as QuickBooks does itself", () => {
+    const b = buildQbRequest({ ...expense({ amount: 86.27, taxCodeId: "5", taxRate: 13 }), kind: "deposit", glAccountId: "67" } as Posting, "k", [{ rateId: "11", percent: 13 }]).request.body as unknown as Json;
+    assert.equal(b.Line[0].Amount, 76.35);
+    assert.equal(b.TxnTaxDetail.TotalTax, 9.92);
+    assert.deepEqual(b.TxnTaxDetail.TaxLine[0].TaxLineDetail.TaxRateRef, { value: "11" });
+  });
+
   it("splits the tax over a code with two rates, the last one taking the rounding", () => {
     const d = taxDetail(112, 100, [{ rateId: "15", percent: 5 }, { rateId: "17", percent: 7 }])!;
     assert.deepEqual(d.TaxLine.map((l) => l.Amount), [5, 7]);

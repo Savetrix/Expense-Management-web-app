@@ -42,6 +42,8 @@ export function AutopilotContentV2() {
   const [activeTab, setActiveTab] = useState<AutopilotTab>("overview");
   // "/autopilot?tab=settings" opens the Smart Suggestions settings.
   useEffect(() => {
+    // Read once in the browser (the address isn't known while rendering on the server).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (new URLSearchParams(window.location.search).get("tab") === "settings") setActiveTab("settings");
   }, []);
   const [enabled, setEnabled] = useState(true);

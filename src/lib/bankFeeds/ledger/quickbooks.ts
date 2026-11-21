@@ -62,6 +62,8 @@ export function buildQbRequest(posting: Posting, idempotencyKey: string, taxRate
     case "deposit": {
       const { amount, tax } = lineAmounts(posting.amount, posting.taxCodeId, posting.taxRate);
       // The rates must add up to the code's rate the amounts were split with, or the tax lines would be wrong.
+      // Always the code's PURCHASE rates: QuickBooks itself taxes a bank Deposit line on the purchase
+      // side (TaxApplicableOn "Purchase") and refused the sales rate there (sandbox, 21 Nov).
       const sum = (taxRates ?? []).reduce((s, c) => s + c.percent, 0);
       const detail = tax && posting.taxRate && Math.abs(sum - posting.taxRate) < 0.001 ? taxDetail(posting.amount, amount, taxRates) : null;
       const taxMode = tax ? { GlobalTaxCalculation: "TaxInclusive", ...(detail ? { TxnTaxDetail: detail } : {}) } : {};
@@ -428,9 +430,9 @@ async function queryAll(ctx: LedgerContext, entity: QbEntity, from: string, to: 
 const rateCache = new Map<string, { at: number; rates: TaxComponent[] }>();
 
 /**
- * The rates inside a tax code, from QuickBooks (purchase rates for money out
- * and card refunds, sales rates for deposits), kept an hour per company. A
- * failed read posts as before, without tax lines.
+ * The rates inside a tax code, from QuickBooks, kept an hour per company.
+ * Bank lines use the purchase rates (see buildQbRequest). A failed read posts
+ * as before, without tax lines.
  */
 async function taxComponents(ctx: LedgerContext, taxCodeId: string, list: "purchase" | "sales"): Promise<TaxComponent[] | null> {
   if (!QB_ID.test(taxCodeId)) return null;
@@ -512,9 +514,8 @@ export const quickbooks: LedgerAdapter = {
   },
 
   async post(ctx, posting, idempotencyKey): Promise<PostedEntry> {
-    const rates = (posting.kind === "expense" || posting.kind === "deposit") && posting.taxCodeId && posting.taxRate
-      ? await taxComponents(ctx, posting.taxCodeId, posting.kind === "deposit" && !posting.bankAccount.isCard ? "sales" : "purchase").catch(() => null)
-      : null;
+    // The code's purchase rates, for money out and money in alike (see buildQbRequest).
+    const rates = (posting.kind === "expense" || posting.kind === "deposit") && posting.taxCodeId && posting.taxRate ? await taxComponents(ctx, posting.taxCodeId, "purchase").catch(() => null) : null;
     const { entity, request } = buildQbRequest(posting, idempotencyKey, rates);
     const data = await call(ctx, request);
     const id = (data[entity] as { Id?: string } | undefined)?.Id;
