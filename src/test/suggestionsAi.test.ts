@@ -201,6 +201,21 @@ describe("step 4 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.deepEqual(ai.calls.at(-1)?.past ?? [], [], "the earlier call had no past items");
   });
 
+  it("when step 3 is only Low, the AI's pick leads and step 3's still shows", async () => {
+    const t = await line("HONK MOBILE PARKING");
+    const vec = (id: string, role: "memory" | "query", ref: string, vector: number[], gl: string | null, label: string) => ({
+      _id: `${QB}:bank:${id}`, qbConnectionId: QB, kind: "bank" as const, role, ref, text: label, textHash: "h", model: "m", vector, out: true, glAccountId: gl, taxCodeId: null, label, date: "2026-11-10", amountCents: 500, decidedAt: new Date().toISOString(), source: "bank" as const, embeddedAt: new Date(),
+    });
+    await db.vectors.insertMany([vec("q", "query", t.id, [1, 0, 0], null, "HONK"), vec("m1", "memory", "m1", [0.6, 0.8, 0], "13", "Tim Hortons")]);
+    await refreshSuggestions(db, QB);
+    assert.equal(((await view(t.id)).suggestion as Suggestion).step, "similar", "step 3 found one loosely alike item: Low");
+    await run(fakeAi(["62", "15"]).picker);
+    const s = (await view(t.id)).suggestion as Suggestion;
+    assert.equal(s.step, "ai");
+    assert.equal(s.glAccountId, "62");
+    assert.deepEqual(s.picks?.map((p) => `${p.glAccountId}/${p.step}`), ["62/ai", "13/similar", "15/ai"]);
+  });
+
   it("sends only this company's own past items, never another company's", async () => {
     const t = await line("NEWCO SUPPLIES 9");
     await db.vectors.insertMany([

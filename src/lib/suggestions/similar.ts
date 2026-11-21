@@ -9,8 +9,9 @@
 //   - an item is close at a similarity of CLOSE_SIMILARITY or more (see below);
 //   - the nearest 20 close items vote, but only those nearly as close as the
 //     closest one (within VOTE_WINDOW); last 90 days count fully, older half;
-//   - Medium: at least 3 close items and the top account holds ≥ 60% of the
-//     vote; anything weaker is Low (shown in red);
+//   - Medium: at least 3 close items, the closest one clearly alike (0.55 or
+//     more), and the top account holds ≥ 60% of the vote; anything weaker is
+//     Low (shown in red);
 //   - never filled in.
 import { historyPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "./picks";
 
@@ -37,6 +38,13 @@ export const MAX_VOTERS = 20;
  */
 export const VOTE_WINDOW = 0.1;
 export const MEDIUM_MIN_CLOSE = 3;
+/**
+ * Medium also needs the closest item to be clearly alike, not just over the
+ * cut-off: on 21 Nov the sandbox's "BELL CANADA ONLINE PAYMENT" reached Medium
+ * Travel from three "PETRO-CANADA" lines at 0.52 (the shared word Canada).
+ * Real matches in Feature 5's set score 0.55 and up.
+ */
+export const MEDIUM_MIN_SIMILARITY = 0.55;
 export const MEDIUM_SHARE = 0.6;
 
 // ------------------------------------------------------------------ text
@@ -52,18 +60,40 @@ export function cleanText(text: string | null | undefined): string {
   return maskCardNumbers(text)
     .replace(/[#*]+/g, " ")
     .split(/\s+/)
-    .filter((w) => w && !/^\d+$/.test(w))
+    // Store, terminal and phone numbers ("1234", "800-833-6687") say nothing about what was bought.
+    .filter((w) => w && !/^[\d-]*\d[\d-]*$/.test(w))
     .join(" ")
     .trim();
+}
+
+// Canadian provinces and US states as the last word of a bank line. Words that
+// are also ordinary English (IN, OR, ME, OK, HI, DE) are left out.
+const REGION = new Set(
+  "AB BC MB NB NL NS NT NU ON PE QC SK YT AL AK AZ AR CA CO CT FL GA ID IL IA KS KY LA MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(" "),
+);
+const STORE_NUMBER = /^#?\d{1,6}$|^\d{2,4}-\d{2,4}$/;
+
+/**
+ * The bank text without the town at the end: "PETRO-CANADA 1234 TORONTO ON" →
+ * "PETRO-CANADA 1234", "HOME HARDWARE #312 BRAMPTON" → "HOME HARDWARE #312".
+ * Why: the town says nothing about what was bought, and on imported files it
+ * made unrelated payees in one town look alike (21 Nov, sandbox: TORONTO HYDRO
+ * and PUROLATOR … MISSISSAUGA ON both came out as Petro-Canada's Travel).
+ */
+export function withoutPlace(text: string): string {
+  const words = text.trim().split(/\s+/);
+  if (words.length >= 3 && REGION.has(words[words.length - 1])) return words.slice(0, -2).join(" ");
+  if (words.length >= 3 && STORE_NUMBER.test(words[words.length - 2]) && /^[A-Za-z][A-Za-z.'-]*$/.test(words[words.length - 1])) return words.slice(0, -1).join(" ");
+  return text.trim();
 }
 
 /** Plaid's "TRANSPORTATION_GAS" → "transportation gas". */
 const category = (c: string | null | undefined) => (c ? c.toLowerCase().replace(/_/g, " ") : "");
 const join = (...parts: (string | null | undefined)[]) => parts.map((p) => (p ?? "").trim()).filter(Boolean).join(" | ");
 
-/** A bank line: the cleaned payee, the description and Plaid's category (when it has one). */
+/** A bank line: the cleaned payee, the description without the town, and Plaid's category or the kind of business (when known). */
 export function bankText(line: { payee?: string | null; description: string; category?: string | null }): string {
-  const description = cleanText(line.description);
+  const description = cleanText(withoutPlace(maskCardNumbers(line.description)));
   const payee = cleanText(line.payee);
   return join(payee && !description.toLowerCase().startsWith(payee.toLowerCase()) ? payee : "", description, category(line.category));
 }
@@ -88,7 +118,9 @@ export function suggestedVendorName(merchantName: string | null | undefined, des
     if (clean) words.push(clean);
     if (w.includes("*") || words.length === 3) break;
   }
-  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  // Each part of a hyphenated name too: "PETRO-CANADA" → "Petro-Canada".
+  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  return words.map((w) => w.split("-").map(cap).join("-")).join(" ");
 }
 
 // ------------------------------------------------------------------ voting
@@ -136,7 +168,7 @@ export function similarPicks(query: { vector: number[]; out: boolean }, memory: 
     .slice(0, 3)
     .map((p, i) => {
       const share = total > 0 ? p.weight / total : 0;
-      const medium = i === 0 && close.length >= MEDIUM_MIN_CLOSE && share >= MEDIUM_SHARE;
+      const medium = i === 0 && close.length >= MEDIUM_MIN_CLOSE && share >= MEDIUM_SHARE && close[0].sim >= MEDIUM_MIN_SIMILARITY;
       return { ...p, step: "similar" as const, confidence: medium ? ("medium" as const) : ("low" as const) };
     });
 }

@@ -454,8 +454,8 @@ export async function refreshSuggestions(
     };
   };
   // Step 4: the AI's saved answer (aiPick.ts) for a line steps 2 and 3 have
-  // nothing for, or where step 3 is below Medium. Always Low, never filled in;
-  // its picks come after step 3's own. An account no longer allowed drops out.
+  // nothing for, or where step 3 is below Medium. Always Low, never filled in.
+  // An account no longer allowed drops out.
   const aiAllowed = mode === "off" ? null : (await aiAccountsFor(db, qbConnectionId)).ids;
   const withAi = (c: TxnDoc, link: PayeeLinkDoc | null, found: Suggestion): Suggestion => {
     const rec = c.aiPick;
@@ -463,7 +463,11 @@ export async function refreshSuggestions(
     const subject = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
     const aiPicks = aiPicksFrom(rec, aiAllowed, subject);
     if (aiPicks.length === 0) return found;
-    if (found.kind && found.step === "similar") return { ...found, picks: topPicks(found.picks ?? [], aiPicks), model: rec.model };
+    // Step 3 below Medium is weak: the AI's first pick leads, then step 3's and
+    // the AI's take turns, so both show (a weak step 3 filling all 3 places hid
+    // the AI entirely; 21 Nov sandbox).
+    const weak = found.kind && found.step === "similar" ? (found.picks ?? []) : [];
+    const turns = aiPicks.flatMap((p, i) => [p, ...(weak[i] ? [weak[i]] : [])]).concat(weak.slice(aiPicks.length));
     const top = aiPicks[0];
     const tax = link ? vendorTax.get(link.vendorId) : undefined;
     return {
@@ -482,7 +486,7 @@ export async function refreshSuggestions(
       autoCoded: false,
       basis: { agreeing: 0, total: 0, lines: 0 },
       step: "ai",
-      picks: aiPicks,
+      picks: topPicks(turns),
       model: rec.model,
       scoredAt: new Date(now).toISOString(),
     };

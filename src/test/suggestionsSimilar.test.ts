@@ -13,7 +13,7 @@ import { embedNewDecision, syncVectors } from "../lib/bankFeeds/similarSync";
 import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 import { pickReason } from "../lib/suggestions/picks";
-import { bankText, cleanText, maskCardNumbers, similarPicks, suggestedVendorName, type MemoryItem } from "../lib/suggestions/similar";
+import { bankText, cleanText, maskCardNumbers, similarPicks, suggestedVendorName, withoutPlace, type MemoryItem } from "../lib/suggestions/similar";
 
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 import { decideAndPost, markPosted } from "./helpers/posted";
@@ -42,12 +42,23 @@ describe("the text that is compared", () => {
   });
 
   it("joins the payee, the description and Plaid's category", () => {
-    assert.equal(bankText({ payee: "Esso", description: "ESSO 5521 MISSISSAUGA", category: "TRANSPORTATION_GAS" }), "ESSO MISSISSAUGA | transportation gas");
+    assert.equal(bankText({ payee: "Esso", description: "ESSO 5521 MISSISSAUGA", category: "TRANSPORTATION_GAS" }), "ESSO | transportation gas");
     assert.equal(bankText({ payee: "Coffee shop", description: "SQ *BLUE BEAN" }), "Coffee shop | SQ BLUE BEAN");
   });
 
+  it("leaves out the town, so payees in one town don't look alike (21 Nov)", () => {
+    assert.equal(withoutPlace("PETRO-CANADA 1234 TORONTO ON"), "PETRO-CANADA 1234");
+    assert.equal(withoutPlace("PUROLATOR 2231 MISSISSAUGA ON"), "PUROLATOR 2231");
+    assert.equal(withoutPlace("HOME HARDWARE #312 BRAMPTON"), "HOME HARDWARE #312");
+    assert.equal(withoutPlace("CANVA* 104-2938 SYDNEY"), "CANVA* 104-2938");
+    assert.equal(withoutPlace("TORONTO HYDRO-ELECTRIC SYSTEM"), "TORONTO HYDRO-ELECTRIC SYSTEM", "a town in the payee's own name stays");
+    assert.equal(withoutPlace("AMAZON.CA*ZX12 OFFICE PRODUCTS"), "AMAZON.CA*ZX12 OFFICE PRODUCTS", "what was bought stays");
+    assert.equal(withoutPlace("VISA ****9012 ESSO"), "VISA ****9012 ESSO", "a card number is not a store number");
+    assert.equal(bankText({ description: "TIM HORTONS #4411 TORONTO ON", category: "coffee shop" }), "TIM HORTONS | coffee shop");
+  });
+
   it("offers a vendor name from the bank text", () => {
-    assert.equal(suggestedVendorName(null, "PETRO-CANADA 1234 TORONTO ON"), "Petro-canada");
+    assert.equal(suggestedVendorName(null, "PETRO-CANADA 1234 TORONTO ON"), "Petro-Canada");
     assert.equal(suggestedVendorName(null, "UBER *TRIP HELP.UBER.COM"), "Uber");
     assert.equal(suggestedVendorName("Esso", "ESSO 5521"), "Esso");
   });
@@ -90,6 +101,20 @@ describe("similar items vote", () => {
     assert.equal(picks[0].glAccountId, "meals", "3 loose votes don't beat 2 close ones");
     assert.equal(picks.length, 1);
     assert.equal(picks[0].confidence, "low", "only 2 voted");
+  });
+
+  it("Medium needs the closest item clearly alike, not just over the cut-off (21 Nov)", () => {
+    const q = unit(1, 0, 0);
+    const loose = unit(1, 1.62, 0); // about 0.52 alike: over the cut-off, not clearly alike
+    const weak = similarPicks({ vector: q, out: true }, [item(loose, "travel"), item(loose, "travel", 6), item(loose, "travel", 7)], NOW);
+    assert.equal(weak[0].glAccountId, "travel");
+    assert.equal(weak[0].confidence, "low");
+    const near = unit(1, 0.9, 0); // about 0.74
+    assert.equal(similarPicks({ vector: q, out: true }, [item(near, "travel"), item(near, "travel", 6), item(near, "travel", 7)], NOW)[0].confidence, "medium");
+  });
+
+  it("drops phone numbers like store numbers", () => {
+    assert.equal(cleanText("ROGERS *WIRELESS 888-764-3771"), "ROGERS WIRELESS");
   });
 
   it("names the past items in the reason", () => {
