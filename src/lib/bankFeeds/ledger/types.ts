@@ -31,6 +31,10 @@ export interface LedgerAccount {
   currency: string | null;
   /** QuickBooks sub-accounts: the parent account's id. */
   parentId?: string | null;
+  /** QuickBooks AccountSubType ("GlobalTaxPayable"), Xero SystemAccount ("GST"): tells tax accounts apart. */
+  subtype?: string | null;
+  /** The account's own description, when the company wrote one (step 4 reads it). */
+  description?: string | null;
 }
 
 /** What the company itself says about where it is (tax rules depend on it). */

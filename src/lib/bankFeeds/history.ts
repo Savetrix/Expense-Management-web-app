@@ -70,10 +70,12 @@ export function historyMatches(lineKey: string | null | undefined, key: string |
 }
 
 /**
- * "Learn from QuickBooks history": what an Owner or Admin chose; until then, on
- * for a sandbox (test) company and off for a real one (18 Nov: Saurabh still
- * has to confirm in writing what he wants for real companies, given Intuit's
- * terms from 12 Dec 2026). The environment is known once ScanTrix has reached
+ * "Learn from QuickBooks history", per company (suggestion_settings): what was
+ * set for this company; until then, on for a sandbox (test) company and off
+ * for a real one. There is no switch on screen (Saurabh, 20 Nov); set it in the
+ * database for one company. A real company is read only when the server also
+ * allows real companies (SUGGESTIONS_HISTORY_REAL_COMPANIES): kept off on 20 Nov
+ * until Intuit approves the change (terms 7.2, from 12 Dec 2026). The environment is known once ScanTrix has reached
  * QuickBooks for this company (companyLists.ts); unknown counts as real.
  */
 export async function readLearnFromHistory(db: Db, qbConnectionId: string): Promise<boolean> {

@@ -3,6 +3,8 @@
 // only from the vendor, currency from the bank account, and the bank side of
 // every post is the line's own mapped account.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { bankLineGlChoices, currencyMismatch, lineCurrency, lineLedgerId, newVendorPatch, vendorFormDefaults } from "../components/v2/bankTransactions/glList";
@@ -11,6 +13,7 @@ import { addRow } from "../components/v2/ui/CreatableCombobox";
 import { accountCurrency } from "../lib/bankFeeds/companyLists";
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { setNamedMapping } from "../lib/bankFeeds/ledgerMappings";
+import { hasVendorErrors, NO_CURRENCY, validateVendorForm } from "../lib/vendorForm";
 import type { LedgerAccount, LedgerAdapter, LedgerContext, Posting } from "../lib/bankFeeds/ledger/types";
 import { postLines, type PostingServices } from "../lib/bankFeeds/posting";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
@@ -100,7 +103,17 @@ describe("one vendor box, like the invoice screen", () => {
     assert.equal(addRow({ typed: "", value: "v1", suggestedNew: "Tim Hortons", options, noun: "vendor" }).offerName, "", "not when a vendor is picked");
   });
 
-  it("opens the form with a clean name, the bank account's currency, the suggested GL and no tax", () => {
+  it("a new vendor needs a currency picked: the form starts empty and won't save without one (Saurabh, 20 Nov)", () => {
+    assert.equal(validateVendorForm({ name: "Tim Hortons", currency: NO_CURRENCY, glAccountId: "7", email: "", requireGlAccount: true }).currency, "Pick the vendor's currency");
+    assert.equal(hasVendorErrors(validateVendorForm({ name: "Tim Hortons", currency: "CAD", glAccountId: "7", email: "", requireGlAccount: true })), false);
+    assert.equal(validateVendorForm({ name: "Tim Hortons", glAccountId: "", email: "", requireGlAccount: false }).currency, undefined, "editing: currency can't change, so it isn't checked");
+    for (const file of ["src/components/v2/vendors/AddVendorModalV2.tsx", "src/components/v2/vendors/VendorsContentV2.tsx", "src/components/v2/invoices/useVendorResolution.ts"]) {
+      const code = readFileSync(join(process.cwd(), file), "utf8");
+      assert.doesNotMatch(code, /defaultVendorCurrency|useState<string>\(CURRENCY_OPTIONS\[0\]\)|currency: CURRENCY_OPTIONS\[0\]/, `${file} starts the currency empty`);
+    }
+  });
+
+  it("opens the form with a clean name, the suggested GL and no tax; the bank account's currency is only offered", () => {
     assert.deepEqual(vendorFormDefaults({ typed: "", suggestedName: "Tim Hortons", glAccountId: "7", currency: "CAD" }), { name: "Tim Hortons", currency: "CAD", glAccountId: "7", taxCodeId: "" });
     assert.equal(vendorFormDefaults({ typed: "Tims Coffee ", suggestedName: "Tim Hortons", glAccountId: null, currency: null }).name, "Tims Coffee");
   });

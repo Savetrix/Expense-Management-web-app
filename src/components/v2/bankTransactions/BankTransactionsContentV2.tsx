@@ -25,7 +25,7 @@ import {
 import { getInvoices } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
-import { requestHistoryRead, requestSimilarSync } from "@/components/v2/suggestions/historyClient";
+import { requestAiPick, requestHistoryRead, requestSimilarSync } from "@/components/v2/suggestions/historyClient";
 
 import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
@@ -207,7 +207,7 @@ export function BankTransactionsContentV2() {
   // "nothing in between"): save the decision, then send it. One line carries
   // its version, so a teammate's newer change isn't overwritten. A line that
   // can't go yet (a match whose bill isn't in the books, sending switched off)
-  // stays in Ready to post or Matched, with the reason, as before.
+  // stays in To review or Matched, with the reason.
   const saveAndSend = async (items: { txn: BankTransaction; patch: Partial<BankTransaction>; sendable: boolean }[], kind: "post" | "match") => {
     let saved: string[];
     if (items.length === 1) {
@@ -282,7 +282,7 @@ export function BankTransactionsContentV2() {
     return () => window.clearInterval(timer);
   }, [checkLedger, qbConnectionId, canPost]);
   // Smart Suggestions learns from the company's own books (lib/bankFeeds/history.ts):
-  // read when the page opens if the last read is over a day old; the lines
+  // read once, the first time the page opens for the company; the lines
   // reload when new history came in, since their suggestions changed.
   useEffect(() => {
     if (!qbConnectionId || !canPost) return;
@@ -309,6 +309,18 @@ export function BankTransactionsContentV2() {
   };
   const [openFocus, setOpenFocus] = useState<"match" | "transfer" | "payBill" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
+  // Step 4: a line opened with no suggestion at all asks the AI once (the server
+  // keeps the answer, so opening it again sends nothing).
+  const askedAi = useRef(new Set<string>());
+  useEffect(() => {
+    if (!openTxn || !qbConnectionId || !canPost || openTxn.status !== "review" || askedAi.current.has(openTxn.id)) return;
+    const s = openTxn.suggestion as { kind?: string | null } | null | undefined;
+    if (s?.kind) return;
+    askedAi.current.add(openTxn.id);
+    void requestAiPick(qbConnectionId, openTxn.id).then((changed) => {
+      if (changed) void dispatch(fetchBankTransactions());
+    });
+  }, [openTxn, qbConnectionId, canPost, dispatch]);
 
   return (
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">

@@ -17,6 +17,20 @@ import type { BankTransaction } from "./types";
  * request on Bank Transactions → Paperwork requests, and get an email with a
  * link when this server can send email.
  */
+const ROLE_LABEL: Record<string, string> = { owner: "Owner", admin: "Admin", accountant: "Accountant", contributor: "Contributor" };
+
+/** "Cara (cara@x.com) · Contributor · Invite pending". */
+export function memberLabel(m: TeamMemberDto): string {
+  return [
+    `${m.name}${m.email && m.email !== m.name ? ` (${m.email})` : ""}`,
+    ROLE_LABEL[m.role] ?? m.role,
+    m.pending ? "Invite pending" : null,
+    !m.canOpenBank ? "can't open Bank Transactions yet" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function RequestPaperworkModal({ lines, onClose, onSent }: { lines: BankTransaction[]; onClose: () => void; onSent: () => void }) {
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
   const me = useAppSelector((s) => s.auth.user?.data?.user);
@@ -90,11 +104,10 @@ export function RequestPaperworkModal({ lines, onClose, onSent }: { lines: BankT
           ))}
         </ul>
         <SelectDropdown label="Who has the receipts?" value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={!team || busy}>
-          <option value="">{team === null ? "Loading the team…" : team.length === 0 ? "Nobody else on the team can open Bank Transactions" : "Pick a team member"}</option>
+          <option value="">{team === null ? "Loading the team…" : team.length === 0 ? "Nobody else is on the team yet" : "Pick a team member"}</option>
           {(team ?? []).map((m) => (
-            <option key={m.userId} value={m.userId}>
-              {m.name}
-              {m.email && m.email !== m.name ? ` (${m.email})` : ""}
+            <option key={m.userId} value={m.userId} disabled={!m.askable}>
+              {memberLabel(m)}
             </option>
           ))}
         </SelectDropdown>

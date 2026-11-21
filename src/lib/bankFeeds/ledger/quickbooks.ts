@@ -405,12 +405,23 @@ export const quickbooks: LedgerAdapter = {
         Name: string;
         FullyQualifiedName?: string;
         AccountType: string;
+        AccountSubType?: string;
+        Description?: string;
         CurrencyRef?: { value?: string };
         SubAccount?: boolean;
         ParentRef?: { value?: string };
       }[];
       for (const a of rows) {
-        out.push({ id: String(a.Id), name: a.FullyQualifiedName || a.Name, kind: kindOf(a.AccountType), type: a.AccountType, currency: a.CurrencyRef?.value ?? null, parentId: a.SubAccount && a.ParentRef?.value ? String(a.ParentRef.value) : null });
+        out.push({
+          id: String(a.Id),
+          name: a.FullyQualifiedName || a.Name,
+          kind: kindOf(a.AccountType),
+          type: a.AccountType,
+          currency: a.CurrencyRef?.value ?? null,
+          parentId: a.SubAccount && a.ParentRef?.value ? String(a.ParentRef.value) : null,
+          subtype: a.AccountSubType ?? null,
+          description: a.Description?.trim() || null,
+        });
       }
       if (rows.length < 1000) break;
     }

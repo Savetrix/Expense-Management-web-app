@@ -102,7 +102,8 @@ describe("similar items vote", () => {
       ],
       NOW,
     );
-    assert.equal(pickReason(picks[0], "Travel"), "3 similar items went to Travel: Petro Canada 12 Oct, Shell 3 Sep, Husky 27 Aug");
+    // Shell came from the books: not dated, not counted.
+    assert.equal(pickReason(picks[0], "Travel"), "2 similar posts went to Travel: Husky 27 Aug; Petro Canada 12 Oct. Also from prior classifications");
   });
 });
 

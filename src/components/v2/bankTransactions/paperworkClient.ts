@@ -9,6 +9,9 @@ export interface PaperworkPerson {
 }
 export interface TeamMemberDto extends PaperworkPerson {
   role: string;
+  pending: boolean;
+  canOpenBank: boolean;
+  askable: boolean;
 }
 export interface PaperworkLineDto {
   id: string;

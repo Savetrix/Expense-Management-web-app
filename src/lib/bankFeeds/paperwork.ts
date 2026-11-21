@@ -47,6 +47,12 @@ export interface PaperworkRequestDoc {
 
 export interface TeamMember extends Person {
   role: string;
+  /** Invited but not joined yet: shown as "Invite pending". */
+  pending: boolean;
+  /** A contributor whose page access leaves out Bank Transactions can't open the request in the app yet. */
+  canOpenBank: boolean;
+  /** Can be picked: has a ScanTrix account (an invite to a new email has none yet). */
+  askable: boolean;
 }
 
 const bucket = (db: Db) => new GridFSBucket(db.database, { bucketName: "bank_attachments" });
@@ -55,11 +61,11 @@ const bucket = (db: Db) => new GridFSBucket(db.database, { bucketName: "bank_att
 export const hasPaperwork = (t: Pick<TxnDoc, "attachments" | "matchedInvoiceId">) => Boolean(t.attachments?.length || t.matchedInvoiceId);
 
 /**
- * The company's team members who can open Bank Transactions: owners, admins
- * and accountants, and contributors whose page access includes it (a
- * contributor without it couldn't reach the request). Pending invites and the
- * email-forwarding service account are left out. The backend's list leaves
- * out the person asking.
+ * Everyone on the company's team, from the backend's members list (Saurabh,
+ * 20 Nov: the person who spent the money usually has the receipt): the owner,
+ * admins, accountants and contributors, and people with a pending invite
+ * (marked; one invited by an email with no ScanTrix account yet can't be
+ * picked). Only the email-forwarding service account is left out.
  */
 export async function teamMembers(userToken: string, qbConnectionId: string): Promise<TeamMember[]> {
   const res = await fetch(`${SAVETRIX_API_BASE_URL}/qb-connections/${encodeURIComponent(qbConnectionId)}/members`, {
@@ -84,16 +90,20 @@ const person = (u: RawUser | null | undefined): Person | null => {
 export function readTeam(data: { members?: unknown[]; owner?: { userId?: unknown } }): TeamMember[] {
   const out: TeamMember[] = [];
   const owner = person(data.owner?.userId as RawUser | undefined);
-  if (owner) out.push({ ...owner, role: "owner" });
+  if (owner) out.push({ ...owner, role: "owner", pending: false, canOpenBank: true, askable: true });
   for (const raw of data.members ?? []) {
-    const m = raw as { userId?: RawUser; role?: unknown; inviteStatus?: unknown; isForwardingService?: unknown; pageAccess?: unknown };
-    const p = person(m.userId);
-    if (!p || m.isForwardingService === true || (typeof m.inviteStatus === "string" && m.inviteStatus !== "accepted")) continue;
+    const m = raw as { userId?: RawUser; role?: unknown; inviteStatus?: unknown; isForwardingService?: unknown; pageAccess?: unknown; invitedEmail?: unknown };
+    if (m.isForwardingService === true) continue;
     const role = typeof m.role === "string" ? m.role.toLowerCase() : "";
-    const pages = Array.isArray(m.pageAccess) ? m.pageAccess : null;
-    if (role === "contributor" && !(pages ?? []).includes("bank-transactions")) continue;
     if (!["admin", "accountant", "contributor"].includes(role)) continue;
-    if (!out.some((x) => x.userId === p.userId)) out.push({ ...p, role });
+    const pending = typeof m.inviteStatus === "string" && m.inviteStatus !== "accepted";
+    const invited = typeof m.invitedEmail === "string" && m.invitedEmail.trim() ? m.invitedEmail.trim().toLowerCase() : null;
+    // An invite to someone with no ScanTrix account yet has no user to address.
+    const p = person(m.userId) ?? (pending && invited ? { userId: `invite:${invited}`, name: invited, email: invited } : null);
+    if (!p) continue;
+    const pages = Array.isArray(m.pageAccess) ? m.pageAccess : [];
+    const canOpenBank = role !== "contributor" || pages.includes("bank-transactions");
+    if (!out.some((x) => x.userId === p.userId)) out.push({ ...p, role, pending, canOpenBank, askable: !p.userId.startsWith("invite:") });
   }
   return out;
 }

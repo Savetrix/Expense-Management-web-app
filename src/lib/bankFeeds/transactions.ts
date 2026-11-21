@@ -256,7 +256,12 @@ export async function decide(
     const fresh = await getTransaction(db, args.qbConnectionId, args.id);
     return { ok: false, status: 409, error: STALE, current: fresh ? toView(fresh) : undefined };
   }
-  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after } });
+  // What ScanTrix was suggesting when the person decided (any step, the AI's model for step 4), for the audit trail.
+  const shown = current.suggestion as { step?: string; glAccountId?: string; confidence?: string; model?: string; picks?: { glAccountId: string; step: string }[] } | null;
+  const suggestion = shown && (shown.glAccountId || shown.picks?.length)
+    ? { step: shown.step ?? null, glAccountId: shown.glAccountId ?? null, confidence: shown.confidence ?? null, picks: (shown.picks ?? []).map((p) => ({ glAccountId: p.glAccountId, step: p.step })), model: shown.model ?? null, followed: Boolean(after.glAccountId && after.glAccountId === shown.glAccountId) }
+    : null;
+  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after, ...(suggestion ? { suggestion } : {}) } });
   // Smart Suggestions, step 2: a person picked a vendor for this payee, so later lines from it get that vendor.
   if (typeof set.vendorId === "string" && set.vendorId) {
     await linkPayeeToVendor(db, {

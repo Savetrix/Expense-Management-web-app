@@ -31,6 +31,9 @@ export interface ChartAccount {
   type: string;
   currency: string | null;
   parentId: string | null;
+  /** QuickBooks AccountSubType / Xero SystemAccount (absent on lists read before 21 Nov). */
+  subtype?: string | null;
+  description?: string | null;
 }
 
 export interface VendorDefaults {
@@ -101,7 +104,7 @@ export async function chartFor(
     const ledger = await getLedgerContext(userToken, qbConnectionId);
     const adapter = adapterFor(ledger.provider);
     const [raw, info] = await Promise.all([adapter.listAccounts(ledger), adapter.companyInfo ? adapter.companyInfo(ledger).catch(() => null) : Promise.resolve(null)]);
-    const accounts: ChartAccount[] = raw.map((a) => ({ id: a.id, name: a.name, kind: a.kind, type: a.type, currency: a.currency, parentId: a.parentId ?? null }));
+    const accounts: ChartAccount[] = raw.map((a) => ({ id: a.id, name: a.name, kind: a.kind, type: a.type, currency: a.currency, parentId: a.parentId ?? null, subtype: a.subtype ?? null, description: a.description ?? null }));
     await save(db, qbConnectionId, { provider: ledger.provider, chart: accounts, chartSource: "ledger", chartAt: new Date(now), environment: ledger.environment, ...(info ? { country: info.country, homeCurrency: info.homeCurrency } : {}) });
     return { accounts, source: "ledger", provider: ledger.provider };
   } catch (error) {

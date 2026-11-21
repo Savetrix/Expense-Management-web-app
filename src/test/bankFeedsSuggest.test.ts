@@ -47,7 +47,7 @@ describe("scoring", () => {
     assert.equal(s.confidence, "high");
     assert.equal(s.glAccountId, "gl-travel");
     assert.equal(s.taxCodeId, "tax-gst", "the vendor's saved tax code");
-    assert.match(s.reason, /^Coded by ScanTrix — 3 earlier lines/);
+    assert.match(s.reason, /^Coded by ScanTrix — 3 earlier posts went to/);
   });
 
   it("isn't sure when the vendor has no saved tax code, and never takes tax from past lines", () => {
@@ -86,9 +86,16 @@ describe("scoring", () => {
     assert.match(score(line, votes, NOW).reason, /another account 1×/, "an account missing from the list still reads plainly");
   });
 
-  it("step 3 says each similar payee once", () => {
-    assert.equal(similarReason(8, ["City Water Co", "City Water Co", "City Water Co", "Town Water"]), "New payee. 8 similar past items (City Water Co, Town Water) went to the same account.");
-    assert.equal(similarReason(1, ["Adobe Inc."]), "New payee. 1 similar past item (Adobe Inc.) went to the same account.");
+  it("step 3 dates ScanTrix posts, names each payee once, and never dates or counts items from the books", () => {
+    const ev = (label: string, date: string, source: "bank" | "quickbooks" = "bank") => ({ label, date, amountCents: 1, source });
+    assert.equal(
+      similarReason({ lines: 3, evidence: [ev("City Water Co", "2026-11-12"), ev("City Water Co", "2026-11-05"), ev("Town Water", "2026-10-30")] }, "Water"),
+      "New payee. 3 similar posts went to Water: Town Water 30 Oct; City Water Co 5 Nov, 12 Nov.",
+    );
+    assert.equal(similarReason({ lines: 1, evidence: [ev("Adobe Inc.", "2026-11-02")] }, "Software"), "New payee. 1 similar post went to Software: Adobe Inc. 2 Nov.");
+    const books = similarReason({ lines: 8, historyLines: 8, evidence: [ev("City Water Co", "2026-07-01", "quickbooks")] }, "Water");
+    assert.equal(books, "New payee. From prior classifications: similar items like City Water Co went to Water.");
+    assert.doesNotMatch(books, /QuickBooks|Jul|\b8\b/);
   });
 
   it("suggests but never auto-applies an exclusion or a transfer", () => {

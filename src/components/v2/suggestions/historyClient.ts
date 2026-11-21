@@ -4,39 +4,12 @@ import { authFetch } from "@/lib/authFetch";
 
 // The browser side of /api/suggestions/history (lib/bankFeeds/history.ts):
 // Smart Suggestions learning from the company's own QuickBooks/Xero books.
-
-export interface HistoryStatusDto {
-  at: string;
-  provider: string;
-  outcome: "done" | "real_company" | "provider_terms" | "error";
-  from: string | null;
-  to: string | null;
-  lines: number;
-  entries: number;
-  skippedScantrix: number;
-  error?: string | null;
-}
-
-export interface HistoryStateDto {
-  learnFromHistory: boolean;
-  canChange: boolean;
-  status: HistoryStatusDto | null;
-  running: boolean;
-  payees: { total: number; matched: number; unmatched: string[] };
-}
+// There is no switch on screen (Saurabh, 20 Nov); the bank page asks for the
+// one-time read when it opens.
 
 const headers = (qbConnectionId: string) => ({ "Content-Type": "application/json", "X-QB-Id": qbConnectionId });
 
-export async function fetchHistoryState(qbConnectionId: string): Promise<HistoryStateDto | null> {
-  try {
-    const res = await authFetch("/api/suggestions/history", { headers: headers(qbConnectionId) });
-    return res.ok ? ((await res.json()) as HistoryStateDto) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Reads the books when the last read is over a day old (or `force`). True when new history was read. */
+/** Reads the books the first time only (read once). True when new history was read. */
 export async function requestHistoryRead(qbConnectionId: string, force = false): Promise<{ imported: boolean; error?: string }> {
   try {
     const res = await authFetch("/api/suggestions/history", { method: "POST", headers: headers(qbConnectionId), body: JSON.stringify({ force }) });
@@ -45,17 +18,6 @@ export async function requestHistoryRead(qbConnectionId: string, force = false):
     return { imported: body?.imported === true };
   } catch {
     return { imported: false, error: "Couldn't read the books just now. Check your connection." };
-  }
-}
-
-export async function saveLearnFromHistory(qbConnectionId: string, learnFromHistory: boolean): Promise<string | null> {
-  try {
-    const res = await authFetch("/api/suggestions/history", { method: "PUT", headers: headers(qbConnectionId), body: JSON.stringify({ learnFromHistory }) });
-    if (res.ok) return null;
-    const body = await res.json().catch(() => null);
-    return body?.error ?? "Couldn't change the setting.";
-  } catch {
-    return "Couldn't change the setting. Check your connection.";
   }
 }
 
@@ -71,8 +33,22 @@ export async function requestSimilarSync(qbConnectionId: string): Promise<number
   }
 }
 
-/** Step 3 for a bill from a new vendor: the accounts similar past items went to. */
-export async function fetchSimilarPicks(qbConnectionId: string, input: { vendorName: string; lines: string[] }): Promise<import("@/lib/suggestions/picks").SuggestionPick[]> {
+/** Step 4 for one bank line opened without a suggestion: true when it got AI picks (reload the lines). */
+export async function requestAiPick(qbConnectionId: string, lineId: string): Promise<boolean> {
+  try {
+    const res = await authFetch("/api/suggestions/ai", { method: "POST", headers: headers(qbConnectionId), body: JSON.stringify({ lineId }) });
+    const body = res.ok ? await res.json().catch(() => null) : null;
+    return body?.changed === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Steps 3 and 4 for a bill from a new vendor: the accounts similar past items went to, then the AI's picks when those are weak. */
+export async function fetchSimilarPicks(
+  qbConnectionId: string,
+  input: { vendorName: string; lines: string[]; invoiceId?: string; amount?: number | null; currency?: string | null },
+): Promise<import("@/lib/suggestions/picks").SuggestionPick[]> {
   try {
     const res = await authFetch("/api/suggestions/similar", { method: "POST", headers: headers(qbConnectionId), body: JSON.stringify(input) });
     const body = res.ok ? await res.json().catch(() => null) : null;

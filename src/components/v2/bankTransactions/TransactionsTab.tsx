@@ -30,14 +30,13 @@ import { openAttachment } from "./paperworkClient";
 import { RequestPaperworkModal } from "./RequestPaperworkModal";
 import { useAppSelector } from "@/store/hooks";
 
+import { dateBounds, inDates, inTab, localToday, PERIOD_LABEL, TAB_LABEL, tabOf, type DatePeriod, type ListTab } from "./listView";
 import type { BankAccount, BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
 
 // The bank lines, coded on the row: vendor, GL account and tax code are
 // dropdowns in the line itself (pick one or add one), pre-filled when the payee
 // was seen before, and Post / Match / Transfer / Exclude sit at the end of the
 // line. The detail dialog (click the description) holds everything else.
-
-type StatusFilter = BankTxnStatus | "all";
 
 interface TransactionsTabProps {
   txns: BankTransaction[];
@@ -129,9 +128,11 @@ export function TransactionsTab({
   onPaperworkRequested,
 }: TransactionsTabProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [status, setStatus] = useState<StatusFilter>("review");
+  const [view, setView] = useState<ListTab>("review");
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("");
+  // QuickBooks-style periods, or Custom from–to dates; applies to every tab.
+  const [period, setPeriod] = useState<DatePeriod>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -161,10 +162,14 @@ export function TransactionsTab({
   const taxOptions = useMemo(() => lookups.taxCodes.map((t) => ({ id: taxCodeId(t), label: taxCodeLabel(t) })), [lookups.taxCodes]);
   const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
 
+  const bounds = dateBounds(period, { from, to }, localToday());
+  // Counts follow the date filter, so each tab's number is what it shows.
   const counts = useMemo(() => {
-    const by = (s: BankTxnStatus) => txns.filter((t) => t.status === s).length;
-    return { total: txns.length, review: by("review"), ready: by("ready"), matched: by("matched"), excluded: by("excluded"), transfer: by("transfer") };
-  }, [txns]);
+    const dated = txns.filter((t) => inDates(t.date, bounds));
+    const by = (tab: ListTab) => dated.filter((t) => tabOf(t) === tab).length;
+    return { all: dated.length, review: by("review"), posted: by("posted"), matched: by("matched"), transfers: by("transfers") };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, bounds?.from, bounds?.to]);
   const suggestions = useMemo(
     () => findStrongSuggestions(txns, invoices, closedBills).filter((s) => !dismissed.has(s.txn.id)),
     [txns, invoices, closedBills, dismissed],
@@ -174,20 +179,21 @@ export function TransactionsTab({
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return txns
-      .filter((t) => status === "all" || t.status === status)
+      .filter((t) => inTab(t, view))
       .filter((t) => !account || t.accountName === account)
-      .filter((t) => (!from || t.date >= from) && (!to || t.date <= to))
+      .filter((t) => inDates(t.date, bounds))
       .filter((t) => !q || `${t.description} ${t.accountName} ${t.payee ?? ""} ${t.merchantName ?? ""}`.toLowerCase().includes(q))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [txns, status, account, from, to, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, view, account, bounds?.from, bounds?.to, search]);
   // "ScanTrix is sure": lines to review it filled in, or would ("Suggest only"),
   // shown in their own section on top and not again below. A line in the
   // suggested bill matches stays there instead.
   const sureLines = useMemo(() => {
-    if (status !== "review") return [];
+    if (view !== "review") return [];
     const matching = new Set(suggestions.map((s) => s.txn.id));
     return rows.filter((t) => isSureLine(t) && !matching.has(t.id));
-  }, [rows, status, suggestions]);
+  }, [rows, view, suggestions]);
   const sureIds = useMemo(() => new Set(sureLines.map((t) => t.id)), [sureLines]);
   // One list: the lines ScanTrix picked first, lightly highlighted, then the rest (Saurabh, 13 Nov).
   const listRows = useMemo(() => (sureIds.size === 0 ? rows : [...sureLines, ...rows.filter((t) => !sureIds.has(t.id))]), [rows, sureIds, sureLines]);
@@ -300,6 +306,12 @@ export function TransactionsTab({
         <button type="button" onClick={() => onOpen(t.id)} className="block w-full min-w-0 text-left" title="Open details">
           <span className="block truncate font-semibold text-content-primary hover:underline">{t.description || "—"}</span>
           <span className="block truncate text-content-secondary">{t.accountName || "—"}</span>
+          {t.postingStatus === "failed" && (
+            <span className="flex items-start gap-0.5 font-semibold text-status-danger-text" title={t.posting?.error ?? undefined}>
+              <AlertTriangle size={12} strokeWidth={2.25} className="mt-0.5 shrink-0" />
+              <span className="line-clamp-2">Not sent to {providerName}: {t.posting?.error ?? "try again."}</span>
+            </span>
+          )}
           {t.status === "review" && (t.ledgerCandidates?.length ?? 0) > 0 && (
             <span className="flex items-center gap-0.5 truncate font-semibold text-status-warning-text" title={`An entry with the same amount is already in ${providerName}. Open the line to check it.`}>
               <AlertTriangle size={12} strokeWidth={2.25} className="shrink-0" />
@@ -394,7 +406,7 @@ export function TransactionsTab({
             title={c.reason ?? undefined}
             placeholder="GL account"
             clearLabel="No GL account"
-            picks={picksFor(t, lookups, glName).map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
+            picks={picksFor(t, lookups, glName).map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} ai={p.pick.step === "ai"} /> }))}
             onSelect={(id) => setGl(t, id)}
             onAddNew={(name) => setAdding({ txnId: t.id, kind: "gl", name })}
             footerAction={refreshAction}
@@ -589,7 +601,7 @@ export function TransactionsTab({
   // The line a vendor or GL account is being added from, as it is shown now.
   const addingTxn = adding ? txns.find((x) => x.id === adding.txnId) : undefined;
   const addingCoding = addingTxn ? codingFor(addingTxn) : null;
-  // The vendor form, opened from a line: clean name, the bank account's currency, the suggested GL, no tax.
+  // The vendor form, opened from a line: clean name, the suggested GL, no tax; the currency is left for the person to pick.
   const vendorDefaults =
     adding?.kind === "vendor" && addingTxn
       ? vendorFormDefaults({
@@ -609,20 +621,13 @@ export function TransactionsTab({
     <div>
       <div className="flex flex-col gap-[var(--space-sm)] border-b border-border bg-page p-[var(--space-md)]">
         <p className="text-caption text-content-secondary">
-          {counts.total} total · {counts.review} to review · {counts.ready} ready to post · {counts.matched} matched · {counts.transfer} transfer · {counts.excluded} excluded
+          {counts.all} total · {counts.review} to review · {counts.posted} posted · {counts.matched} matched · {counts.transfers} transfers or excluded
         </p>
         <div className="flex flex-col gap-[var(--space-sm)] lg:flex-row lg:flex-wrap lg:items-center">
           <Tabs
-            items={[
-              { value: "review", label: "To review", count: counts.review },
-              { value: "ready", label: "Ready to post", count: counts.ready },
-              { value: "matched", label: "Matched", count: counts.matched },
-              { value: "transfer", label: "Transfers", count: counts.transfer },
-              { value: "excluded", label: "Excluded", count: counts.excluded },
-              { value: "all", label: "All", count: counts.total },
-            ]}
-            value={status}
-            onChange={(v) => setStatus(v as StatusFilter)}
+            items={(["review", "posted", "matched", "transfers", "all"] as const).map((v) => ({ value: v, label: TAB_LABEL[v], count: counts[v] }))}
+            value={view}
+            onChange={(v) => setView(v as ListTab)}
           />
           <SearchInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search transactions…" widthClassName="w-full lg:w-72" />
           <SelectDropdown uiSize="sm" aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
@@ -633,21 +638,31 @@ export function TransactionsTab({
               </option>
             ))}
           </SelectDropdown>
-          <div className="flex items-center gap-[var(--space-xs)]">
-            <input type="date" aria-label="From date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={DATE_CLASS} />
-            <span className="text-caption text-content-secondary">to</span>
-            <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={DATE_CLASS} />
-          </div>
+          <SelectDropdown uiSize="sm" aria-label="Dates" value={period} onChange={(e) => setPeriod(e.target.value as DatePeriod)}>
+            {(Object.keys(PERIOD_LABEL) as DatePeriod[]).map((p) => (
+              <option key={p} value={p}>
+                {PERIOD_LABEL[p]}
+              </option>
+            ))}
+          </SelectDropdown>
+          {period === "custom" && (
+            <div className="flex items-center gap-[var(--space-xs)]">
+              <input type="date" aria-label="From date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={DATE_CLASS} />
+              <span className="text-caption text-content-secondary">to</span>
+              <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={DATE_CLASS} />
+            </div>
+          )}
+          {bounds && period !== "custom" && <span className="text-caption text-content-secondary">{bounds.from} to {bounds.to}</span>}
         </div>
-        {status === "review" && (
+        {view === "review" && (
           <RoleInfoBanner>
             {sendsNow
-              ? `Post sends a line to ${providerName} straight away, with its vendor, GL account and tax code.`
-              : `Post saves a line as ready, with its vendor, GL account and tax code. Then send it to ${providerName} from Ready to post.`}
+              ? `Post sends a line to ${providerName} straight away, with its vendor, GL account and tax code. It then moves to Posted.`
+              : `Post saves a line as ready, with its vendor, GL account and tax code. It stays here until it is sent to ${providerName}.`}
           </RoleInfoBanner>
         )}
-        {SENDABLE.includes(status as BankTxnStatus) && blocked && <RoleInfoBanner>{blocked}</RoleInfoBanner>}
-        {SENDABLE.includes(status as BankTxnStatus) && !blocked && onSend && unsentInTab.length > 0 && (
+        {view !== "posted" && view !== "all" && blocked && <RoleInfoBanner>{blocked}</RoleInfoBanner>}
+        {view !== "posted" && view !== "all" && !blocked && onSend && unsentInTab.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
             <p className="text-caption text-content-secondary">
               {unsentInTab.length} {unsentInTab.length === 1 ? "line isn't" : "lines aren't"} in {providerName} yet. Each line is sent once; a sent line can only be changed in {providerName}.
@@ -701,7 +716,7 @@ export function TransactionsTab({
         </div>
       )}
 
-      {status === "review" && (
+      {view === "review" && (
         <SuggestedMatches
           suggestions={suggestions}
           lookups={lookups}

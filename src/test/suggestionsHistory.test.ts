@@ -1,6 +1,8 @@
 // Smart Suggestions, history: learning from the last 12 months of the
 // company's own coding in QuickBooks (lib/bankFeeds/history.ts).
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
@@ -105,11 +107,23 @@ describe("matching bank payees to vendors in the books", () => {
     assert.equal(historyMatches("petro", nameKey("Petro-Canada")), false);
   });
 
-  it("names the source in the reason", () => {
-    const evidence = [{ label: "Petro-Canada", date: "2026-10-12", amountCents: 5420, source: "quickbooks" as const }];
-    assert.equal(pickReason({ step: "history", subject: "Petro-Canada", lines: 1, historyLines: 1, historySource: "quickbooks", evidence }, "Travel"), "From your QuickBooks history: Petro-Canada, 12 Oct");
-    assert.equal(pickReason({ step: "history", subject: "Petro-Canada", lines: 3, historyLines: 3, historySource: "quickbooks", evidence }, "Travel"), "From your QuickBooks history: Petro-Canada, 12 Oct (3 times in all)");
-    assert.equal(pickReason({ step: "history", subject: "Petro Canada", lines: 3, historyLines: 1, historySource: "quickbooks", evidence }, "Travel"), "You coded Petro Canada to Travel twice, and once in QuickBooks");
+  it("never shows a date, the source or a count for items from the books (Saurabh, 20 Nov)", () => {
+    const books = [{ label: "Petro-Canada", date: "2026-10-12", amountCents: 5420, source: "quickbooks" as const }];
+    const one = pickReason({ step: "history", subject: "Petro-Canada", lines: 1, historyLines: 1, historySource: "quickbooks", evidence: books }, "Travel");
+    const three = pickReason({ step: "history", subject: "Petro-Canada", lines: 3, historyLines: 3, historySource: "quickbooks", evidence: books }, "Travel");
+    assert.equal(one, "From prior classifications");
+    assert.equal(three, "From prior classifications");
+    // ScanTrix posts keep their dates; the item from the books is neither dated nor counted.
+    const posted = [
+      { label: "Petro Canada", date: "2026-11-12", amountCents: 5420, source: "bank" as const },
+      { label: "Petro Canada", date: "2026-11-02", amountCents: 6100, source: "bank" as const },
+      ...books,
+    ];
+    const mixed = pickReason({ step: "history", subject: "Petro Canada", lines: 3, historyLines: 1, historySource: "quickbooks", evidence: posted }, "Travel");
+    assert.equal(mixed, "2 earlier posts went to Travel: Petro Canada 2 Nov, 12 Nov. Also from prior classifications");
+    for (const r of [one, three, mixed]) {
+      assert.doesNotMatch(r, /QuickBooks|Xero|history|12 Oct|\b3\b/, r);
+    }
   });
 });
 
@@ -197,7 +211,7 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     assert.equal(await db.history.countDocuments({ qbConnectionId: QB }), 0);
   });
 
-  it("counts toward the 3: a payee with 3 recent expenses in the books is filled in, and the reason names QuickBooks", async () => {
+  it("counts toward the 3: a payee with 3 recent expenses in the books is filled in, and the reason says only 'From prior classifications'", async () => {
     await saveVendorTax(db, QB, { "v-petro": "gst" });
     await read([purchase("1", 5), purchase("2", 10), purchase("3", 20)]);
     const line = await bankLine();
@@ -207,9 +221,10 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     assert.equal(next?.categoryId, "gl-travel");
     assert.equal(next?.taxCodeId, "gst", "the vendor's saved tax code");
     assert.equal(next?.vendorId, "v-petro", "the ScanTrix vendor for the QuickBooks vendor");
-    assert.match(s.reason, /QuickBooks history/);
+    assert.match(s.reason, /from prior classifications/i);
+    assert.doesNotMatch(s.reason, /QuickBooks|history|\b3\b|\d+ (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/, "no source, count or date for items from the books");
     assert.equal(s.picks?.[0].historyLines, 3);
-    assert.equal(pickReason(s.picks![0], "Travel").startsWith("From your QuickBooks history: Petro-Canada"), true);
+    assert.equal(pickReason(s.picks![0], "Travel"), "From prior classifications");
   });
 
   it("uses the same recency rule: 3 expenses older than 90 days are not enough", async () => {
@@ -258,6 +273,23 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     assert.equal(await readLearnFromHistory(db, QB), true, "a sandbox company starts on");
     await db.suggestionSettings.updateOne({ _id: QB }, { $set: { learnFromHistory: false } }, { upsert: true });
     assert.equal(await readLearnFromHistory(db, QB), false, "a person's choice wins");
+  });
+
+  it("has no switch on screen, but the per-company setting still decides (Saurabh, 20 Nov)", async () => {
+    const settings = readFileSync(join(process.cwd(), "src/components/v2/autopilot/SettingsPanel.tsx"), "utf8")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    assert.doesNotMatch(settings, /HistorySetting|Learn from|history/i, "Autopilot > Settings shows no history switch");
+    assert.equal(existsSync(join(process.cwd(), "src/components/v2/autopilot/HistorySetting.tsx")), false);
+    // A real company switched on in the database for this one company is read; others are not.
+    await db.companyLists.updateOne({ _id: QB }, { $set: { environment: "production" } }, { upsert: true });
+    await db.companyLists.updateOne({ _id: "qb-other" }, { $set: { environment: "production" } }, { upsert: true });
+    await db.suggestionSettings.updateOne({ _id: QB }, { $set: { learnFromHistory: true } }, { upsert: true });
+    assert.equal(await readLearnFromHistory(db, QB), true, "this company: on");
+    assert.equal(await readLearnFromHistory(db, "qb-other"), false, "another real company: still off");
+    const done = await importHistory(db, { qbConnectionId: QB, userId: "u1", ledger: { ctx: { ...sandbox, environment: "production" }, adapter: fakeBooks([purchase("1", 5)]) }, vendorIds: new Map(), scantrixBillIds: new Set(), allowRealCompanies: true });
+    assert.equal(done.outcome, "done", "read once the server allows real companies");
   });
 
   it("reads once: after a read, opening the page reads nothing; off then on reads again", async () => {

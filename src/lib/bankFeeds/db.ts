@@ -15,7 +15,7 @@
 // before the first read or write.
 import { MongoClient, MongoError, type Collection, type Db as MongoDatabase } from "mongodb";
 
-import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, VectorDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
+import type { AccountDoc, AiPickDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, VectorDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
 import { ensureIndexes } from "./schema";
 import type { CompanyListsDoc } from "./companyLists";
 import type { PaperworkRequestDoc } from "./paperwork";
@@ -35,6 +35,7 @@ export interface Db {
   vectors: Collection<VectorDoc>;
   companyLists: Collection<CompanyListsDoc>;
   paperwork: Collection<PaperworkRequestDoc>;
+  aiPicks: Collection<AiPickDoc>;
 }
 
 /** Thrown when the database can't be reached; routes map it to 503. */
@@ -89,6 +90,7 @@ export function openDb(uri: string, dbName: string): Db {
     vectors: database.collection<VectorDoc>("suggestion_vectors"),
     companyLists: database.collection<CompanyListsDoc>("company_lists"),
     paperwork: database.collection<PaperworkRequestDoc>("paperwork_requests"),
+    aiPicks: database.collection<AiPickDoc>("suggestion_ai_picks"),
   };
 }
 

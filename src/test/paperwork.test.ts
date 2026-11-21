@@ -7,12 +7,13 @@ import { can } from "../lib/bankFeeds/door";
 import { attachToLine, canReadAttachment, createRequest, hasPaperwork, listRequests, paperworkEmail, readAttachment, readTeam } from "../lib/bankFeeds/paperwork";
 import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
 
+import { memberLabel } from "../components/v2/bankTransactions/RequestPaperworkModal";
 import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
 
 describe("who can be asked", () => {
   const user = (id: string, firstName: string, email: string) => ({ _id: id, firstName, lastName: "", email });
 
-  it("owners, admins, accountants, and contributors who can open Bank Transactions; never pending invites or the forwarding account", () => {
+  it("everyone on the team, pending invites marked; never the forwarding account (Saurabh, 20 Nov)", () => {
     const team = readTeam({
       owner: { userId: user("u-own", "Saurabh", "S@x.com") },
       members: [
@@ -25,8 +26,15 @@ describe("who can be asked", () => {
         { role: "admin", inviteStatus: "pending", invitedEmail: "new@x.com" },
       ],
     });
-    assert.deepEqual(team.map((m) => m.userId), ["u-own", "u-adm", "u-acc", "u-c1"]);
+    assert.deepEqual(team.map((m) => m.userId), ["u-own", "u-adm", "u-acc", "u-c1", "u-c2", "u-pend", "invite:new@x.com"]);
     assert.equal(team[0].email, "s@x.com");
+    const by = new Map(team.map((m) => [m.userId, m]));
+    assert.equal(by.get("u-c2")?.canOpenBank, false, "a contributor without Bank Transactions is listed, and marked");
+    assert.equal(by.get("u-c1")?.canOpenBank, true);
+    assert.deepEqual([by.get("u-pend")?.pending, by.get("u-pend")?.askable], [true, true], "invited and has an account: can be asked");
+    assert.deepEqual([by.get("invite:new@x.com")?.pending, by.get("invite:new@x.com")?.askable], [true, false], "invited by email only: shown, can't be picked yet");
+    assert.equal(memberLabel(by.get("u-pend")!), "Pat (pat@x.com) · Admin · Invite pending");
+    assert.equal(memberLabel(by.get("u-c2")!), "Dev (dev@x.com) · Contributor · can't open Bank Transactions yet");
   });
 
   it("a contributor may open only their own requests, never the bank lines", () => {

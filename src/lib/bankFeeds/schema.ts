@@ -135,6 +135,8 @@ export interface TxnDoc {
   payeeKey: string | null;
   /** What ScanTrix suggested, and why (suggest.ts). */
   suggestion: unknown;
+  /** Step 4: the AI's answer for this line (bankFeeds/aiPick.ts), kept until the allowed accounts or the closest past items change. */
+  aiPick?: AiPickRecord | null;
   /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
   postingStatus: "processing" | "posted" | "failed" | null;
   posting: PostingRecord | null;
@@ -287,6 +289,41 @@ export interface HistoryImportStatus {
  * review, compared against the memory when its payee is new. Never shared
  * across companies. _id = `${qbConnectionId}:${kind}:${ref}`.
  */
+/**
+ * Smart Suggestions, step 4: one answer from the AI for an item (a bank line,
+ * or a bill on the invoice screen). Asked again only when the accounts it may
+ * pick from change (chartHash) or the closest past items change (basis: a
+ * person posted a similar line), or after a failed call once retryAfter passes.
+ */
+export interface AiPickRecord {
+  status: "ok" | "none" | "failed";
+  /** "openai:gpt-5.4-mini". */
+  model: string;
+  at: Date;
+  out: boolean;
+  chartHash: string;
+  /** Vector ids of the closest past items it was given. */
+  basis: string[];
+  /** Those past items, for "How ScanTrix decided" (dates shown only for items posted in ScanTrix). */
+  past: { label: string; glAccountId: string; date: string; source: "bank" | "invoice" | "quickbooks" | "xero" }[];
+  picks: { glAccountId: string; reason: string }[];
+  /** After a timeout or an error: not asked again before this. */
+  retryAfter: Date | null;
+  /** Reused from another item with the same payee and direction asked within the day. */
+  sharedFrom?: string | null;
+  usage?: { input: number; output: number } | null;
+}
+
+/** Step 4 on the invoice screen: _id = `${qbConnectionId}:invoice:${invoiceId}` (bank lines keep theirs on the line). */
+export interface AiPickDoc extends AiPickRecord {
+  _id: string;
+  qbConnectionId: string;
+  kind: "invoice";
+  ref: string;
+  /** The vendor's name key (history.ts nameKey), to reuse an answer for the same vendor within the day. */
+  vendorKey: string | null;
+}
+
 export interface VectorDoc {
   _id: string;
   qbConnectionId: string;
@@ -376,6 +413,7 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.txns.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
     db.txns.createIndex({ accountId: 1 }),
     db.events.createIndex({ qbConnectionId: 1, at: -1 }),
+    db.aiPicks.createIndex({ qbConnectionId: 1, vendorKey: 1, at: -1 }),
     db.events.createIndex({ transactionId: 1 }),
     db.webhooks.createIndex({ receivedAt: -1 }),
     db.ledgerMappings.createIndex({ qbConnectionId: 1 }),

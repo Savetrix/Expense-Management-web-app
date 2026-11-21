@@ -90,9 +90,10 @@ export function currencyMismatch(vendorCurrency: string | null | undefined, bank
 
 /**
  * What the vendor form starts with when a vendor is added from a bank line
- * (Saurabh, 18 Nov): a clean name ("Tim Hortons"), the bank account's
- * currency, the GL account ScanTrix suggests for this line, and no tax code
- * (it becomes the vendor's saved tax code, which the person chooses).
+ * (Saurabh, 18 Nov): a clean name ("Tim Hortons"), the GL account ScanTrix
+ * suggests for this line, and no tax code (it becomes the vendor's saved tax
+ * code, which the person chooses). The bank account's currency is only offered
+ * in the list: the currency starts empty and must be picked (Saurabh, 20 Nov).
  */
 export function vendorFormDefaults(args: { typed: string; suggestedName: string; glAccountId: string | null | undefined; currency: string | null }): { name: string; currency: string | undefined; glAccountId: string; taxCodeId: "" } {
   return { name: args.typed.trim() || args.suggestedName, currency: args.currency ?? undefined, glAccountId: args.glAccountId ?? "", taxCodeId: "" };

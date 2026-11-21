@@ -1,5 +1,5 @@
-// GET /api/paperwork/team — who can be asked for receipts: the company's team
-// members who can open Bank Transactions (paperwork.ts teamMembers).
+// GET /api/paperwork/team — who can be asked for receipts: everyone on the
+// company's team, pending invites marked (paperwork.ts teamMembers).
 import { bankContext, errorResponse, fail, json } from "@/lib/bankFeeds/http";
 import { teamMembers } from "@/lib/bankFeeds/paperwork";
 

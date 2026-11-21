@@ -31,9 +31,11 @@ import type { AnyBulkWriteOperation } from "mongodb";
 
 import { payeeKey, type AutoClassification } from "@/lib/suggestions/match";
 import { similarPicks, suggestedVendorName, type MemoryItem } from "@/lib/suggestions/similar";
-import { HISTORY_LABEL, historyPicks, isHistory, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
+import { pickReason } from "@/lib/suggestions/picks";
+import { HISTORY_LABEL, historyPicks, isPrior, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, postsReason, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
+import { aiAccountsFor, aiPicksFrom, needsAi } from "./aiPick";
 import { accountNames, bankSideIds, vendorTaxCodes } from "./companyLists";
 import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
 import { loadMemory } from "./similarSync";
@@ -99,12 +101,14 @@ export interface Suggestion {
   autoCoded: boolean;
   /** Weighted votes behind the suggestion, and how many past lines. */
   basis: { agreeing: number; total: number; lines: number };
-  /** Which step found it: this payee's history (here and in the books), or similar past items (step 3). */
-  step: "history" | "similar";
+  /** Which step found it: this payee's history (here and in the books), similar past items (step 3), or the AI (step 4, last resort). */
+  step: "history" | "similar" | "ai";
   /** Step 2: up to 3 accounts, best first, each with its reason and the past lines behind it. */
   picks?: SuggestionPick[];
   /** The vendor comes from the payee's link to a vendor, not from history. */
   linkedVendor?: boolean;
+  /** Step 4 picks included: the AI model that made them ("openai:gpt-5.4-mini"). */
+  model?: string;
   scoredAt: string;
 }
 
@@ -158,7 +162,6 @@ export function legibility(line: LineFacts, today = new Date().toISOString().sli
   return { ok: true, detail: "Posted at the bank with a date, an amount and a description." };
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 /**
@@ -208,17 +211,23 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   const vendorsInTop = new Set(weighted.filter((x) => groupKey(x.v) === groupKey(top.vote) && x.v.vendorId).map((x) => x.v.vendorId));
   const vendorsAgree = vendorsInTop.size <= 1;
   const historyOk = top.weight >= MIN_AGREEING_WEIGHT && agreement >= MIN_AGREEMENT && vendorsAgree;
-  // How many of the agreeing lines came from the company's own books.
-  const topBooks = weighted.filter((x) => groupKey(x.v) === groupKey(top.vote) && x.v.evidence && isHistory(x.v.evidence)).map((x) => x.v.evidence!.source as keyof typeof HISTORY_LABEL);
-  const booksNote = topBooks.length === 0 ? "" : topBooks.length === top.lines ? ` in your ${HISTORY_LABEL[topBooks[0]]} history` : ` (${topBooks.length} of them in your ${HISTORY_LABEL[topBooks[0]]} history)`;
-  const others = ranked.slice(1, 3).map((g) => `${describe(g.vote, opts.accountNames)} ${g.lines}×`);
+  // Items read from the company's books are never dated or counted on screen,
+  // only "From prior classifications" (Saurabh, 20 Nov; picks.ts).
+  const topVotes = weighted.filter((x) => groupKey(x.v) === groupKey(top.vote)).map((x) => x.v).sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : -1));
+  const topPrior = topVotes.filter((x) => x.evidence && isPrior(x.evidence)).length;
+  const anyPrior = weighted.some((x) => x.v.evidence && isPrior(x.v.evidence));
+  const evidenceOf = (list: Vote[]) => list.map((x) => x.evidence).filter((e): e is Evidence => Boolean(e));
+  const counted = (g: { vote: Vote; lines: number }) => (anyPrior ? describe(g.vote, opts.accountNames) : `${describe(g.vote, opts.accountNames)} ${g.lines}×`);
+  const others = ranked.slice(1, 3).map(counted);
   const historyDetail = historyOk
-    ? `${plural(top.lines, "earlier line")} for this payee${booksNote} were coded the same way.`
+    ? `${postsReason({ kind: "earlier", posted: top.lines - topPrior, prior: topPrior, account: describe(top.vote, opts.accountNames, "the same account"), evidence: evidenceOf(topVotes) })}.`
     : top.weight < MIN_AGREEING_WEIGHT
-      ? `Only ${fmt(top.weight)} recent agreeing ${top.weight === 1 ? "decision" : "decisions"} — at least 3 are needed.`
+      ? anyPrior
+        ? "Not enough agreeing posts yet — at least 3 are needed."
+        : `Only ${fmt(top.weight)} recent agreeing ${top.weight === 1 ? "decision" : "decisions"} — at least 3 are needed.`
       : !vendorsAgree
         ? "Earlier lines for this payee were coded the same way but to different vendors."
-      : `Earlier lines for this payee were coded differently (${[`${describe(top.vote, opts.accountNames)} ${top.lines}×`, ...others].join(", ")}).`;
+      : `Earlier lines for this payee were coded differently (${[counted(top), ...others].join(", ")}).`;
 
   const v = top.vote;
   // Who was paid: the linked vendor, else the newest agreeing line that names a vendor or payee.
@@ -275,17 +284,21 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
 }
 
 /** What a group of past lines was coded to, for "coded differently (…)". Every vote is for the same payee, so name the account. */
-function describe(v: Vote, accountNames?: ReadonlyMap<string, string>): string {
+function describe(v: Vote, accountNames?: ReadonlyMap<string, string>, unknown = "another account"): string {
   if (v.kind === "transfer") return "transfer";
   if (v.kind === "exclude") return "excluded";
   if (v.kind === "bill") return "bill payment";
-  return (v.glAccountId && accountNames?.get(v.glAccountId)) || "another account";
+  return (v.glAccountId && accountNames?.get(v.glAccountId)) || unknown;
 }
 
-/** Step 3's reason: each similar payee named once ("City Water Co" ×3 reads as one). */
-export function similarReason(lines: number, labels: readonly string[]): string {
-  const names = [...new Set(labels)].slice(0, 3).join(", ");
-  return `New payee. ${lines} similar past item${lines === 1 ? "" : "s"} (${names}) went to the same account.`;
+/**
+ * Step 3's reason: "New payee. 3 similar posts went to Meals: Tim Hortons 12
+ * Nov, 14 Nov; Second Cup 3 Nov." Items from the company's books are not
+ * dated or counted (picks.ts postsReason).
+ */
+export function similarReason(pick: Pick<SuggestionPick, "lines" | "historyLines" | "evidence">, account: string): string {
+  const prior = Math.min(pick.historyLines ?? 0, pick.lines);
+  return `New payee. ${postsReason({ kind: "similar", posted: pick.lines - prior, prior, account, evidence: pick.evidence })}.`;
 }
 
 /** Auto-classification "Suggest only": the same suggestion, never filled in. */
@@ -427,7 +440,7 @@ export async function refreshSuggestions(
       ...(link ? { vendorId: link.vendorId, linkedVendor: true } : {}),
       payee: (link?.payee ?? suggestedVendorName(c.merchantName ?? c.counterpartyName, c.description)) || undefined,
       confidence: top.confidence,
-      reason: similarReason(top.lines, top.evidence.map((e) => e.label)),
+      reason: similarReason(top, names.get(top.glAccountId) ?? "the same account"),
       checks: {
         legibility: legibility(facts, new Date(now).toISOString().slice(0, 10)),
         completeness: { ok: false, detail: "New vendor: pick or create it." },
@@ -440,6 +453,41 @@ export async function refreshSuggestions(
       scoredAt: new Date(now).toISOString(),
     };
   };
+  // Step 4: the AI's saved answer (aiPick.ts) for a line steps 2 and 3 have
+  // nothing for, or where step 3 is below Medium. Always Low, never filled in;
+  // its picks come after step 3's own. An account no longer allowed drops out.
+  const aiAllowed = mode === "off" ? null : (await aiAccountsFor(db, qbConnectionId)).ids;
+  const withAi = (c: TxnDoc, link: PayeeLinkDoc | null, found: Suggestion): Suggestion => {
+    const rec = c.aiPick;
+    if (!rec || rec.status !== "ok" || !aiAllowed || !needsAi(found)) return found;
+    const subject = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
+    const aiPicks = aiPicksFrom(rec, aiAllowed, subject);
+    if (aiPicks.length === 0) return found;
+    if (found.kind && found.step === "similar") return { ...found, picks: topPicks(found.picks ?? [], aiPicks), model: rec.model };
+    const top = aiPicks[0];
+    const tax = link ? vendorTax.get(link.vendorId) : undefined;
+    return {
+      kind: "expense",
+      glAccountId: top.glAccountId,
+      ...(tax ? { taxCodeId: tax } : {}),
+      ...(link ? { vendorId: link.vendorId, linkedVendor: true } : {}),
+      payee: (link?.payee ?? suggestedVendorName(c.merchantName ?? c.counterpartyName, c.description)) || undefined,
+      confidence: "low",
+      reason: pickReason(top, names.get(top.glAccountId) ?? "this account"),
+      checks: {
+        legibility: found.checks.legibility,
+        completeness: { ok: false, detail: link ? "Pick the account and check it." : "New vendor: pick or create it." },
+        history: { ok: false, detail: "Nothing posted before is like this line, so this is an AI suggestion. Please review it." },
+      },
+      autoCoded: false,
+      basis: { agreeing: 0, total: 0, lines: 0 },
+      step: "ai",
+      picks: aiPicks,
+      model: rec.model,
+      scoredAt: new Date(now).toISOString(),
+    };
+  };
+
   const historyCache = new Map<string, Vote[]>();
   const historyVotesFor = (lineKey: string, linkedVendorId: string | null, out: boolean): Vote[] => {
     if (history.length === 0) return [];
@@ -460,6 +508,8 @@ export async function refreshSuggestions(
   // re-scores all of them): plain suggestions go in one bulk write, and the
   // lines ScanTrix codes or uncodes are updated side by side.
   const plain: AnyBulkWriteOperation<TxnDoc>[] = [];
+  // Audit: a suggestion that first appears or changes (step, account, confidence, past items, model).
+  const shown: ReturnType<typeof shownEvent>[] = [];
   const coding: Promise<void>[] = [];
   const before = (c: TxnDoc) => ({ glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee });
   // Takes back what ScanTrix filled in by itself; the line keeps `suggestion` (null = none).
@@ -495,8 +545,9 @@ export async function refreshSuggestions(
     // similar past items from any vendor went to. Never filled in. A linked
     // vendor alone (picked but never posted) doesn't stop it: it brings no
     // account, only the vendor and its saved tax code.
-    const found = pastVotes.length === 0 ? ((await similarFor(c, facts, link)) ?? fromHistory) : fromHistory;
+    const found = withAi(c, link, pastVotes.length === 0 ? ((await similarFor(c, facts, link)) ?? fromHistory) : fromHistory);
     const s = mode === "suggest" ? suggestOnly(found) : found;
+    if (shownChanged(c.suggestion, s)) shown.push(shownEvent(qbConnectionId, c._id, s));
     if (s.autoCoded) {
       autoCoded += 1;
       const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null) || c.taxCodeId !== (s.taxCodeId ?? null);
@@ -530,8 +581,40 @@ export async function refreshSuggestions(
       plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: s, updatedAt: new Date() } } } });
     }
   }
-  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding]);
+  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding, shown.length > 0 ? db.events.insertMany(shown, { ordered: false }) : null]);
   return { scored: candidates.length, autoCoded };
+}
+
+type Shown = Pick<Suggestion, "kind" | "step" | "glAccountId" | "confidence" | "picks">;
+const pickIds = (s: Partial<Shown> | null | undefined) => (s?.picks ?? []).map((p) => `${p.glAccountId}:${p.step}`).join(",");
+
+/** True when a line's suggestion first appears or changes in what a person sees (not on every re-score). */
+export function shownChanged(before: unknown, after: Suggestion): boolean {
+  const b = before as Partial<Shown> | null | undefined;
+  if (!after.kind && !(after.picks?.length)) return Boolean(b?.kind);
+  return !b || b.kind !== after.kind || b.step !== after.step || b.glAccountId !== after.glAccountId || b.confidence !== after.confidence || pickIds(b) !== pickIds(after);
+}
+
+/** The audit event for it: which step, the accounts, the past items behind it, and the AI model when step 4 is in it. */
+function shownEvent(qbConnectionId: string, transactionId: string, s: Suggestion) {
+  return {
+    qbConnectionId,
+    transactionId,
+    itemId: null,
+    actor: "autopilot",
+    source: "autopilot" as const,
+    action: "suggestion.shown",
+    detail: {
+      step: s.step,
+      kind: s.kind,
+      glAccountId: s.glAccountId ?? null,
+      confidence: s.confidence,
+      picks: (s.picks ?? []).map((p) => ({ glAccountId: p.glAccountId, step: p.step, confidence: p.confidence, evidence: p.evidence.map((e) => ({ label: e.label, date: e.date, source: e.source })) })),
+      model: s.model ?? null,
+      reason: s.reason,
+    },
+    at: new Date(),
+  };
 }
 
 /**

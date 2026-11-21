@@ -1,15 +1,18 @@
 import { formatPlainDate } from "@/lib/plainDate";
-import type { PickStep, SuggestionPick } from "@/lib/suggestions/picks";
+import { isPrior, PRIOR, type PickStep, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import { ConfidenceLabel } from "./ConfidenceLabel";
 
 // "How ScanTrix decided", step 2: which step found each of the top 3
-// accounts, and the past items each one is based on.
+// accounts, and the past items each one is based on. An item read from the
+// company's books shows only its name and "From prior classifications": no
+// date, no source (Saurabh, 20 Nov).
 
 const STEP_LABEL: Record<PickStep, string> = {
   history: "Same vendor or payee before",
   vendor_default: "Vendor default",
   similar: "Similar past items",
+  ai: "AI suggestion, please review",
 };
 
 const money = (cents: number | null) =>
@@ -33,7 +36,10 @@ export function PicksExplained({ picks }: { picks: { pick: SuggestionPick; name:
             <ul className="mt-[2px] text-[11px] text-content-secondary">
               {pick.evidence.map((e, j) => (
                 <li key={`${e.date}-${j}`}>
-                  {[e.label, formatPlainDate(e.date, { day: "numeric", month: "short", year: "numeric" }), money(e.amountCents), e.source === "invoice" ? "bill" : e.source === "quickbooks" ? "from QuickBooks" : e.source === "xero" ? "from Xero" : "bank line"]
+                  {(isPrior(e)
+                    ? [e.label, PRIOR.toLowerCase()]
+                    : [e.label, formatPlainDate(e.date, { day: "numeric", month: "short", year: "numeric" }), money(e.amountCents), e.source === "invoice" ? "bill" : "bank line"]
+                  )
                     .filter(Boolean)
                     .join(" · ")}
                 </li>

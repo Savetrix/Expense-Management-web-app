@@ -50,7 +50,8 @@ export interface MemoryVote {
   evidence: Evidence;
 }
 
-export type PickStep = "history" | "vendor_default" | "similar";
+/** Where a pick came from: same vendor or payee (step 2), the vendor's default, similar past items (step 3), or the AI (step 4, last resort). */
+export type PickStep = "history" | "vendor_default" | "similar" | "ai";
 
 export interface SuggestionPick {
   glAccountId: string;
@@ -68,6 +69,8 @@ export interface SuggestionPick {
   weight: number;
   /** The most recent past items behind it, newest first (at most 3). */
   evidence: Evidence[];
+  /** Step 4 only: the AI's one-line reason ("looks like a courier service"). */
+  aiReason?: string;
 }
 
 export const MAX_PICKS = 3;
@@ -119,35 +122,61 @@ export function topPicks(...lists: SuggestionPick[][]): SuggestionPick[] {
   return out;
 }
 
-const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
-
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** "2026-10-12" → "12 Oct". */
 export const shortDate = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}` : iso);
 
 /**
- * The reason shown next to a pick: "You coded Petro Canada to Travel 4 times",
- * or, when the company's own books are behind it, "From your QuickBooks
- * history: Petro Canada, 12 Oct".
+ * Items read from the company's QuickBooks/Xero books (history.ts) are shown
+ * without their date, their source or how many there were: only "From prior
+ * classifications" (Saurabh, 20 Nov). Items posted in ScanTrix keep their
+ * dates. Every item that isn't from the books was posted in ScanTrix.
  */
-export function pickReason(pick: Pick<SuggestionPick, "step" | "subject" | "lines"> & Partial<Pick<SuggestionPick, "historyLines" | "historySource" | "evidence">>, accountName: string): string {
-  if (pick.step === "similar") {
-    // "3 similar items went to Travel: Petro Canada 12 Oct, Shell 3 Sep"
-    const items = (pick.evidence ?? []).slice(0, 3).map((e) => `${e.label} ${shortDate(e.date)}`).join(", ");
-    return `${pick.lines} similar item${pick.lines === 1 ? "" : "s"} went to ${accountName}${items ? `: ${items}` : ""}`;
+export const PRIOR = "From prior classifications";
+export const isPrior = (e: Pick<Evidence, "source">) => isHistory(e);
+
+/** "Tim Hortons 12 Nov, 14 Nov, 18 Nov": the newest items posted in ScanTrix, in date order. Prior items are never listed. */
+export function datedItems(evidence: readonly Evidence[], max = 3): string {
+  const byLabel = new Map<string, string[]>();
+  const newest = evidence.filter((x) => !isPrior(x)).slice(0, max);
+  for (const e of [...newest].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))) byLabel.set(e.label, [...(byLabel.get(e.label) ?? []), shortDate(e.date)]);
+  return [...byLabel].map(([label, dates]) => `${label} ${dates.join(", ")}`).join("; ");
+}
+
+/**
+ * Why an account was picked, from the items behind it:
+ *   "3 earlier posts went to Meals: Tim Hortons 12 Nov, 14 Nov, 18 Nov"
+ *   "2 similar posts went to Meals: Tim Hortons 12 Nov; Second Cup 3 Nov. Also from prior classifications"
+ *   "From prior classifications" (only items from the books)
+ * `posted` and `prior` count the items behind it posted in ScanTrix and read
+ * from the books; the second count is never shown.
+ */
+export function postsReason(a: { kind: "earlier" | "similar"; posted: number; prior: number; account: string; evidence: readonly Evidence[] }): string {
+  const items = datedItems(a.evidence);
+  const own = a.posted > 0 ? `${a.posted} ${a.kind} post${a.posted === 1 ? "" : "s"} went to ${a.account}${items ? `: ${items}` : ""}` : "";
+  if (a.prior <= 0) return own || `Went to ${a.account} before`;
+  if (own) return `${own}. Also ${PRIOR.charAt(0).toLowerCase()}${PRIOR.slice(1)}`;
+  if (a.kind === "earlier") return PRIOR;
+  const names = [...new Set(a.evidence.map((e) => e.label))].slice(0, 3).join(", ");
+  return `${PRIOR}: similar items${names ? ` like ${names}` : ""} went to ${a.account}`;
+}
+
+/**
+ * The reason shown next to a pick: "3 earlier posts went to Travel: Petro
+ * Canada 12 Oct, 3 Sep, 27 Aug", "From prior classifications", or for step 4
+ * the AI's own one-line reason.
+ */
+export function pickReason(pick: Pick<SuggestionPick, "step" | "subject" | "lines"> & Partial<Pick<SuggestionPick, "historyLines" | "historySource" | "evidence" | "aiReason">>, accountName: string): string {
+  const prior = Math.min(pick.historyLines ?? 0, pick.lines);
+  const posted = pick.lines - prior;
+  const evidence = pick.evidence ?? [];
+  if (pick.step === "ai") return `AI pick: ${pick.aiReason?.trim() || "looks like this kind of spend"} → ${accountName}`;
+  if (pick.step === "similar") return postsReason({ kind: "similar", posted, prior, account: accountName, evidence });
+  if (pick.step === "vendor_default") {
+    if (posted > 0) return `Vendor default for ${pick.subject}, posted there ${posted === 1 ? "once" : posted === 2 ? "twice" : `${posted} times`} before`;
+    return prior > 0 ? `Vendor default for ${pick.subject}. ${PRIOR}` : `Vendor default for ${pick.subject}`;
   }
-  if (pick.step === "vendor_default") return pick.lines > 0 ? `Vendor default for ${pick.subject}, used ${times(pick.lines)} before` : `Vendor default for ${pick.subject}`;
-  const fromBooks = pick.historyLines ?? 0;
-  if (fromBooks > 0 && pick.historySource) {
-    const books = HISTORY_LABEL[pick.historySource];
-    if (fromBooks >= pick.lines) {
-      const latest = pick.evidence?.find(isHistory);
-      const more = pick.lines > 1 ? ` (${times(pick.lines)} in all)` : "";
-      return latest ? `From your ${books} history: ${latest.label}, ${shortDate(latest.date)}${more}` : `From your ${books} history: ${pick.subject}${more}`;
-    }
-    return `You coded ${pick.subject} to ${accountName} ${times(pick.lines - fromBooks)}, and ${times(fromBooks)} in ${books}`;
-  }
-  return `You coded ${pick.subject} to ${accountName} ${times(pick.lines)}`;
+  return postsReason({ kind: "earlier", posted, prior, account: accountName, evidence });
 }
 
 export const CONFIDENCE_LABEL: Record<Confidence, string> = { high: "High", medium: "Medium", low: "Low" };

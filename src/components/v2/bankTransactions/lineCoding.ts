@@ -23,12 +23,14 @@ export interface LineSuggestion {
   checks: Record<"legibility" | "completeness" | "history", { ok: boolean; detail: string }>;
   autoCoded: boolean;
   basis: { agreeing: number; total: number; lines: number };
-  /** Which step found it: this payee's history (here or in the books), or similar past items (step 3). */
-  step?: "history" | "similar";
+  /** Which step found it: this payee's history (here or in the books), similar past items (step 3), or the AI (step 4). */
+  step?: "history" | "similar" | "ai";
   /** Step 2: the top 3 accounts, best first. Absent on lines scored before step 2. */
   picks?: SuggestionPick[];
   /** The vendor comes from the payee's link to a vendor a person picked. */
   linkedVendor?: boolean;
+  /** Step 4 picks included: the AI model that made them. */
+  model?: string;
 }
 
 export function suggestionOf(txn: BankTransaction): LineSuggestion | null {

@@ -1007,12 +1007,14 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
   );
 
   // Smart Suggestions: the top 3 GL accounts for this vendor (or, for a new
-  // vendor, from similar past items).
+  // vendor, from similar past items, then the AI's picks when those are weak).
   const suggestions = useInvoiceSuggestions({
     invoiceId,
     vendorId: selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "",
     vendorName: invoice.vendor || "",
     lines: lineItems.map((l) => l.description ?? ""),
+    amount: scannedTotal || null,
+    currency: invoiceObject?.extractedData?.currency ?? null,
     glAccounts,
   });
   // A new vendor's one-click creation brings the suggested GL and tax as its defaults.
@@ -1771,7 +1773,7 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
                     const tax = suggestions.picks.find((p) => p.pick.glAccountId === id)?.pick.taxCodeId;
                     if (tax && !invoice.taxCodeId) handleTaxCodeSelect(tax);
                   }}
-                  picks={suggestions.picks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
+                  picks={suggestions.picks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} ai={p.pick.step === "ai"} /> }))}
                   onAddNew={(name) => {
                     setAddGlName(name);
                     setAddGlOpen(true);

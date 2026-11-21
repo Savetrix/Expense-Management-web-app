@@ -12,9 +12,7 @@ import {
 } from "@/store/quickBooks/quickBooksApi";
 import type { Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { setSelectedVendor } from "@/store/vendor/vendorSlice";
-import { CURRENCY_OPTIONS } from "@/lib/currencies";
-import { defaultVendorCurrency } from "@/lib/vendorForm";
-import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
+import { NO_CURRENCY } from "@/lib/vendorForm";
 import { showToast } from "@/lib/dialogManager";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
@@ -76,18 +74,9 @@ export function useVendorResolution(invoiceId: string, onResolved: () => void) {
   const [activeTab, setActiveTab] = useState<VendorResolutionTab>("suggested");
   const [searchText, setSearchText] = useState("");
   const [newVendorName, setNewVendorName] = useState(invoiceVendor);
-  // A vendor created from an invoice starts in that invoice's currency, else
-  // the company's home currency — never a blanket USD.
-  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
-  const invoiceCurrency = selectedInvoice?.extractedData?.currency?.trim().toUpperCase() || null;
-  const startCurrency = defaultVendorCurrency(invoiceCurrency ?? homeCurrency, CURRENCY_OPTIONS);
-  const [currency, setCurrency] = useState(startCurrency);
-  // The invoice (or the company list) can arrive after the dialog mounts.
-  const [currencyFrom, setCurrencyFrom] = useState(startCurrency);
-  if (currencyFrom !== startCurrency) {
-    setCurrencyFrom(startCurrency);
-    setCurrency(startCurrency);
-  }
+  // A new vendor's currency starts empty and must be picked (Saurabh, 20 Nov:
+  // a pre-filled currency gets saved wrong by accident).
+  const [currency, setCurrency] = useState<string>(NO_CURRENCY);
   const [creatingVendor, setCreatingVendor] = useState(false);
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [selectedGlAccountId, setSelectedGlAccountId] = useState("");
@@ -142,6 +131,10 @@ export function useVendorResolution(invoiceId: string, onResolved: () => void) {
     // send an empty value, so the create failed at the backend after the user
     // had filled everything in. The Vendors page has always required it; these
     // two paths now agree.
+    if (!currency) {
+      showToast("Pick the vendor's currency.", "error");
+      return;
+    }
     if (!selectedGlAccountId) {
       showToast("Choose a GL account — a new vendor needs one.", "error");
       return;

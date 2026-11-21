@@ -231,7 +231,7 @@ export function TransactionModal({
                       : "warning"
                 }
               >
-                {STATUS_LABEL[txn.status]}
+                {txn.status === "ready" && txn.postingStatus === "posted" ? "Posted" : STATUS_LABEL[txn.status]}
               </Badge>
             </ModalDefinitionRow>
             {found && (
@@ -419,7 +419,7 @@ export function TransactionModal({
                       <Sparkles size={16} strokeWidth={2.25} className="mt-0.5 shrink-0 text-accent" />
                       <span>
                         <span className="font-semibold">
-                          {coding.source === "autopilot" ? "Coded by ScanTrix" : pendingSuggestion ? "ScanTrix suggests" : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
+                          {coding.source === "autopilot" ? "Coded by ScanTrix" : pendingSuggestion ? (suggestion?.step === "ai" ? "AI suggestion, please review" : "ScanTrix suggests") : suggestion?.kind === "exclude" ? "Usually excluded" : suggestion?.kind === "transfer" ? "Usually a transfer" : "Not enough history yet"}
                         </span>
                         {offered && codingLabel({ ...offered, source: "none", reason: null, suggestion, offered }, lookups) && <> · {codingLabel({ ...offered, source: "none", reason: null, suggestion, offered }, lookups)}</>}
                         {coding.reason && <span className="block text-caption text-content-secondary">{coding.reason.replace(/^Coded by ScanTrix — /, "")}</span>}
@@ -462,7 +462,7 @@ export function TransactionModal({
                                 <CircleDashed size={14} className="mt-0.5 shrink-0" />
                               )}
                               <span>
-                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : suggestion.step === "similar" ? "Similar past items" : "Matches your history"}: </span>
+                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : suggestion.step === "similar" ? "Similar past items" : suggestion.step === "ai" ? "AI suggestion" : "Matches your history"}: </span>
                                 {suggestion.checks[k].detail}
                               </span>
                             </li>
@@ -512,7 +512,7 @@ export function TransactionModal({
                   onUpdate(txn.id, { categoryId: id || undefined });
                 }}
                 footerAction={onRefreshAccounts ? { label: "Missing an account? Refresh the list", onClick: onRefreshAccounts } : undefined}
-                picks={linePicks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} /> }))}
+                picks={linePicks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} ai={p.pick.step === "ai"} /> }))}
                 clearLabel="No category"
                 placeholder="GL account"
                 uiSize="md"

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
-import { defaultVendorCurrency, hasVendorErrors, validateVendorForm, type VendorFieldErrors } from "@/lib/vendorForm";
+import { hasVendorErrors, NO_CURRENCY, validateVendorForm, type VendorFieldErrors } from "@/lib/vendorForm";
 import { showToast } from "@/lib/dialogManager";
 import { taxCodeId as getTaxCodeId, taxCodeLabel as formatTaxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { AddGlAccountModalV2 } from "@/components/v2/glTaxCode/AddGlAccountModalV2";
@@ -16,7 +16,6 @@ import {
   fetchQuickBooksTaxCodes,
   fetchQuickBooksVendors,
 } from "@/store/quickBooks/quickBooksApi";
-import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 const FIELD_LABEL_CLASS = "text-body-sm font-semibold text-content-primary";
@@ -42,7 +41,7 @@ interface AddVendorModalV2Props {
   /** Prefills GL account and tax code (e.g. from a bank line already coded). */
   initialGlAccountId?: string;
   initialTaxCodeId?: string;
-  /** Starts the currency here instead of the home currency (a bank line: its bank account's currency). */
+  /** A currency to offer in the list even if it isn't a usual one (a bank line: its bank account's currency). Never picked for the person. */
   initialCurrency?: string;
   onCreated: (vendor: CreatedVendorRecord) => void;
 }
@@ -63,7 +62,7 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   );
 
   const [displayName, setDisplayName] = useState("");
-  const [currency, setCurrency] = useState<string>(CURRENCY_OPTIONS[0]);
+  const [currency, setCurrency] = useState<string>(NO_CURRENCY);
   const [glAccountId, setGlAccountId] = useState("");
   const [taxCodeId, setTaxCodeId] = useState("");
   const [email, setEmail] = useState("");
@@ -75,7 +74,6 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   const [saving, setSaving] = useState(false);
   const [addGlOpen, setAddGlOpen] = useState(false);
   const [addGlName, setAddGlName] = useState("");
-  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
   // A bank account's currency that isn't in the usual list is offered too.
   const currencyChoices: readonly string[] =
     initialCurrency && !CURRENCY_OPTIONS.includes(initialCurrency.toUpperCase() as (typeof CURRENCY_OPTIONS)[number]) ? [initialCurrency.toUpperCase(), ...CURRENCY_OPTIONS] : CURRENCY_OPTIONS;
@@ -83,8 +81,8 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   useEffect(() => {
     if (!open) return;
     setDisplayName(initialName);
-    const start = initialCurrency?.toUpperCase();
-    setCurrency(start && currencyChoices.includes(start) ? start : defaultVendorCurrency(homeCurrency, CURRENCY_OPTIONS));
+    // Empty: the person picks it (Saurabh, 20 Nov).
+    setCurrency(NO_CURRENCY);
     setGlAccountId(initialGlAccountId);
     setTaxCodeId(initialTaxCodeId);
     setEmail("");
@@ -111,7 +109,7 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
   const handleSave = async () => {
     if (!accessToken) return;
     const trimmedName = displayName.trim();
-    const errors = validateVendorForm({ name: displayName, glAccountId, email, requireGlAccount: true });
+    const errors = validateVendorForm({ name: displayName, currency, glAccountId, email, requireGlAccount: true });
     setFieldErrors(errors);
     if (hasVendorErrors(errors)) return;
     setFormError("");
@@ -193,7 +191,20 @@ export function AddVendorModalV2({ open, onClose, initialName = "", initialGlAcc
         </div>
 
         <div>
-          <SelectDropdown label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)} disabled={saving}>
+          <SelectDropdown
+            label="Currency *"
+            value={currency}
+            onChange={(e) => {
+              setCurrency(e.target.value);
+              if (fieldErrors.currency && e.target.value) setFieldErrors((prev) => ({ ...prev, currency: undefined }));
+            }}
+            disabled={saving}
+            aria-invalid={!!fieldErrors.currency}
+            error={fieldErrors.currency}
+          >
+            <option value={NO_CURRENCY} disabled>
+              Select currency
+            </option>
             {currencyChoices.map((code) => (
               <option key={code} value={code}>
                 {code}

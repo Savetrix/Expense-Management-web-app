@@ -44,9 +44,10 @@ describe("top 3 picks from history", () => {
     assert.deepEqual(picks[0].evidence.map((e) => e.date), [daysAgo(1), daysAgo(2), daysAgo(3)].map((d) => d.slice(0, 10)));
   });
 
-  it("says why in plain words", () => {
-    assert.equal(pickReason({ step: "history", subject: "Petro Canada", lines: 4 }, "Travel"), "You coded Petro Canada to Travel 4 times");
-    assert.equal(pickReason({ step: "history", subject: "Shell", lines: 1 }, "Travel"), "You coded Shell to Travel once");
+  it("says why in plain words, with the dates of ScanTrix posts", () => {
+    const ev = (date: string) => ({ label: "Tim Hortons", date, amountCents: 450, source: "bank" as const });
+    assert.equal(pickReason({ step: "history", subject: "Tim Hortons", lines: 3, evidence: [ev("2026-11-18"), ev("2026-11-14"), ev("2026-11-12")] }, "Meals"), "3 earlier posts went to Meals: Tim Hortons 12 Nov, 14 Nov, 18 Nov");
+    assert.equal(pickReason({ step: "history", subject: "Shell", lines: 1 }, "Travel"), "1 earlier post went to Travel");
   });
 
   it("keeps at most 3 picks, the first of each account", () => {

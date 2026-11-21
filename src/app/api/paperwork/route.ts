@@ -56,8 +56,8 @@ export async function POST(request: Request) {
   try {
     const team = await teamMembers(ctx.caller.accessToken, ctx.connection.id).catch(() => null);
     if (!team) return fail(503, "ScanTrix couldn't load the team just now. Try again.");
-    const assignee = team.find((m) => m.userId === assigneeUserId);
-    if (!assignee) return fail(400, "That person isn't on this company's team, or can't open Bank Transactions.");
+    const assignee = team.find((m) => m.userId === assigneeUserId && m.askable);
+    if (!assignee) return fail(400, "That person isn't on this company's team, or hasn't joined ScanTrix yet.");
     const requesterName = typeof body?.requesterName === "string" && body.requesterName.trim() ? body.requesterName.trim().slice(0, 80) : "A teammate";
     const created = await createRequest(ctx.db, {
       qbConnectionId: ctx.connection.id,

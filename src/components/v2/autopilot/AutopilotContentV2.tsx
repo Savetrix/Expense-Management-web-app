@@ -265,7 +265,7 @@ export function AutopilotContentV2() {
             )}
           </>
         ) : activeTab === "settings" ? (
-          <SettingsPanel providerName={provider.name} />
+          <SettingsPanel />
         ) : (
           <UsagePanel />
         )}

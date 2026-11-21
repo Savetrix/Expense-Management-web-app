@@ -7,10 +7,10 @@ import { showToast } from "@/lib/dialogManager";
 import { fetchSuggestionSettings, saveSuggestionSettings, type AutoClassification, type SuggestionSettingsDto } from "@/store/bankFeeds/bankFeedsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
-import { HistorySetting } from "./HistorySetting";
-
 // The company's Smart Suggestions settings (Autopilot > Settings):
-// Auto-classification, and learning from the company's QuickBooks history.
+// Auto-classification. Learning from the company's QuickBooks history has no
+// switch on screen (Saurabh, 20 Nov): it is a per-company setting in the
+// database (suggestion_settings.learnFromHistory, lib/bankFeeds/history.ts).
 // There are no ScanTrix rules: the company's rules live in QuickBooks, and a
 // line a QuickBooks rule coded shows here as already handled.
 
@@ -28,7 +28,7 @@ const MODES: { value: AutoClassification; label: string; detail: string }[] = [
   },
 ];
 
-export function SettingsPanel({ providerName }: { providerName: string }) {
+export function SettingsPanel() {
   const dispatch = useAppDispatch();
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
   const [settings, setSettings] = useState<SuggestionSettingsDto | null>(null);
@@ -91,7 +91,6 @@ export function SettingsPanel({ providerName }: { providerName: string }) {
         {settings && !settings.canChange && <p className="mt-[var(--space-xs)] text-caption text-content-secondary">Only an Owner or Admin can change this.</p>}
       </section>
 
-      <HistorySetting providerName={providerName} />
     </div>
   );
 }

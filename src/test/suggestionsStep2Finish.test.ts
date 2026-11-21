@@ -22,7 +22,7 @@ const suggestion = (over: Record<string, unknown> = {}) => ({
   vendorId: "v-petro",
   payee: "Petro Canada",
   confidence: "high",
-  reason: "Coded by ScanTrix — 3 earlier lines for this payee were coded the same way.",
+  reason: "Coded by ScanTrix — 3 earlier posts went to Travel: Uber 12 Nov, 14 Nov, 18 Nov.",
   checks: {},
   autoCoded: true,
   basis: { agreeing: 3, total: 3, lines: 3 },

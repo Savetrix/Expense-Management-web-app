@@ -235,10 +235,10 @@ export function entriesFromXeroAnswer(collection: string, data: Record<string, u
 export const xero: LedgerAdapter = {
   async listAccounts(ctx) {
     const data = await call(ctx, { method: "GET", path: "/Accounts" });
-    const rows = (data.Accounts ?? []) as { AccountID: string; Name: string; Code?: string; Type?: string; BankAccountType?: string; SystemAccount?: string; Status?: string; CurrencyCode?: string }[];
+    const rows = (data.Accounts ?? []) as { AccountID: string; Name: string; Code?: string; Type?: string; BankAccountType?: string; SystemAccount?: string; Status?: string; CurrencyCode?: string; Description?: string }[];
     return rows
       .filter((a) => a.Status !== "ARCHIVED" && a.Status !== "DELETED")
-      .map((a) => ({ id: a.AccountID, name: a.Code ? `${a.Code} ${a.Name}` : a.Name, kind: kindOf(a), type: a.Type ?? "", currency: a.CurrencyCode ?? null }))
+      .map((a) => ({ id: a.AccountID, name: a.Code ? `${a.Code} ${a.Name}` : a.Name, kind: kindOf(a), type: a.Type ?? "", currency: a.CurrencyCode ?? null, subtype: a.SystemAccount ?? null, description: a.Description?.trim() || null }))
       .sort((a, b) => a.name.localeCompare(b.name));
   },
 
