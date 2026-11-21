@@ -26,15 +26,45 @@ function lineAmounts(gross: number, taxCodeId: string | null, taxRate: number | 
   return { amount: round2(gross / (1 + rate / 100)), tax: { TaxCodeRef: { value: taxCodeId }, TaxInclusiveAmt: round2(gross) } };
 }
 
-/** Pure: the HTTP request for one posting. */
-export function buildQbRequest(posting: Posting, idempotencyKey: string): { entity: string; request: LedgerRequest } {
+/** One rate inside a tax code ("HST (ITC) ON" 13%; GST/PST has two). */
+export interface TaxComponent {
+  rateId: string;
+  percent: number;
+}
+
+/**
+ * The tax lines for a tax-inclusive bank amount, so QuickBooks keeps the
+ * bank's exact total. Without them QuickBooks works the tax out again from the
+ * rounded net and can land a cent away: 85.40 with HST 13% became 85.41
+ * (net 75.58 + 9.83) on the sandbox, 21 Nov. Here tax = gross − net (9.82),
+ * split over the code's rates, the last rate taking the rounding. Null when
+ * there is nothing to fix (no rates, or a zero rate).
+ */
+export function taxDetail(gross: number, net: number, components: readonly TaxComponent[] | null | undefined) {
+  const parts = (components ?? []).filter((c) => c.percent > 0);
+  if (parts.length === 0) return null;
+  const totalTax = round2(gross - net);
+  let left = totalTax;
+  const lines = parts.map((c, i) => {
+    const amount = i === parts.length - 1 ? round2(left) : round2((net * c.percent) / 100);
+    left = round2(left - amount);
+    return { Amount: amount, DetailType: "TaxLineDetail", TaxLineDetail: { TaxRateRef: { value: c.rateId }, PercentBased: true, TaxPercent: c.percent, NetAmountTaxable: net } };
+  });
+  return { TotalTax: totalTax, TaxLine: lines };
+}
+
+/** Pure: the HTTP request for one posting. `taxRates`: the rates inside the line's tax code, when known (taxDetail). */
+export function buildQbRequest(posting: Posting, idempotencyKey: string, taxRates?: readonly TaxComponent[] | null): { entity: string; request: LedgerRequest } {
   const query = { requestid: idempotencyKey.slice(0, 50) };
   const note = posting.memo.slice(0, 4000);
   switch (posting.kind) {
     case "expense":
     case "deposit": {
       const { amount, tax } = lineAmounts(posting.amount, posting.taxCodeId, posting.taxRate);
-      const taxMode = tax ? { GlobalTaxCalculation: "TaxInclusive" } : {};
+      // The rates must add up to the code's rate the amounts were split with, or the tax lines would be wrong.
+      const sum = (taxRates ?? []).reduce((s, c) => s + c.percent, 0);
+      const detail = tax && posting.taxRate && Math.abs(sum - posting.taxRate) < 0.001 ? taxDetail(posting.amount, amount, taxRates) : null;
+      const taxMode = tax ? { GlobalTaxCalculation: "TaxInclusive", ...(detail ? { TxnTaxDetail: detail } : {}) } : {};
       const refund = posting.kind === "deposit" && posting.bankAccount.isCard;
       if (posting.kind === "expense" || refund) {
         return {
@@ -395,6 +425,30 @@ async function queryAll(ctx: LedgerContext, entity: QbEntity, from: string, to: 
   return [];
 }
 
+const rateCache = new Map<string, { at: number; rates: TaxComponent[] }>();
+
+/**
+ * The rates inside a tax code, from QuickBooks (purchase rates for money out
+ * and card refunds, sales rates for deposits), kept an hour per company. A
+ * failed read posts as before, without tax lines.
+ */
+async function taxComponents(ctx: LedgerContext, taxCodeId: string, list: "purchase" | "sales"): Promise<TaxComponent[] | null> {
+  if (!QB_ID.test(taxCodeId)) return null;
+  const key = `${ctx.tenantId}:${taxCodeId}:${list}`;
+  const hit = rateCache.get(key);
+  if (hit && Date.now() - hit.at < 3_600_000) return hit.rates;
+  const code = await call(ctx, { method: "GET", path: "/query", query: { query: `select * from TaxCode where Id = '${taxCodeId}'` } });
+  type Detail = { TaxRateRef?: { value?: string } };
+  const c = (code.QueryResponse as { TaxCode?: { PurchaseTaxRateList?: { TaxRateDetail?: Detail[] }; SalesTaxRateList?: { TaxRateDetail?: Detail[] } }[] } | undefined)?.TaxCode?.[0];
+  const ids = ((list === "purchase" ? c?.PurchaseTaxRateList : c?.SalesTaxRateList)?.TaxRateDetail ?? []).map((d) => d.TaxRateRef?.value).filter((v): v is string => Boolean(v && QB_ID.test(v)));
+  if (ids.length === 0) return null;
+  const rates = await call(ctx, { method: "GET", path: "/query", query: { query: `select * from TaxRate where Id in (${ids.map((i) => `'${i}'`).join(",")})` } });
+  const byId = new Map(((rates.QueryResponse as { TaxRate?: { Id: string; RateValue?: number }[] } | undefined)?.TaxRate ?? []).map((r) => [String(r.Id), Number(r.RateValue ?? 0)]));
+  const out = ids.map((id) => ({ rateId: id, percent: byId.get(id) ?? 0 }));
+  rateCache.set(key, { at: Date.now(), rates: out });
+  return out;
+}
+
 export const quickbooks: LedgerAdapter = {
   async listAccounts(ctx) {
     const out: LedgerAccount[] = [];
@@ -458,7 +512,10 @@ export const quickbooks: LedgerAdapter = {
   },
 
   async post(ctx, posting, idempotencyKey): Promise<PostedEntry> {
-    const { entity, request } = buildQbRequest(posting, idempotencyKey);
+    const rates = (posting.kind === "expense" || posting.kind === "deposit") && posting.taxCodeId && posting.taxRate
+      ? await taxComponents(ctx, posting.taxCodeId, posting.kind === "deposit" && !posting.bankAccount.isCard ? "sales" : "purchase").catch(() => null)
+      : null;
+    const { entity, request } = buildQbRequest(posting, idempotencyKey, rates);
     const data = await call(ctx, request);
     const id = (data[entity] as { Id?: string } | undefined)?.Id;
     if (!id) throw new LedgerError("QuickBooks answered without an id for the new entry.", "unknown", "unavailable");

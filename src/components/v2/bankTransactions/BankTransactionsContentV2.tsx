@@ -479,7 +479,8 @@ export function BankTransactionsContentV2() {
               showToast(`${n} transaction${n === 1 ? "" : "s"} imported${duplicates ? `, ${duplicates} already here` : ""}.`, "success");
               setTab("transactions");
               void checkLedger();
-              void requestSimilarSync(qbConnectionId ?? "").then((embedded) => {
+              // After an import the sync always runs (it waits for one already running), so new lines get steps 3 and 4.
+              void requestSimilarSync(qbConnectionId ?? "", { afterImport: true }).then((embedded) => {
                 if (embedded > 0) dispatch(fetchBankTransactions());
               });
               return true;

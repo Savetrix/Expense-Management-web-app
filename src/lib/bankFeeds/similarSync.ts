@@ -88,7 +88,7 @@ async function itemsFor(db: Db, qbConnectionId: string, invoices: InvoiceMemory[
         out: h.entity === "Deposit" ? false : !h.credit,
         glAccountId: h.glAccountId,
         taxCodeId: h.taxCodeId,
-        label: h.vendorName ?? "QuickBooks entry",
+        label: h.vendorName ?? "Earlier entry",
         date: h.date,
         amountCents: h.amountCents,
         decidedAt: `${h.date}T12:00:00.000Z`,

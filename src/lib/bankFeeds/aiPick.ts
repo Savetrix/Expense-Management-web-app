@@ -134,8 +134,10 @@ export async function aiAccountsFor(db: Db, qbConnectionId: string): Promise<{ a
 
 /** True when a saved answer still holds: same allowed accounts, same closest past items, and a failed one waits its hour. */
 export function answerHolds(rec: AiPickRecord | null | undefined, hash: string, basis: string, now: number): boolean {
-  if (!rec || rec.chartHash !== hash || basisKey(rec.basis) !== basis) return false;
-  return rec.status !== "failed" || Boolean(rec.retryAfter && new Date(rec.retryAfter).getTime() > now);
+  if (!rec) return false;
+  // After a timeout or an error, nothing is asked again before retryAfter.
+  if (rec.retryAfter && new Date(rec.retryAfter).getTime() > now) return true;
+  return rec.status !== "failed" && rec.chartHash === hash && basisKey(rec.basis) === basis;
 }
 
 const RETRY_AFTER_MS = 3_600_000;
@@ -265,7 +267,7 @@ export async function runAiPicks(
   db: Db,
   qbConnectionId: string,
   picker: AiPicker | null,
-  opts: { lineIds?: string[]; now?: number; maxCalls?: number; timeoutMs?: number; refresh?: (keys: string[]) => Promise<unknown> } = {},
+  opts: { lineIds?: string[]; now?: number; maxCalls?: number; timeoutMs?: number; refresh?: (keys?: string[]) => Promise<unknown> } = {},
 ): Promise<AiRunOutcome> {
   const outcome: AiRunOutcome = { lines: 0, asked: 0, reused: 0, kept: 0, failed: 0, keys: [] };
   const settings = await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { autoClassification: 1 } });
@@ -297,9 +299,11 @@ export async function runAiPicks(
       continue;
     }
     const key = t.payeeKey ?? payeeKey(t.merchantName ?? t.counterpartyName, t.description);
-    const g = groups.get(`${key}|${out}`) ?? { key, out, lines: [] };
+    // A line with no payee name ("POS PURCHASE 4521") shares with nobody: it gets its own question.
+    const group = key ? `${key}|${out}` : `line:${t._id}`;
+    const g = groups.get(group) ?? { key, out, lines: [] };
     g.lines.push({ t, basis });
-    groups.set(`${key}|${out}`, g);
+    groups.set(group, g);
   }
 
   const save = async (t: TxnDoc, rec: AiPickRecord) => {
@@ -331,13 +335,22 @@ export async function runAiPicks(
       }
       // Each line keeps its own closest items, so a later similar post re-asks only the lines it is close to.
       for (const { t, basis } of g.lines) {
+        // A failed re-ask keeps the line's earlier good answer, and waits an hour before asking again.
+        if (rec.status === "failed" && t.aiPick?.status === "ok") {
+          await save(t, { ...t.aiPick, retryAfter: rec.retryAfter });
+          continue;
+        }
         await save(t, { ...rec, basis: basis.map((m) => m._id), ...(t === first.t ? {} : { sharedFrom: rec.sharedFrom ?? first.t._id }) });
       }
       if (rec.status !== "failed") touched.add(g.key);
+      if (rec.status !== "failed" && !g.key) noKey = true;
     }
   };
+  let noKey = false;
   await Promise.all(Array.from({ length: CONCURRENCY }, work));
   outcome.keys = [...touched].filter(Boolean);
-  if (outcome.keys.length > 0 && opts.refresh) await opts.refresh(outcome.keys);
+  // Lines with no payee key can't be scored by key: score everything once instead.
+  if (opts.refresh && (outcome.keys.length > 0 || noKey)) await opts.refresh(noKey ? undefined : outcome.keys);
+  if (noKey) outcome.keys.push("");
   return outcome;
 }

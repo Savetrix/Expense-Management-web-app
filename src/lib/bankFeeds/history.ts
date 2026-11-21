@@ -79,9 +79,15 @@ export function historyMatches(lineKey: string | null | undefined, key: string |
  * QuickBooks for this company (companyLists.ts); unknown counts as real.
  */
 export async function readLearnFromHistory(db: Db, qbConnectionId: string): Promise<boolean> {
-  const doc = await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { learnFromHistory: 1 } });
+  const [doc, lists] = await Promise.all([
+    db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { learnFromHistory: 1 } }),
+    db.companyLists.findOne({ _id: qbConnectionId }, { projection: { environment: 1 } }),
+  ]);
+  const environment = lists?.environment ?? null;
+  // A real company's rows are used only while the server allows real companies too.
+  if (environment !== "sandbox" && !historyAllowedForRealCompanies()) return false;
   if (typeof doc?.learnFromHistory === "boolean") return doc.learnFromHistory;
-  return learnByDefault((await db.companyLists.findOne({ _id: qbConnectionId }, { projection: { environment: 1 } }))?.environment ?? null);
+  return learnByDefault(environment);
 }
 
 /** The setting before anyone chose: on only for a sandbox (test) company. */

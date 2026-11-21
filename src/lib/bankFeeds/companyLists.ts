@@ -193,6 +193,12 @@ export async function vendorTaxCodes(db: Db, qbConnectionId: string): Promise<Ma
   return new Map((lists?.vendors ?? []).filter((v) => v.taxCodeId).map((v) => [v.id, v.taxCodeId as string]));
 }
 
+/** Vendor id → its currency, from the cache (vendors without one are left out). */
+export async function vendorCurrencies(db: Db, qbConnectionId: string): Promise<Map<string, string>> {
+  const lists = await readLists(db, qbConnectionId);
+  return new Map((lists?.vendors ?? []).filter((v) => v.currency).map((v) => [v.id, (v.currency as string).toUpperCase()]));
+}
+
 /** Account id → its name, from the cache, so a reason can say which accounts disagree. */
 export async function accountNames(db: Db, qbConnectionId: string): Promise<Map<string, string>> {
   const lists = await readLists(db, qbConnectionId);

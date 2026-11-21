@@ -36,7 +36,7 @@ import { HISTORY_LABEL, historyPicks, isPrior, MIN_AGREEING_WEIGHT, MIN_AGREEMEN
 
 import type { Db } from "./db";
 import { aiAccountsFor, aiPicksFrom, needsAi } from "./aiPick";
-import { accountNames, bankSideIds, vendorTaxCodes } from "./companyLists";
+import { accountNames, bankSideIds, vendorCurrencies, vendorTaxCodes } from "./companyLists";
 import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
 import { loadMemory } from "./similarSync";
 import type { HistoryDoc, PayeeLinkDoc, TxnDoc } from "./schema";
@@ -61,13 +61,14 @@ export interface Vote {
   decidedAt: string;
   /** The past line itself, shown as evidence. */
   evidence?: Evidence;
-  /** History rows only: money out (true) or in, so a vendor's bills don't speak for its refunds. */
+  /** Money out (true) or in: a payee's money in never speaks for its money out (Shopify payouts aren't Shopify fees). */
   out?: boolean;
 }
 
 /** A coded line from the company's books, as a past decision (history.ts). */
 export function historyVote(h: Pick<HistoryDoc, "entity" | "glAccountId" | "taxCodeId" | "vendorId" | "vendorName" | "date" | "amountCents" | "credit" | "source">): Vote {
-  const label = h.vendorName?.trim() || `${HISTORY_LABEL[h.source]} entry`;
+  // No source word on screen (Saurabh, 20 Nov): a nameless row is an "Earlier entry".
+  const label = h.vendorName?.trim() || "Earlier entry";
   return {
     kind: h.entity === "BillPayment" ? "bill" : "expense",
     glAccountId: h.entity === "BillPayment" ? null : h.glAccountId,
@@ -121,6 +122,8 @@ const groupKey = (v: Vote) => (v.kind === "expense" ? `expense|${v.glAccountId}`
 export interface ScoreOptions {
   /** Vendor id → its saved tax code (companyLists.ts). A vendor without one can't make a line sure. */
   vendorTax?: ReadonlyMap<string, string>;
+  /** Vendor id → its currency. A vendor in another currency than the line's can't make it sure. */
+  vendorCurrency?: ReadonlyMap<string, string>;
   /** Account id → name (companyLists.ts), for the "coded differently" reason. */
   accountNames?: ReadonlyMap<string, string>;
 }
@@ -152,6 +155,8 @@ export interface LineFacts {
   description: string;
   pending?: boolean;
   payeeLabel: string;
+  /** The bank account's currency, when known. */
+  currency?: string | null;
 }
 
 export function legibility(line: LineFacts, today = new Date().toISOString().slice(0, 10)): CheckResult {
@@ -245,7 +250,9 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
           ? { ok: false, detail: "No vendor to suggest, so no tax code: pick the vendor and the tax code." }
           : !tax
             ? { ok: false, detail: "The vendor has no saved tax code: pick the tax code." }
-            : { ok: true, detail: "Vendor and GL account are known, and the vendor's saved tax code." };
+            : currencyClash(vendorId, line.currency, opts.vendorCurrency)
+              ? { ok: false, detail: `The vendor is in ${opts.vendorCurrency?.get(vendorId)} but this bank account is in ${line.currency?.toUpperCase()}: check the vendor.` }
+              : { ok: true, detail: "Vendor and GL account are known, and the vendor's saved tax code." };
 
   const confidence = historyOk && leg.ok && completeness.ok ? "high" : agreement >= 0.6 ? "medium" : "low";
   const autoCoded = confidence === "high" && v.kind === "expense";
@@ -283,6 +290,11 @@ export function score(line: LineFacts, votes: Vote[], now = Date.now(), link?: P
   };
 }
 
+const currencyClash = (vendorId: string, lineCurrency: string | null | undefined, vendorCurrency?: ReadonlyMap<string, string>) => {
+  const v = vendorCurrency?.get(vendorId)?.toUpperCase();
+  return Boolean(v && lineCurrency && v !== lineCurrency.toUpperCase());
+};
+
 /** What a group of past lines was coded to, for "coded differently (…)". Every vote is for the same payee, so name the account. */
 function describe(v: Vote, accountNames?: ReadonlyMap<string, string>, unknown = "another account"): string {
   if (v.kind === "transfer") return "transfer";
@@ -319,9 +331,14 @@ export async function readAutoClassification(db: Db, qbConnectionId: string): Pr
 type VoteRow = Pick<TxnDoc, "status" | "glAccountId" | "taxCodeId" | "vendorId" | "payee" | "transferLabel" | "decidedAt"> &
   Partial<Pick<TxnDoc, "date" | "amountCents" | "description" | "merchantName" | "counterpartyName">>;
 
-/** A vote may count unless it codes a line to a Bank-type account (Cash included). */
-function allowedVote(v: Vote, bankSide: ReadonlySet<string>): boolean {
-  return v.kind !== "expense" || !v.glAccountId || !bankSide.has(v.glAccountId);
+/**
+ * A vote may count unless it codes a line to a Bank-type account (Cash
+ * included), or to an account no longer in the company's active chart (made
+ * inactive since): `active` is the chart, empty when it isn't known yet.
+ */
+function allowedVote(v: Vote, bankSide: ReadonlySet<string>, active: ReadonlyMap<string, string>): boolean {
+  if (v.kind !== "expense" || !v.glAccountId) return true;
+  return !bankSide.has(v.glAccountId) && (active.size === 0 || active.has(v.glAccountId));
 }
 
 function toVote(r: VoteRow): Vote | null {
@@ -331,7 +348,8 @@ function toVote(r: VoteRow): Vote | null {
   const evidence: Evidence | undefined = r.date
     ? { label: (r.payee ?? r.merchantName ?? r.counterpartyName ?? r.description ?? "").trim() || "Earlier line", date: r.date, amountCents: typeof r.amountCents === "number" ? Math.abs(r.amountCents) : null, source: "bank" }
     : undefined;
-  return { kind, glAccountId: r.glAccountId, taxCodeId: r.taxCodeId, vendorId: r.vendorId, payee: r.payee, transferLabel: r.transferLabel, decidedAt: r.decidedAt.toISOString(), ...(evidence ? { evidence } : {}) };
+  const out = typeof r.amountCents === "number" ? r.amountCents < 0 : undefined;
+  return { kind, glAccountId: r.glAccountId, taxCodeId: r.taxCodeId, vendorId: r.vendorId, payee: r.payee, transferLabel: r.transferLabel, decidedAt: r.decidedAt.toISOString(), ...(evidence ? { evidence } : {}), ...(out !== undefined ? { out } : {}) };
 }
 
 /**
@@ -369,7 +387,7 @@ export async function refreshSuggestions(
   //    nothing. A line found already entered in QuickBooks/Xero says nothing
   //    about coding. Bank-type accounts never vote: on a bank line that side is
   //    the line's own bank account.
-  const [bankSide, vendorTax, names] = await Promise.all([bankSideIds(db, qbConnectionId), vendorTaxCodes(db, qbConnectionId), accountNames(db, qbConnectionId)]);
+  const [bankSide, vendorTax, names, vendorCurrency] = await Promise.all([bankSideIds(db, qbConnectionId), vendorTaxCodes(db, qbConnectionId), accountNames(db, qbConnectionId), vendorCurrencies(db, qbConnectionId)]);
   const voteRows = await db.txns
     .find({
       qbConnectionId,
@@ -387,7 +405,7 @@ export async function refreshSuggestions(
   const votesByKey = new Map<string, Vote[]>();
   for (const r of voteRows) {
     const v = toVote({ ...r, decidedAt: r.posting?.postedAt ?? r.decidedAt });
-    if (!v || !r.payeeKey || !allowedVote(v, bankSide)) continue;
+    if (!v || !r.payeeKey || !allowedVote(v, bankSide, names)) continue;
     const list = votesByKey.get(r.payeeKey) ?? [];
     list.push(v);
     votesByKey.set(r.payeeKey, list);
@@ -409,7 +427,7 @@ export async function refreshSuggestions(
   const historyByVendor = new Map<string, Vote[]>();
   for (const h of history) {
     const v = historyVote(h);
-    if (!allowedVote(v, bankSide)) continue;
+    if (!allowedVote(v, bankSide, names)) continue;
     if (h.nameKey) historyByName.set(h.nameKey, [...(historyByName.get(h.nameKey) ?? []), v]);
     if (h.vendorId) historyByVendor.set(h.vendorId, [...(historyByVendor.get(h.vendorId) ?? []), v]);
   }
@@ -421,7 +439,7 @@ export async function refreshSuggestions(
   const similarFor = async (c: TxnDoc, facts: LineFacts, link: PayeeLinkDoc | null): Promise<Suggestion | null> => {
     if (mode === "off") return null;
     if (!memory || !queries) {
-      memory = (await loadMemory(db, qbConnectionId)).filter((m) => !bankSide.has(m.glAccountId));
+      memory = (await loadMemory(db, qbConnectionId)).filter((m) => !bankSide.has(m.glAccountId) && (names.size === 0 || names.has(m.glAccountId)));
       const docs = await db.vectors.find({ qbConnectionId, role: "query", kind: "bank" }, { projection: { ref: 1, vector: 1 } }).toArray();
       queries = new Map(docs.map((d) => [d.ref, d.vector]));
     }
@@ -543,19 +561,29 @@ export async function refreshSuggestions(
     const lineKey = c.payeeKey ?? payeeKey(c.merchantName ?? c.counterpartyName, c.description);
     // A payee a person linked to a vendor gets that vendor, even with no coding history yet.
     const link = vendorByKey.get(lineKey) ?? null;
-    const pastVotes = [...(key ? (votesByKey.get(key) ?? []) : []), ...historyVotesFor(lineKey, link?.vendorId ?? null, c.amountCents < 0)];
-    const fromHistory = score(facts, pastVotes, now, link, { vendorTax, accountNames: names });
+    const out = c.amountCents < 0;
+    const pastVotes = [...(key ? (votesByKey.get(key) ?? []).filter((v) => v.out === undefined || v.out === out) : []), ...historyVotesFor(lineKey, link?.vendorId ?? null, out)];
+    const fromHistory = score({ ...facts, currency: c.currency ?? null }, pastVotes, now, link, { vendorTax, accountNames: names, vendorCurrency });
     // Step 3: a payee nothing posted speaks for yet gets the accounts that
     // similar past items from any vendor went to. Never filled in. A linked
     // vendor alone (picked but never posted) doesn't stop it: it brings no
     // account, only the vendor and its saved tax code.
-    const found = withAi(c, link, pastVotes.length === 0 ? ((await similarFor(c, facts, link)) ?? fromHistory) : fromHistory);
+    // Rows older than a year carry no weight: they don't stop step 3 either.
+    const speaking = pastVotes.some((v) => voteWeight(v.decidedAt, now) > 0);
+    const found = withAi(c, link, !speaking ? ((await similarFor(c, facts, link)) ?? fromHistory) : fromHistory);
     const s = mode === "suggest" ? suggestOnly(found) : found;
     if (shownChanged(c.suggestion, s)) shown.push(shownEvent(qbConnectionId, c._id, s));
     if (s.autoCoded) {
       autoCoded += 1;
       const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null) || c.taxCodeId !== (s.taxCodeId ?? null);
+      const sameCoding = !changed && c.vendorId === (s.vendorId ?? null) && c.payee === (s.payee ?? null);
       coding.push((async () => {
+        // The same coding again: only the explanation is refreshed, and the
+        // line's version stays, so a Post sent with it isn't refused as stale.
+        if (sameCoding) {
+          await db.txns.updateOne({ ...guard, decidedBy: "autopilot" }, { $set: { suggestion: s } });
+          return;
+        }
         const r = await db.txns.updateOne(
           { ...guard, decidedBy: { $in: [null, "autopilot"] } },
           {
@@ -644,7 +672,8 @@ export async function vendorMemory(db: Db, qbConnectionId: string, vendorId: str
     .sort({ "posting.postedAt": -1 })
     .limit(500)
     .toArray();
-  const fromBank = rows.map((r) => toVote({ ...r, decidedAt: r.posting?.postedAt ?? r.decidedAt })).filter((v): v is Vote => v !== null);
+  // Bills are money out: the vendor's refunds or payouts don't speak for them.
+  const fromBank = rows.map((r) => toVote({ ...r, decidedAt: r.posting?.postedAt ?? r.decidedAt })).filter((v): v is Vote => v !== null && v.out !== false);
   // Plus the vendor's bills and expenses in the company's own books (history.ts).
   const fromBooks = (await readLearnFromHistory(db, qbConnectionId)) ? (await loadHistory(db, qbConnectionId, "invoice", { vendorId })).map(historyVote) : [];
   return memoryVotes([...fromBank, ...fromBooks], "Bank line");

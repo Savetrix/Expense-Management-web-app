@@ -230,7 +230,8 @@ export async function unlinkFoundEntry(db: Db, args: { qbConnectionId: string; i
   const updated = await db.txns.findOneAndUpdate(
     { _id: doc._id, qbConnectionId: args.qbConnectionId, version: doc.version, "posting.found.key": found.key },
     {
-      $set: { status: "review", postingStatus: null, posting: null, ledgerCandidates: null, decidedBy: args.userId, decidedAt: now, updatedAt: now },
+      // Back to To review undecided (unless a person had coded it), so suggestions score it again.
+      $set: { status: "review", postingStatus: null, posting: null, ledgerCandidates: null, ...(doc.glAccountId || doc.vendorId || doc.taxCodeId ? { decidedBy: args.userId, decidedAt: now } : { decidedBy: null, decidedAt: null }), updatedAt: now },
       $addToSet: { ledgerRejected: found.key },
       $inc: { version: 1 },
     },

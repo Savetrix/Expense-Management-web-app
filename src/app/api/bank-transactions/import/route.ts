@@ -36,7 +36,8 @@ export async function POST(request: Request) {
       // The lines take the currency of the bank account chosen at import.
       currency: await accountCurrency(ctx.db, ctx.connection.id, { label: accountLabel }),
     });
-    if (result.added > 0) await refreshSuggestions(ctx.db, ctx.connection.id);
+    // The rows are saved: a failed scoring must not report the import as failed.
+    if (result.added > 0) await refreshSuggestions(ctx.db, ctx.connection.id).catch((e) => console.error("[bank] suggestions", e?.message));
     return json({ ...result, transactions: await listTransactions(ctx.db, ctx.connection.id) }, 201);
   } catch (error) {
     return errorResponse("import", error);

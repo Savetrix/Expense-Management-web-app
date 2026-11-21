@@ -286,8 +286,17 @@ describe("history on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI n
     await db.companyLists.updateOne({ _id: QB }, { $set: { environment: "production" } }, { upsert: true });
     await db.companyLists.updateOne({ _id: "qb-other" }, { $set: { environment: "production" } }, { upsert: true });
     await db.suggestionSettings.updateOne({ _id: QB }, { $set: { learnFromHistory: true } }, { upsert: true });
-    assert.equal(await readLearnFromHistory(db, QB), true, "this company: on");
-    assert.equal(await readLearnFromHistory(db, "qb-other"), false, "another real company: still off");
+    const saved = process.env.SUGGESTIONS_HISTORY_REAL_COMPANIES;
+    delete process.env.SUGGESTIONS_HISTORY_REAL_COMPANIES;
+    assert.equal(await readLearnFromHistory(db, QB), false, "server switch off: a real company's history is never used, whatever its setting");
+    process.env.SUGGESTIONS_HISTORY_REAL_COMPANIES = "true";
+    try {
+      assert.equal(await readLearnFromHistory(db, QB), true, "this company: on");
+      assert.equal(await readLearnFromHistory(db, "qb-other"), false, "another real company: still off");
+    } finally {
+      if (saved === undefined) delete process.env.SUGGESTIONS_HISTORY_REAL_COMPANIES;
+      else process.env.SUGGESTIONS_HISTORY_REAL_COMPANIES = saved;
+    }
     const done = await importHistory(db, { qbConnectionId: QB, userId: "u1", ledger: { ctx: { ...sandbox, environment: "production" }, adapter: fakeBooks([purchase("1", 5)]) }, vendorIds: new Map(), scantrixBillIds: new Set(), allowRealCompanies: true });
     assert.equal(done.outcome, "done", "read once the server allows real companies");
   });

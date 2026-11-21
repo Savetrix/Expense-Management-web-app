@@ -129,11 +129,11 @@ export function TransactionModal({
   const linePicks = picksFor(txn, lookups);
   // A clean name for a payee that isn't a vendor yet ("Tim Hortons").
   const newVendorName = coding.suggestion?.payee || suggestedVendorName(txn.merchantName, txn.description);
-  // The vendor form, opened from this line: clean name, the bank account's currency, the suggested GL, no tax.
+  // The vendor form, opened from this line: clean name, the GL a person chose or a Medium/High suggestion (never a Low or AI pick: it would become the vendor's default), no tax.
   const vendorDefaults = vendorFormDefaults({
     typed: addingVendor ?? "",
     suggestedName: newVendorName,
-    glAccountId: coding.glAccountId ?? coding.offered?.glAccountId,
+    glAccountId: coding.glAccountId ?? (suggestion && suggestion.confidence !== "low" ? coding.offered?.glAccountId : undefined),
     currency: lineCurrency(txn, { bankAccounts, named, chart, homeCurrency }),
   });
   // A suggestion ScanTrix didn't fill in (not sure enough, or "Suggest only").

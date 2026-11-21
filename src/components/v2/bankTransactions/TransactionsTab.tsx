@@ -607,7 +607,8 @@ export function TransactionsTab({
       ? vendorFormDefaults({
           typed: adding.name,
           suggestedName: newVendorName(addingTxn),
-          glAccountId: addingCoding?.glAccountId ?? addingCoding?.offered?.glAccountId,
+          // A Low or AI pick never becomes the new vendor's default GL.
+          glAccountId: addingCoding?.glAccountId ?? (addingCoding?.suggestion && addingCoding.suggestion.confidence !== "low" ? addingCoding.offered?.glAccountId : undefined),
           currency: lineCurrency(addingTxn, { bankAccounts, named, chart: ledger.accounts, homeCurrency }),
         })
       : null;

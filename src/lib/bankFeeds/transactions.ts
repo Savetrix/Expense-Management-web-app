@@ -202,6 +202,18 @@ export function normalise(current: TxnDoc, patch: DecisionPatch): { next: Decisi
   return { next };
 }
 
+/**
+ * Who decided the line. A line put back in To review with nothing coded
+ * (Restore from Excluded, Undo of a match or transfer) is undecided again, so
+ * suggestions score it again; a person clearing boxes on a line already in To
+ * review stays a person's choice, so ScanTrix never fills it back in.
+ */
+function decidedFields(current: TxnDoc, set: Partial<TxnDoc>, userId: string): Pick<TxnDoc, "decidedBy" | "decidedAt" | "updatedAt"> {
+  const final = { ...current, ...set };
+  const backToReview = current.status !== "review" && final.status === "review" && !final.glAccountId && !final.vendorId && !final.taxCodeId;
+  return backToReview ? { decidedBy: null, decidedAt: null, updatedAt: new Date() } : { decidedBy: userId, decidedAt: new Date(), updatedAt: new Date() };
+}
+
 export type DecideResult = { ok: true; txn: BankTransactionView } | { ok: false; status: 404 | 409 | 400; error: string; current?: BankTransactionView };
 
 const STALE = "Someone changed this line a moment ago. It has been refreshed.";
@@ -249,7 +261,7 @@ export async function decide(
   if (Object.keys(set).length === 0) return { ok: true, txn: toView(current) };
   const updated = await db.txns.findOneAndUpdate(
     { _id: args.id, qbConnectionId: args.qbConnectionId, version: current.version },
-    { $set: { ...set, decidedBy: args.userId, decidedAt: new Date(), updatedAt: new Date() }, $inc: { version: 1 } },
+    { $set: { ...set, ...decidedFields(current, set, args.userId) }, $inc: { version: 1 } },
     { returnDocument: "after" },
   );
   if (!updated) {

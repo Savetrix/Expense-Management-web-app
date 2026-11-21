@@ -17,16 +17,34 @@ import { openAiPicker, runAiPicks } from "@/lib/bankFeeds/aiPick";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-/** One sync per company every 30 seconds on this server. */
+/**
+ * One sync per company every 30 seconds on this server, except right after an
+ * import (?after=import): that one always runs, after any sync already running
+ * for the company, so the new lines get steps 3 and 4.
+ */
 const MIN_GAP_MS = 30_000;
 const lastRun = new Map<string, number>();
+const running = new Map<string, Promise<unknown>>();
 
 export async function POST(request: Request) {
   const ctx = await bankContext(request, "code");
   if (ctx instanceof Response) return ctx;
   const company = ctx.connection.id;
-  if (Date.now() - (lastRun.get(company) ?? 0) < MIN_GAP_MS) return json({ skipped: "recent" });
+  const afterImport = new URL(request.url).searchParams.get("after") === "import";
+  if (!afterImport && Date.now() - (lastRun.get(company) ?? 0) < MIN_GAP_MS) return json({ skipped: "recent" });
   lastRun.set(company, Date.now());
+  const before = running.get(company);
+  if (before) await before.catch(() => null);
+  const run = sync(ctx, company);
+  running.set(company, run);
+  try {
+    return await run;
+  } finally {
+    if (running.get(company) === run) running.delete(company);
+  }
+}
+
+async function sync(ctx: Exclude<Awaited<ReturnType<typeof bankContext>>, Response>, company: string): Promise<Response> {
   try {
     // Bills a person posted are memory too. If the list can't be read, the bill vectors stay as they were.
     const invoices = await scantrixInvoices(ctx.caller.accessToken, company).then(

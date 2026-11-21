@@ -22,9 +22,9 @@ export async function requestHistoryRead(qbConnectionId: string, force = false):
 }
 
 /** Step 3: keeps the company's meaning vectors current. Returns how many items changed (newly embedded, recoded or removed); above 0 the lines were scored again. */
-export async function requestSimilarSync(qbConnectionId: string): Promise<number> {
+export async function requestSimilarSync(qbConnectionId: string, opts: { afterImport?: boolean } = {}): Promise<number> {
   try {
-    const res = await authFetch("/api/suggestions/similar/sync", { method: "POST", headers: headers(qbConnectionId) });
+    const res = await authFetch(`/api/suggestions/similar/sync${opts.afterImport ? "?after=import" : ""}`, { method: "POST", headers: headers(qbConnectionId) });
     const body = res.ok ? await res.json().catch(() => null) : null;
     const count = (n: unknown) => (typeof n === "number" ? n : 0);
     return count(body?.embedded) + count(body?.recoded) + count(body?.removed);
