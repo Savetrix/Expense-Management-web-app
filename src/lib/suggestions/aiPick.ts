@@ -108,7 +108,7 @@ export const AI_SYSTEM_PROMPT = [
   "Pick up to 3 accounts for the transaction, best first, only from the accounts given, by their id.",
   "First decide what kind of business the payee is, from its name and the bank category.",
   "Then prefer what the company itself chose for past items of that same kind of business; a past item that only shares a word is not the same kind (a gas station selling fuel is not a gas or electricity utility).",
-  'For each pick give a reason of at most 8 plain lowercase words saying what the transaction looks like, starting with "looks like" (for example: "looks like a courier service"). Don\'t repeat the account name.',
+  'For each pick give a reason of at most 8 plain words saying what the transaction looks like, starting with "looks like" (for example: "looks like a courier service"); keep names and abbreviations such as IT or GST as written. Don\'t repeat the account name.',
   "Asset and liability accounts are for buying an asset or paying a loan, not for day-to-day spending such as fuel, meals or subscriptions.",
   "If no account fits, return an empty list.",
 ].join(" ");

@@ -532,7 +532,8 @@ export async function refreshSuggestions(
   const plain: AnyBulkWriteOperation<TxnDoc>[] = [];
   // Audit: a suggestion that first appears or changes (step, account, confidence, past items, model).
   const shown: ReturnType<typeof shownEvent>[] = [];
-  const coding: Promise<void>[] = [];
+  // Started only after the setting is checked again (below), never while the lines are scored.
+  const coding: (() => Promise<void>)[] = [];
   const before = (c: TxnDoc) => ({ glAccountId: c.glAccountId, taxCodeId: c.taxCodeId, vendorId: c.vendorId, payee: c.payee });
   // Takes back what ScanTrix filled in by itself; the line keeps `suggestion` (null = none).
   const uncode = async (c: TxnDoc, suggestion: Suggestion | null, reason: string) => {
@@ -550,7 +551,7 @@ export async function refreshSuggestions(
     // while this runs is never overwritten.
     const guard = { _id: c._id, qbConnectionId, status: "review" as const };
     if (mode === "off") {
-      if (c.decidedBy === "autopilot") coding.push(uncode(c, null, "Auto-classification was switched off."));
+      if (c.decidedBy === "autopilot") coding.push(() => uncode(c, null, "Auto-classification was switched off."));
       else if (c.suggestion != null) plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: null, updatedAt: new Date() } } } });
       continue;
     }
@@ -577,7 +578,7 @@ export async function refreshSuggestions(
       autoCoded += 1;
       const changed = c.decidedBy !== "autopilot" || c.glAccountId !== (s.glAccountId ?? null) || c.taxCodeId !== (s.taxCodeId ?? null);
       const sameCoding = !changed && c.vendorId === (s.vendorId ?? null) && c.payee === (s.payee ?? null);
-      coding.push((async () => {
+      coding.push(async () => {
         // The same coding again: only the explanation is refreshed, and the
         // line's version stays, so a Post sent with it isn't refused as stale.
         if (sameCoding) {
@@ -605,20 +606,23 @@ export async function refreshSuggestions(
             },
           });
         }
-      })());
+      });
     } else if (c.decidedBy === "autopilot") {
       // History or the setting no longer supports the coding ScanTrix chose: undo it, keep the explanation.
-      coding.push(uncode(c, s, s.reason));
+      coding.push(() => uncode(c, s, s.reason));
     } else {
       plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: s, updatedAt: new Date() } } } });
     }
   }
+  // The setting changed while this ran (an admin chose Off or Suggest only): save nothing from this
+  // pass; the setting change scores the lines again itself.
+  if ((await readAutoClassification(db, qbConnectionId)) !== mode) return { scored: 0, autoCoded: 0 };
   // Off shows nothing anywhere: lines a person coded keep their coding, but not an old suggestion.
   const offClear =
     mode === "off"
       ? db.txns.updateMany({ qbConnectionId, removedAt: null, status: "review", postingStatus: null, decidedBy: { $nin: [null, "autopilot"] }, suggestion: { $ne: null }, ...keyFilter }, { $set: { suggestion: null } })
       : null;
-  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding, shown.length > 0 ? db.events.insertMany(shown, { ordered: false }) : null, offClear]);
+  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding.map((run) => run()), shown.length > 0 ? db.events.insertMany(shown, { ordered: false }) : null, offClear]);
   return { scored: candidates.length, autoCoded };
 }
 

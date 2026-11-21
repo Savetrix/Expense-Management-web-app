@@ -91,6 +91,20 @@ describe("step 4: what is sent and what is kept", () => {
   });
 });
 
+describe("step 4: Xero charts", () => {
+  it("never offers a Xero bank, payable, receivable, equity or GST account", () => {
+    const xero: ChartAccount[] = [
+      acct("b1", "Business Bank Account", "bank", "BANK"),
+      acct("ap", "Accounts Payable", "payable", "CURRLIAB", { subtype: "CREDITORS" }),
+      acct("ar", "Accounts Receivable", "receivable", "CURRENT", { subtype: "DEBTORS" }),
+      acct("eq", "Owner A Funds Introduced", "other", "EQUITY"),
+      acct("gst", "GST", "other", "CURRLIAB", { subtype: "GST" }),
+      acct("fuel", "Motor Vehicle Expenses", "expense", "OVERHEADS"),
+    ];
+    assert.deepEqual(aiAllowedAccounts(xero, new Set()).map((a) => a.id), ["fuel"]);
+  });
+});
+
 describe("step 4 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
   const QB = "qb-ai";
   const OTHER = "qb-other-company";
