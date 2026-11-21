@@ -613,7 +613,12 @@ export async function refreshSuggestions(
       plain.push({ updateOne: { filter: { ...guard, decidedBy: null }, update: { $set: { suggestion: s, updatedAt: new Date() } } } });
     }
   }
-  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding, shown.length > 0 ? db.events.insertMany(shown, { ordered: false }) : null]);
+  // Off shows nothing anywhere: lines a person coded keep their coding, but not an old suggestion.
+  const offClear =
+    mode === "off"
+      ? db.txns.updateMany({ qbConnectionId, removedAt: null, status: "review", postingStatus: null, decidedBy: { $nin: [null, "autopilot"] }, suggestion: { $ne: null }, ...keyFilter }, { $set: { suggestion: null } })
+      : null;
+  await Promise.all([plain.length > 0 ? db.txns.bulkWrite(plain, { ordered: false }) : null, ...coding, shown.length > 0 ? db.events.insertMany(shown, { ordered: false }) : null, offClear]);
   return { scored: candidates.length, autoCoded };
 }
 

@@ -34,7 +34,8 @@ export function PicksExplained({ picks }: { picks: { pick: SuggestionPick; name:
           <p className="text-caption text-content-secondary">{reason}.</p>
           {pick.evidence.length > 0 && (
             <ul className="mt-[2px] text-[11px] text-content-secondary">
-              {pick.evidence.map((e, j) => (
+              {/* An item from the books has no date, so the same name is listed once. */}
+              {pick.evidence.filter((e, j, all) => !isPrior(e) || all.findIndex((x) => isPrior(x) && x.label === e.label) === j).map((e, j) => (
                 <li key={`${e.date}-${j}`}>
                   {(isPrior(e)
                     ? [e.label, PRIOR.toLowerCase()]

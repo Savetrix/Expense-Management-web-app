@@ -457,7 +457,7 @@ export function TransactionModal({
                                 <CircleDashed size={14} className="mt-0.5 shrink-0" />
                               )}
                               <span>
-                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : suggestion.step === "similar" ? "Similar past items" : suggestion.step === "ai" ? "AI suggestion" : "Matches your history"}: </span>
+                                <span className="font-semibold text-content-primary">{k === "legibility" ? "Clean data" : k === "completeness" ? "Complete" : suggestion.step === "similar" ? "Similar past items" : suggestion.step === "ai" ? "AI suggestion" : "Matches earlier coding"}: </span>
                                 {suggestion.checks[k].detail}
                               </span>
                             </li>

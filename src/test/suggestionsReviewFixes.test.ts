@@ -101,6 +101,17 @@ describe("21 Nov review fixes", { skip: URL ? false : "BANK_TEST_MONGODB_URI not
     assert.match(s.checks.completeness.detail, /USD.*CAD/);
   });
 
+  it("Off clears the suggestion on lines a person coded too, and keeps their coding", async () => {
+    for (const d of ["2026-11-02", "2026-11-09", "2026-11-16"]) await post("UBER TRIP", -20, d, "travel", "v-uber");
+    const t = await line("UBER TRIP", -18, "2026-11-19");
+    await decide(db, { qbConnectionId: QB, id: t._id, userId: "u1", patch: { glAccountId: "meals" } });
+    await db.suggestionSettings.updateOne({ _id: QB }, { $set: { autoClassification: "off" } }, { upsert: true });
+    await refreshSuggestions(db, QB);
+    const row = await fresh(t._id);
+    assert.equal(row?.suggestion, null);
+    assert.equal(row?.glAccountId, "meals", "the person's coding stays");
+  });
+
   describe("step 4", () => {
     const fake = (ids: string[], opts: { fail?: boolean } = {}) => {
       const calls: AiInput[] = [];
