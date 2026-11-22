@@ -213,7 +213,7 @@ export async function aiPicksForInvoice(
   picker: AiPicker | null,
   args: { invoiceId: string | null; vendorName: string; lines: string[]; amount: number | null; currency: string | null; vector: number[] | undefined; now?: number; timeoutMs?: number },
 ): Promise<SuggestionPick[]> {
-  if (!picker) return [];
+  if (!picker || !(await aiAllowedFor(db, qbConnectionId))) return [];
   const { accounts, hash, ids } = await aiAccountsFor(db, qbConnectionId);
   if (accounts.length === 0) return [];
   const now = args.now ?? Date.now();
@@ -245,7 +245,7 @@ export async function aiPicksForInvoice(
 }
 
 export interface AiRunOutcome {
-  skipped?: "off" | "no_picker" | "no_accounts";
+  skipped?: "off" | "no_picker" | "no_accounts" | "real_company";
   /** Lines that needed step 4. */
   lines: number;
   /** AI calls made. */
@@ -260,6 +260,20 @@ export interface AiRunOutcome {
 }
 
 const CONCURRENCY = 4;
+
+/**
+ * Step 4 sends the company's chart of accounts, which is QuickBooks/Xero
+ * data, to OpenAI. A sandbox (test) company always may; a real one only when
+ * the server allows it (SUGGESTIONS_AI_REAL_COMPANIES=true), once OpenAI is
+ * confirmed as a processor in writing (Intuit terms 8.2(d)). A company whose
+ * environment isn't known yet counts as real. Steps 2 and 3 don't send
+ * QuickBooks data and work either way.
+ */
+export async function aiAllowedFor(db: Db, qbConnectionId: string): Promise<boolean> {
+  if (process.env.SUGGESTIONS_AI_REAL_COMPANIES?.trim() === "true") return true;
+  const lists = await db.companyLists.findOne({ _id: qbConnectionId }, { projection: { environment: 1 } });
+  return lists?.environment === "sandbox";
+}
 
 const isOff = async (db: Db, qbConnectionId: string) =>
   ((await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { autoClassification: 1 } }))?.autoClassification ?? "fill") === "off";
@@ -278,6 +292,7 @@ export async function runAiPicks(
   const outcome: AiRunOutcome = { lines: 0, asked: 0, reused: 0, kept: 0, failed: 0, keys: [] };
   if (await isOff(db, qbConnectionId)) return { ...outcome, skipped: "off" };
   if (!picker) return { ...outcome, skipped: "no_picker" };
+  if (!(await aiAllowedFor(db, qbConnectionId))) return { ...outcome, skipped: "real_company" };
   const { accounts, hash, ids } = await aiAccountsFor(db, qbConnectionId);
   if (accounts.length === 0) return { ...outcome, skipped: "no_accounts" };
   const now = opts.now ?? Date.now();

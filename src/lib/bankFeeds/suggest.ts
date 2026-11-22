@@ -35,7 +35,7 @@ import { pickReason } from "@/lib/suggestions/picks";
 import { historyPicks, isPrior, MIN_AGREEING_WEIGHT, MIN_AGREEMENT, postsReason, topPicks, voteWeight, type Evidence, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
 
 import type { Db } from "./db";
-import { aiAccountsFor, aiPicksFrom, needsAi } from "./aiPick";
+import { aiAccountsFor, aiAllowedFor, aiPicksFrom, needsAi } from "./aiPick";
 import { accountNames, bankSideIds, vendorCurrencies, vendorTaxCodes } from "./companyLists";
 import { historyMatches, loadHistory, readLearnFromHistory } from "./history";
 import { loadMemory } from "./similarSync";
@@ -474,7 +474,8 @@ export async function refreshSuggestions(
   // Step 4: the AI's saved answer (aiPick.ts) for a line steps 2 and 3 have
   // nothing for, or where step 3 is below Medium. Always Low, never filled in.
   // An account no longer allowed drops out.
-  const aiAllowed = mode === "off" ? null : (await aiAccountsFor(db, qbConnectionId)).ids;
+  // A real company shows step 4 only while the server allows it (aiAllowedFor): turning it off hides saved picks too.
+  const aiAllowed = mode === "off" || !(await aiAllowedFor(db, qbConnectionId)) ? null : (await aiAccountsFor(db, qbConnectionId)).ids;
   const withAi = (c: TxnDoc, link: PayeeLinkDoc | null, found: Suggestion): Suggestion => {
     const rec = c.aiPick;
     if (!rec || rec.status !== "ok" || !aiAllowed || !needsAi(found)) return found;

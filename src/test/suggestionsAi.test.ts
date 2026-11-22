@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 
 import { isSureLine, surePatch } from "../components/v2/bankTransactions/lineCoding";
 import type { BankTransaction } from "../components/v2/bankTransactions/types";
-import { lineInput, needsAi, runAiPicks, type AiPicker } from "../lib/bankFeeds/aiPick";
+import { aiPicksForInvoice, lineInput, needsAi, runAiPicks, type AiPicker } from "../lib/bankFeeds/aiPick";
 import type { ChartAccount } from "../lib/bankFeeds/companyLists";
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
 import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
@@ -238,6 +238,34 @@ describe("step 4 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     assert.equal(s.step, "ai");
     assert.equal(s.glAccountId, "62");
     assert.deepEqual(s.picks?.map((p) => `${p.glAccountId}/${p.step}`), ["62/ai", "13/similar", "15/ai"]);
+  });
+
+  it("a real company sends nothing to the AI unless the server allows it; an unknown one counts as real", async () => {
+    const t = await line("PUROLATOR 2231 MISSISSAUGA");
+    const saved = process.env.SUGGESTIONS_AI_REAL_COMPANIES;
+    delete process.env.SUGGESTIONS_AI_REAL_COMPANIES;
+    try {
+      for (const environment of ["production", null]) {
+        await db.companyLists.updateOne({ _id: QB }, { $set: { environment } });
+        const ai = fakeAi(["62"]);
+        assert.equal((await run(ai.picker)).skipped, "real_company");
+        assert.equal(ai.calls.length, 0, `${environment}: nothing sent`);
+        assert.deepEqual(await aiPicksForInvoice(db, QB, ai.picker, { invoiceId: "inv-1", vendorName: "Purolator", lines: [], amount: 10, currency: "CAD", vector: undefined }), []);
+        assert.equal(ai.calls.length, 0, "nor from the invoice screen");
+      }
+      process.env.SUGGESTIONS_AI_REAL_COMPANIES = "true";
+      const allowed = fakeAi(["62"]);
+      await run(allowed.picker);
+      assert.equal(allowed.calls.length, 1, "allowed by the server: asked");
+      assert.equal(((await view(t.id)).suggestion as Suggestion).step, "ai");
+      // Turned off again: the saved picks stop showing too.
+      delete process.env.SUGGESTIONS_AI_REAL_COMPANIES;
+      await refreshSuggestions(db, QB);
+      assert.notEqual(((await view(t.id)).suggestion as Suggestion).step, "ai");
+    } finally {
+      if (saved === undefined) delete process.env.SUGGESTIONS_AI_REAL_COMPANIES;
+      else process.env.SUGGESTIONS_AI_REAL_COMPANIES = saved;
+    }
   });
 
   it("sends only this company's own past items, never another company's", async () => {
