@@ -70,6 +70,8 @@ export function SubscriptionStatusContentV2() {
   // A move down waiting for the period end (a team admin queued it, or Manage billing).
   const [scheduledChange, setScheduledChange] = useState<ScheduledPlanChange | null>(null);
   const [cancellingChange, setCancellingChange] = useState(false);
+  // Sales tax is on, but this plan (from before) isn't charged it yet.
+  const [taxPending, setTaxPending] = useState(false);
   const webPlanLive =
     subscription?.provider === "stripe" && (subscription.status === "active" || subscription.status === "past_due");
 
@@ -77,7 +79,10 @@ export function SubscriptionStatusContentV2() {
     if (!webPlanLive) return;
     let live = true;
     dispatch(fetchScheduledChange()).then((result) => {
-      if (live && fetchScheduledChange.fulfilled.match(result)) setScheduledChange(result.payload);
+      if (live && fetchScheduledChange.fulfilled.match(result)) {
+        setScheduledChange(result.payload.scheduledChange);
+        setTaxPending(result.payload.taxPending);
+      }
     });
     return () => {
       live = false;
@@ -311,6 +316,18 @@ export function SubscriptionStatusContentV2() {
                     className="text-body-sm font-semibold text-primary hover:underline disabled:opacity-60"
                   >
                     {cancellingChange ? <Spinner size="sm" /> : "Cancel change"}
+                  </button>
+                </div>
+              )}
+
+              {taxPending && (
+                <div className="flex flex-col gap-[var(--space-xs)] rounded-lg border border-border bg-surface/60 px-[var(--space-md)] py-[var(--space-sm)]">
+                  <p className="text-body-sm text-text-secondary">
+                    Sales tax isn&apos;t charged on your plan yet because we don&apos;t have your billing address. Confirm your card
+                    with its billing address and tax is added from your next renewal.
+                  </p>
+                  <button type="button" onClick={handleUseMyCard} className="self-start text-body-sm font-semibold text-primary hover:underline">
+                    Add billing address
                   </button>
                 </div>
               )}

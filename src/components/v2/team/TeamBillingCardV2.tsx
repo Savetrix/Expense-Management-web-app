@@ -141,6 +141,7 @@ function Section({ children }: { children: React.ReactNode }) {
 function AdminBilling({ qbId }: { qbId: string }) {
   const dispatch = useAppDispatch();
   const plans = useAppSelector((state) => state.subscription.plans);
+  const taxOnTop = useAppSelector((state) => state.subscription.taxOnTop);
 
   const [billing, setBilling] = useState<TeamBilling | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -341,6 +342,7 @@ function AdminBilling({ qbId }: { qbId: string }) {
             {price != null && (
               <>
                 You pay <span className="font-bold text-text-primary">{money(price)}</span>/{periodWord}
+                {taxOnTop && " + sales tax (from the billing address you enter)"}
                 {form.couponCode.trim() ? " before the coupon" : ""} for {planEntry?.name}
                 {slots > 0 ? ` with ${slots} extra slot${slots === 1 ? "" : "s"}` : ""}.{" "}
               </>

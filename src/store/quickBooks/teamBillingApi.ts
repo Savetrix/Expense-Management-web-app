@@ -51,6 +51,8 @@ export interface TeamBilling {
   paymentPending: { hostedInvoiceUrl: string | null } | null;
   /** A paying admin who left the team — their card came off the plan. */
   payerLeft: { name: string | null } | null;
+  /** Sales tax is on, but this plan (from before) isn't charged it yet — a card put on with its billing address starts it. */
+  taxPending: boolean;
   /** Stripe didn't answer: card / schedule details are missing for now. */
   stripeUnavailable: boolean;
 }
@@ -166,9 +168,14 @@ interface PlanChangeCommon {
   planRenewal: number;
   extraSlots: number;
   extraSlotsPrice: number;
+  /** Before tax — renewals add it on top when taxOnTop. */
   renewalAmount: number;
   renewalDate: string;
   slotsAfter: number;
+  /** The sales tax in amountDueNow. */
+  taxNow: number;
+  /** The plan is charged sales tax on top of its prices. */
+  taxOnTop: boolean;
 }
 
 /** Bigger plan or yearly billing: charged now, prorated. */
@@ -232,8 +239,12 @@ export const cancelTeamScheduledChange = createAsyncThunk<TeamBillingChange, str
 export interface TeamAddonSlotsPreview {
   quantity: number;
   currentAddonSlots: number;
-  /** Charged right away to the plan's card, for the rest of the period. 0 for a removal. */
+  /** Charged right away to the plan's card, for the rest of the period (sales tax included). 0 for a removal. */
   amountDueNow: number;
+  /** The sales tax in amountDueNow. */
+  taxNow: number;
+  /** Renewals are charged sales tax on top. */
+  taxOnTop: boolean;
   fullPeriodAmount: number;
   currency: string;
   paymentMethod: PlanCard | null;

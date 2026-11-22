@@ -51,6 +51,9 @@ export const cardOwnerText = (billing: TeamBilling, ownerName: string) =>
   billing.paidBy ? (billing.paidBy.isYou ? "your card" : `${billing.paidBy.name ?? "a team admin"}'s card`) : `${ownerName}'s card`;
 
 const per = (interval: BillingInterval) => (interval === "yearly" ? "/yr" : "/mo");
+// Sales tax in a charge, and on renewals (Stripe Tax, from the billing address).
+const taxNote = (taxNow: number) => (taxNow > 0 ? ` (incl. ${money(taxNow)} tax)` : "");
+const plusTax = (taxOnTop: boolean) => (taxOnTop ? " + tax" : "");
 // More slots = a bigger plan.
 const PLAN_RANK: Record<PaidPlanKey, number> = { standard: 1, enterprise: 2 };
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -200,6 +203,19 @@ export function TeamPlanManageV2({ qbId, billing, ownerName, onBilling }: PanelP
               Pay with my card
             </button>
           )}
+        </div>
+      )}
+
+      {billing.taxPending && (
+        <div className="mt-[var(--space-sm)] flex flex-wrap items-center justify-between gap-[var(--space-sm)] rounded-lg border border-border bg-background-soft px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-text-secondary">
+          <span>Sales tax isn&apos;t charged on this plan yet: there&apos;s no billing address on file.</span>
+          <button
+            type="button"
+            onClick={() => payWithMyCard(dispatch, qbId, ownerName, billing)}
+            className="font-semibold text-primary hover:underline"
+          >
+            Add a card with its address
+          </button>
         </div>
       )}
 
@@ -435,8 +451,9 @@ function ChangePlanModal({ qbId, billing, ownerName, onClose, onBilling }: Modal
           ) : preview.kind === "upgrade" ? (
             <div className="flex flex-col gap-1">
               <span>
-                Charged now: <strong className="text-text-primary">{money(preview.amountDueNow)}</strong> to{" "}
-                {cardText(preview.paymentMethod)} ({cardOwnerText(billing, ownerName)}), for the rest of this period
+                Charged now: <strong className="text-text-primary">{money(preview.amountDueNow)}</strong>
+                {taxNote(preview.taxNow)} to {cardText(preview.paymentMethod)} ({cardOwnerText(billing, ownerName)}), for the
+                rest of this period
                 {preview.discountNow > 0 && ` after ${money(preview.discountNow)} off`}. No payment page opens.
               </span>
               <span>
@@ -444,6 +461,7 @@ function ChangePlanModal({ qbId, billing, ownerName, onClose, onBilling }: Modal
                 <strong className="text-text-primary">
                   {money(preview.renewalAmount)}
                   {per(preview.billingInterval)}
+                  {plusTax(preview.taxOnTop)}
                 </strong>{" "}
                 for {preview.planName}
                 {preview.extraSlots > 0 && ` with ${plural(preview.extraSlots, "extra slot")}`} ({preview.slotsAfter} companies).
@@ -458,6 +476,7 @@ function ChangePlanModal({ qbId, billing, ownerName, onClose, onBilling }: Modal
                 <strong className="text-text-primary">
                   {money(preview.renewalAmount)}
                   {per(preview.billingInterval)}
+                  {plusTax(preview.taxOnTop)}
                 </strong>
                 .
               </span>
@@ -613,16 +632,18 @@ function ExtraSlotsModal({ qbId, billing, ownerName, onClose, onBilling }: Modal
               </span>
             ) : buying ? (
               <span>
-                Charged now: <strong className="text-text-primary">{money(preview.amountDueNow)}</strong> to{" "}
-                {cardText(preview.paymentMethod)} ({cardOwnerText(billing, ownerName)}), for the rest of this period. From{" "}
-                {formatDate(preview.renewalDate)}: {money(preview.renewalAmount)}
-                {per(interval)}.
+                Charged now: <strong className="text-text-primary">{money(preview.amountDueNow)}</strong>
+                {taxNote(preview.taxNow)} to {cardText(preview.paymentMethod)} ({cardOwnerText(billing, ownerName)}), for the
+                rest of this period. From {formatDate(preview.renewalDate)}: {money(preview.renewalAmount)}
+                {per(interval)}
+                {plusTax(preview.taxOnTop)}.
               </span>
             ) : removing ? (
               <span>
                 No charge or refund. The slots stay until {formatDate(preview.effectiveAt)}; from then{" "}
                 {money(preview.renewalAmount)}
-                {per(interval)}.
+                {per(interval)}
+                {plusTax(preview.taxOnTop)}.
               </span>
             ) : (
               <span>No charge, these are already paid for this period. They keep renewing with the plan.</span>

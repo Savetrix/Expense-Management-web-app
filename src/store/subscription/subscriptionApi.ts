@@ -198,8 +198,12 @@ export interface SavedCard {
 export interface AddonSlotsPreview {
   quantity: number;
   currentAddonSlots: number;
-  /** Charged right away to the saved card, for the rest of the period. 0 for a removal. */
+  /** Charged right away to the saved card, for the rest of the period (sales tax included). 0 for a removal. */
   amountDueNow: number;
+  /** The sales tax in amountDueNow (absent from older servers). */
+  taxNow?: number;
+  /** Renewals are charged sales tax on top. */
+  taxOnTop?: boolean;
   /** The new slots' price for a whole period — amountDueNow is below it only when prorated. */
   fullPeriodAmount: number;
   currency: string;
@@ -297,8 +301,12 @@ export interface PlanChangePreview {
   plan: SubscriptionPlanKey;
   planName: string;
   billingInterval: BillingInterval;
-  /** Charged now to the saved card: the change, prorated, after any coupon. */
+  /** Charged now to the saved card: the change, prorated, after any coupon, with sales tax. */
   amountDueNow: number;
+  /** The sales tax in amountDueNow (absent from older servers). */
+  taxNow?: number;
+  /** Renewals are charged sales tax on top. */
+  taxOnTop?: boolean;
   /** What the coupon takes off that charge. */
   discountNow: number;
   /** Send back with the purchase — it's charged at exactly amountDueNow. */
@@ -418,12 +426,20 @@ export interface ScheduledPlanChange {
   at: string;
 }
 
-export const fetchScheduledChange = createAsyncThunk<ScheduledPlanChange | null, void, { rejectValue: { message: string } }>(
+/** Also taxPending: sales tax is on, but this plan (from before) isn't charged it yet — "Use my card" (with an address) starts it. */
+export const fetchScheduledChange = createAsyncThunk<
+  { scheduledChange: ScheduledPlanChange | null; taxPending: boolean },
+  void,
+  { rejectValue: { message: string } }
+>(
   "subscription/fetchScheduledChange",
   async (_, thunkAPI) => {
     try {
       const response = await api.get("/subscription/scheduled-change");
-      return (response.data.data.scheduledChange ?? null) as ScheduledPlanChange | null;
+      return {
+        scheduledChange: (response.data.data.scheduledChange ?? null) as ScheduledPlanChange | null,
+        taxPending: !!response.data.data.taxPending,
+      };
     } catch (error: any) {
       return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not load the scheduled change" });
     }

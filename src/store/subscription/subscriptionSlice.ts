@@ -59,6 +59,8 @@ export interface MySubscription {
 
 interface SubscriptionState {
   plans: PlanCatalogEntry[];
+  /** Web prices exclude sales tax — added at Stripe checkout from the billing address. */
+  taxOnTop: boolean;
   plansLoading: boolean;
   plansError: string | null;
 
@@ -76,6 +78,7 @@ interface SubscriptionState {
 
 const initialState: SubscriptionState = {
   plans: [],
+  taxOnTop: false,
   plansLoading: false,
   plansError: null,
 
@@ -102,6 +105,7 @@ const subscriptionSlice = createSlice({
       .addCase(fetchPlans.fulfilled, (state, action) => {
         state.plansLoading = false;
         state.plans = action.payload?.data?.plans ?? [];
+        state.taxOnTop = !!action.payload?.data?.taxOnTop;
       })
       .addCase(fetchPlans.rejected, (state, action) => {
         state.plansLoading = false;
