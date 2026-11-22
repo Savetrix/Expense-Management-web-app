@@ -79,7 +79,8 @@ export function buildXeroRequest(posting: Posting, idempotencyKey: string): { co
   }
 }
 
-function xeroError(status: number, headers: Headers, data: unknown): LedgerError {
+/** Xero's answer → a plain message and what the person can do (exported for tests). */
+export function xeroError(status: number, headers: Headers, data: unknown): LedgerError {
   const d = data as { Elements?: { ValidationErrors?: { Message?: string }[] }[]; Message?: string; Detail?: string; Title?: string } | null;
   const validation = [...new Set((d?.Elements ?? []).flatMap((e) => e.ValidationErrors ?? []).map((v) => v.Message).filter(Boolean))].join("; ");
   const detail = validation || d?.Message || d?.Detail || d?.Title || "";
@@ -87,6 +88,11 @@ function xeroError(status: number, headers: Headers, data: unknown): LedgerError
     const scope = /insufficient_scope/i.test(`${headers.get("www-authenticate") ?? ""} ${JSON.stringify(data ?? "")}`);
     if (scope) return new LedgerError("Xero hasn't allowed ScanTrix to post bank entries yet. Reconnect Xero once to allow it.", "definite", "scope");
     if (status === 401) return new LedgerError("Xero didn't accept the sign-in. Try again; if it keeps failing, reconnect Xero.", "definite", "reconnect");
+    // A 403 "AuthenticationUnsuccessful" means the connection to this organisation no longer works
+    // (seen on Xero's demo company, 22 Nov): say what to do, never Xero's code word.
+    if (/authenticationunsuccessful|authorizationunsuccessful|token/i.test(detail)) {
+      return new LedgerError("Xero no longer accepts the connection to this organisation. Reconnect Xero (Integrations).", "definite", "reconnect");
+    }
     return new LedgerError(detail || "Xero refused this for this organisation.", "definite", "permission");
   }
   if (status === 429) return new LedgerError("Xero is busy. Try again in a minute.", "definite", "rate_limit");

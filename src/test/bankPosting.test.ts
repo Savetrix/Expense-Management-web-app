@@ -112,6 +112,22 @@ describe("sending bank lines to the accounting software", { skip: URL ? false : 
     assert.equal([a[0].ok, b[0].ok].filter(Boolean).length, 1);
   });
 
+  it("refuses a bank-feed line in another currency than the account it is mapped to, on every path", async () => {
+    const [line] = await seed([{ date: "2026-10-02", description: "KFC", amount: -500 }]);
+    await mapChequing();
+    await db.txns.updateOne({ _id: line.id }, { $set: { plaidTransactionId: "plaid-tx-1", currency: "USD" } });
+    await ready(line.id);
+    const { adapter, calls } = fakeAdapter();
+    const [r] = await postLines(db, services(adapter), { qbConnectionId: QB, ids: [line.id], userId: "u1" });
+    assert.equal(r.ok, false);
+    assert.match(r.error ?? "", /This line is in USD, but "Business Chequing" in QuickBooks is in CAD/);
+    assert.equal(calls.length, 0, "nothing sent");
+    // The same line in the account's own currency goes through.
+    await db.txns.updateOne({ _id: line.id }, { $set: { currency: "CAD", postingStatus: null, posting: null } });
+    const [ok] = await postLines(db, services(adapter), { qbConnectionId: QB, ids: [line.id], userId: "u1" });
+    assert.equal(ok.ok, true);
+  });
+
   it("money in is a deposit; it needs the account mapped first", async () => {
     const [payout] = await seed([{ date: "2026-10-08", description: "STRIPE PAYOUT", amount: 2450 }]);
     await ready(payout.id, { glAccountId: "79", vendorId: null });

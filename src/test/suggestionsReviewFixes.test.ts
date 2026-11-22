@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { runAiPicks, type AiPicker } from "../lib/bankFeeds/aiPick";
 import type { ChartAccount } from "../lib/bankFeeds/companyLists";
 import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
-import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
+import { refreshSuggestions, scoredUnderOldRules, type Suggestion } from "../lib/bankFeeds/suggest";
 import { decide, importCsv } from "../lib/bankFeeds/transactions";
 import type { AiInput } from "../lib/suggestions/aiPick";
 
@@ -110,6 +110,15 @@ describe("21 Nov review fixes", { skip: URL ? false : "BANK_TEST_MONGODB_URI not
     const row = await fresh(t._id);
     assert.equal(row?.suggestion, null);
     assert.equal(row?.glAccountId, "meals", "the person's coding stays");
+  });
+
+  it("lines scored under older rules are found, and scoring again brings them up to date", async () => {
+    const t = await line("UBER TRIP", -18, "2026-11-19");
+    assert.equal(await scoredUnderOldRules(db, QB), false, "fresh lines are up to date");
+    await db.txns.updateOne({ _id: t._id }, { $unset: { "suggestion.rules": "" } });
+    assert.equal(await scoredUnderOldRules(db, QB), true);
+    await refreshSuggestions(db, QB);
+    assert.equal(await scoredUnderOldRules(db, QB), false);
   });
 
   describe("step 4", () => {

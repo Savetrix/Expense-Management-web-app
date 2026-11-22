@@ -268,6 +268,21 @@ describe("step 4 on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI no
     }
   });
 
+  it("never picks an account for money moving between the company's own accounts", async () => {
+    const card = await line("CREDIT CARD 3333 PAYMENT", -25);
+    const own = await line("ONLINE TRANSFER TO SAVINGS", -1000);
+    const interest = await line("INTRST PYMNT", 4.22);
+    const set = (id: string, categoryDetailed: string) => db.txns.updateOne({ _id: id }, { $set: { categoryDetailed } });
+    await set(card.id, "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT");
+    await set(own.id, "TRANSFER_OUT_ACCOUNT_TRANSFER");
+    await set(interest.id, "TRANSFER_IN_OTHER_TRANSFER_IN");
+    const ai = fakeAi(["79", "13"]);
+    await run(ai.picker);
+    assert.deepEqual(ai.calls.map((c) => c.line.payee).sort(), ["Intrst Pymnt"], "only the interest line is asked");
+    for (const t of [card, own]) assert.notEqual(((await view(t.id)).suggestion as Suggestion).step, "ai");
+    assert.equal(((await view(interest.id)).suggestion as Suggestion).step, "ai");
+  });
+
   it("sends only this company's own past items, never another company's", async () => {
     const t = await line("NEWCO SUPPLIES 9");
     await db.vectors.insertMany([

@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { buildQbBillBalanceQueries, buildQbEntryQuery, buildQbRequest, entriesFromQbAnswer, paidFromQbAnswer, taxDetail } from "../lib/bankFeeds/ledger/quickbooks";
 import type { Posting } from "../lib/bankFeeds/ledger/types";
-import { buildXeroBillRequests, buildXeroEntryRequest, buildXeroRequest, entriesFromXeroAnswer, paidFromXeroAnswer, xeroDay } from "../lib/bankFeeds/ledger/xero";
+import { buildXeroBillRequests, buildXeroEntryRequest, buildXeroRequest, entriesFromXeroAnswer, paidFromXeroAnswer, xeroDay, xeroError } from "../lib/bankFeeds/ledger/xero";
 
 /** A JSON body, read loosely in assertions. */
 type Json = { [key: string]: Json } & { [index: number]: Json };
@@ -275,3 +275,15 @@ describe("reading entries already in the books", () => {
     ]);
   });
 });
+
+describe("Xero errors", () => {
+  it("a lost connection reads as 'reconnect Xero', never Xero's code word (22 Nov)", () => {
+    const e = xeroError(403, new Headers(), { Type: null, Title: "Forbidden", Status: 403, Detail: "AuthenticationUnsuccessful" });
+    assert.equal(e.code, "reconnect");
+    assert.doesNotMatch(e.message, /AuthenticationUnsuccessful/);
+    assert.match(e.message, /Reconnect Xero/);
+    assert.equal(xeroError(401, new Headers(), null).code, "reconnect");
+    assert.equal(xeroError(403, new Headers(), { Detail: "You don't have access to Bank Transactions" }).code, "permission", "a real permission problem stays one");
+  });
+});
+

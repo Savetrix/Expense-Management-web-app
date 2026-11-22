@@ -27,6 +27,7 @@ import {
   aiUserMessage,
   basisKey,
   chartHash,
+  ownAccountTransfer,
   validPicks,
   type AiAccount,
   type AiInput,
@@ -186,8 +187,8 @@ export function lineInput(t: Pick<TxnDoc, "payee" | "merchantName" | "counterpar
  * the AI's reason and the past items it was shown that went to that account.
  * An account no longer allowed drops out.
  */
-export function aiPicksFrom(rec: AiPickRecord | null | undefined, allowed: ReadonlySet<string>, subject: string): SuggestionPick[] {
-  if (!rec || rec.status !== "ok") return [];
+export function aiPicksFrom(rec: AiPickRecord | null | undefined, allowed: ReadonlySet<string>, subject: string, category?: string | null): SuggestionPick[] {
+  if (!rec || rec.status !== "ok" || ownAccountTransfer(category)) return [];
   return rec.picks
     .filter((p) => allowed.has(p.glAccountId))
     .map((p) => ({
@@ -301,7 +302,7 @@ export async function runAiPicks(
     await db.txns
       .find({ qbConnectionId, removedAt: null, status: "review", decidedBy: { $in: [null, "autopilot"] }, postingStatus: null, ...(opts.lineIds ? { _id: { $in: opts.lineIds } } : {}) })
       .toArray()
-  ).filter((c) => needsAi(c.suggestion));
+  ).filter((c) => needsAi(c.suggestion) && !ownAccountTransfer(c.categoryDetailed));
   outcome.lines = candidates.length;
   if (candidates.length === 0) return outcome;
 

@@ -72,6 +72,15 @@ async function buildPosting(db: Db, svc: PostingServices, chart: Map<string, Led
     throw new LineRefused(`"${bank.name}" isn't a bank or card account in ${name} any more. Map "${txn.accountLabel}" again.`);
   }
   const bankAccount = { id: bank.id, isCard: bankAcct.kind === "card" };
+  // A line from a connected bank carries its real currency. Booked to an account
+  // in another currency, the amount would be taken as that currency (a 500 USD
+  // card line mapped to a CAD card on the sandbox, 22 Nov). Imported files take
+  // the mapped account's currency, so this only applies to bank-feed lines.
+  const lineCurrency = txn.plaidTransactionId ? txn.currency?.toUpperCase() : null;
+  const accountCurrency = bankAcct.currency?.toUpperCase();
+  if (lineCurrency && accountCurrency && lineCurrency !== accountCurrency) {
+    throw new LineRefused(`This line is in ${lineCurrency}, but "${bankAcct.name}" in ${name} is in ${accountCurrency}. Map "${txn.accountLabel}" to a ${lineCurrency} account in ${name} (Connected accounts).`);
+  }
 
   if (txn.status === "transfer") {
     const other = await ledgerAccountFor(db, txn.qbConnectionId, { accountId: txn.transferAccountId, label: txn.transferLabel });

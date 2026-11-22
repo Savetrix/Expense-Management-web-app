@@ -66,6 +66,15 @@ export interface AiRawPick {
   reason: string;
 }
 
+/**
+ * Plaid's categories for money moving between the company's own accounts
+ * (account transfers, savings, investments, paying its own credit card).
+ * Such a line is a transfer: step 4 never picks an account for it (on the
+ * sandbox a card payment got "Note Payable", a CD deposit "Uncategorised Asset").
+ */
+const OWN_ACCOUNT_TRANSFER = /^(TRANSFER_(IN|OUT)_(ACCOUNT_TRANSFER|SAVINGS|INVESTMENT_AND_RETIREMENT_FUNDS)|LOAN_PAYMENTS_CREDIT_CARD_PAYMENT)$/;
+export const ownAccountTransfer = (category: string | null | undefined) => Boolean(category && OWN_ACCOUNT_TRANSFER.test(category.toUpperCase()));
+
 const TAX_WORDS = /\b(gst|hst|pst|qst|vat)\b|sales tax|tax payable|tax suspense|tax receivable|tax control|income tax payable|payroll tax payable/i;
 
 /** A tax control account (GST/HST payable, sales tax, VAT): never a line's category. */
@@ -110,6 +119,7 @@ export const AI_SYSTEM_PROMPT = [
   "Then prefer what the company itself chose for past items of that same kind of business; a past item that only shares a word is not the same kind (a gas station selling fuel is not a gas or electricity utility).",
   'For each pick give a reason of at most 8 plain words saying what the transaction looks like, starting with "looks like" (for example: "looks like a courier service"); keep names and abbreviations such as IT or GST as written. Don\'t repeat the account name.',
   "Asset and liability accounts are for buying an asset or paying a loan, not for day-to-day spending such as fuel, meals or subscriptions.",
+  "If the transaction only moves money between the company's own bank, savings, investment or credit card accounts (for example paying its own credit card), return an empty list: that is a transfer, not an expense or income.",
   "If no account fits, return an empty list.",
 ].join(" ");
 

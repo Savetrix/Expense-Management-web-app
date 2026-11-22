@@ -49,6 +49,14 @@ export { MIN_AGREEING_WEIGHT, MIN_AGREEMENT, voteWeight } from "@/lib/suggestion
 
 // ---------------------------------------------------------------- scoring
 
+/**
+ * The version of these rules. Raise it whenever a change to the rules should
+ * reach lines scored before it: the bank page's sync scores again any line
+ * whose suggestion was made under another version (a release corrects itself
+ * without waiting for someone to post or import).
+ */
+export const SCORING_RULES = 2;
+
 export type SuggestionKind = "expense" | "transfer" | "exclude" | "bill";
 
 export interface Vote {
@@ -110,6 +118,8 @@ export interface Suggestion {
   linkedVendor?: boolean;
   /** Step 4 picks included: the AI model that made them ("openai:gpt-5.4-mini"). */
   model?: string;
+  /** SCORING_RULES when it was made. */
+  rules?: number;
   scoredAt: string;
 }
 
@@ -313,6 +323,15 @@ export function similarReason(pick: Pick<SuggestionPick, "lines" | "historyLines
   return `New payee. ${postsReason({ kind: "similar", posted: pick.lines - prior, prior, account, evidence: pick.evidence })}.`;
 }
 
+/** True when lines to review carry a suggestion made under older rules (SCORING_RULES): score them again. */
+export async function scoredUnderOldRules(db: Db, qbConnectionId: string): Promise<boolean> {
+  const n = await db.txns.countDocuments(
+    { qbConnectionId, removedAt: null, status: "review", postingStatus: null, decidedBy: { $in: [null, "autopilot"] }, suggestion: { $ne: null }, "suggestion.rules": { $ne: SCORING_RULES } },
+    { limit: 1 },
+  );
+  return n > 0;
+}
+
 /** Auto-classification "Suggest only": the same suggestion, never filled in. */
 export function suggestOnly(s: Suggestion): Suggestion {
   if (!s.autoCoded) return s;
@@ -480,7 +499,7 @@ export async function refreshSuggestions(
     const rec = c.aiPick;
     if (!rec || rec.status !== "ok" || !aiAllowed || !needsAi(found)) return found;
     const subject = (c.merchantName ?? c.counterpartyName ?? c.description).trim() || "this payee";
-    const aiPicks = aiPicksFrom(rec, aiAllowed, subject);
+    const aiPicks = aiPicksFrom(rec, aiAllowed, subject, c.categoryDetailed);
     if (aiPicks.length === 0) return found;
     // Step 3 below Medium is weak: the AI's first pick leads, then step 3's and
     // the AI's take turns, so both show (a weak step 3 filling all 3 places hid
@@ -573,7 +592,7 @@ export async function refreshSuggestions(
     // Rows older than a year carry no weight: they don't stop step 3 either.
     const speaking = pastVotes.some((v) => voteWeight(v.decidedAt, now) > 0);
     const found = withAi(c, link, !speaking ? ((await similarFor(c, facts, link)) ?? fromHistory) : fromHistory);
-    const s = mode === "suggest" ? suggestOnly(found) : found;
+    const s = { ...(mode === "suggest" ? suggestOnly(found) : found), rules: SCORING_RULES };
     if (shownChanged(c.suggestion, s)) shown.push(shownEvent(qbConnectionId, c._id, s));
     if (s.autoCoded) {
       autoCoded += 1;
