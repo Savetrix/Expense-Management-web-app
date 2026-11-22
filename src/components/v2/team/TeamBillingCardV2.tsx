@@ -15,6 +15,7 @@ import { SelectDropdown } from "@/components/v2/ui/SelectDropdown";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchPlans } from "@/store/subscription/subscriptionApi";
 import {
+  confirmTeamCardSetup,
   confirmTeamCheckout,
   fetchTeamBilling,
   startTeamCheckout,
@@ -22,11 +23,7 @@ import {
   type PaidPlanKey,
   type TeamBilling,
 } from "@/store/quickBooks/teamBillingApi";
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+import { TeamPlanManageV2, cardOwnerText, cardText, formatDate } from "./TeamPlanManageV2";
 
 const money = (amount: number) => `$${amount.toFixed(2)}`;
 
@@ -53,14 +50,15 @@ interface TeamBillingCardProps {
 
 // Team page › Plan & billing. The plan of a company is its OWNER's (one plan
 // covers every company they own). The owner manages it on their Subscription
-// page; an admin of the company sees it here and can pay for it with their
-// own card (Scantrix_API stripe.service.js createMemberCheckoutSession) — it
-// then renews on that card until the owner changes it or cancels.
-// Accountants and contributors see nothing.
-// Back from Stripe Checkout (?company=<the company paid through>&checkout=…).
-// Mounted on the Team page whatever is selected — even no company — and
-// confirms against the company paid through. onConfirmed lets the page reload
-// the card. The toast follows the server: done, still processing, or refused.
+// page (Account); the company's team admins manage it here like the owner
+// does: buy one (Scantrix_API stripe.service.js createMemberCheckoutSession),
+// upgrade or move down, extra slots, cancel, pay with their own card
+// (TeamPlanManageV2). Accountants and contributors see nothing.
+// Back from Stripe (?company=<the company it was for>&checkout=… after buying a
+// plan, &card=… after entering a card). Mounted on the Team page whatever is
+// selected — even no company — and confirms against that company. onConfirmed
+// lets the page reload the card. The toast follows the server: done, still
+// processing, or refused.
 export function TeamCheckoutReturn({ onConfirmed }: { onConfirmed: () => void }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
@@ -68,19 +66,29 @@ export function TeamCheckoutReturn({ onConfirmed }: { onConfirmed: () => void })
 
   useEffect(() => {
     const checkoutStatus = searchParams.get("checkout");
+    const cardStatus = searchParams.get("card");
     const company = searchParams.get("company");
     const sessionId = searchParams.get("session_id");
-    if (!checkoutStatus || !company) return;
+    if ((!checkoutStatus && !cardStatus) || !company) return;
     router.replace("/team");
-    if (checkoutStatus === "cancelled") {
-      showToast("Payment cancelled. Nothing was charged.", "info");
+    if (checkoutStatus === "cancelled" || cardStatus === "cancelled") {
+      showToast(checkoutStatus ? "Payment cancelled. Nothing was charged." : "No card was added. Nothing changed.", "info");
       return;
     }
-    if (checkoutStatus !== "success" || !sessionId) return;
+    if ((checkoutStatus ?? cardStatus) !== "success" || !sessionId) return;
     // A revisit of this exact URL (back/forward, refresh) mustn't re-confirm.
     const confirmedKey = `team_checkout_confirmed_${sessionId}`;
     if (typeof window !== "undefined" && sessionStorage.getItem(confirmedKey) === "1") return;
     if (typeof window !== "undefined") sessionStorage.setItem(confirmedKey, "1");
+
+    if (cardStatus) {
+      dispatch(confirmTeamCardSetup({ qbId: company, sessionId })).then((result) => {
+        if (confirmTeamCardSetup.fulfilled.match(result)) showToast(result.payload.message, "success");
+        else showToast(result.payload?.message || "Could not put the card on the plan. Please try again.", "error");
+        onConfirmed();
+      });
+      return;
+    }
 
     dispatch(confirmTeamCheckout({ qbId: company, sessionId })).then((result) => {
       if (confirmTeamCheckout.fulfilled.match(result)) {
@@ -173,6 +181,7 @@ function AdminBilling({ qbId }: { qbId: string }) {
   const ownerName = billing.owner.name || billing.owner.email || "The owner";
   const status = STATUS_META[billing.status] ?? { label: billing.status, className: "bg-background-alt text-text-secondary" };
   const live = billing.status === "active" || billing.status === "past_due";
+  const ends = live && !!billing.endsAt;
 
   const update = (patch: Partial<PayForm>) => setForm((f) => ({ ...f, ...patch }));
   const planEntry = plans.find((p) => p.key === form.plan);
@@ -240,29 +249,42 @@ function AdminBilling({ qbId }: { qbId: string }) {
       </div>
 
       <dl className="mt-[var(--space-sm)] grid grid-cols-2 gap-[var(--space-xs)] text-body-sm">
-        <dt className="text-text-secondary">{billing.plan === "trial" ? "Trial ends" : "Renews"}</dt>
+        <dt className="text-text-secondary">{billing.plan === "trial" ? "Trial ends" : ends ? "Ends" : "Renews"}</dt>
         <dd className="text-right text-text-primary">
-          {formatDate(billing.plan === "trial" ? billing.trialEndsAt : live ? billing.currentPeriodEnd : null)}
+          {formatDate(billing.plan === "trial" ? billing.trialEndsAt : ends ? billing.endsAt : live ? billing.currentPeriodEnd : null)}
         </dd>
         <dt className="text-text-secondary">Companies</dt>
         <dd className="text-right text-text-primary">
           {billing.slotsUsed}/{billing.maxSlots}
+          {billing.addonSlots > 0 && <span className="text-text-secondary"> ({billing.addonSlots} extra)</span>}
         </dd>
+        {billing.canManage && (
+          <>
+            <dt className="text-text-secondary">Paid with</dt>
+            <dd className="text-right text-text-primary">
+              {billing.card ? `${cardText(billing.card)} · ${cardOwnerText(billing, ownerName)}` : billing.stripeUnavailable ? "—" : "No card on file"}
+            </dd>
+          </>
+        )}
       </dl>
-
-      {billing.paidBy && (
-        <p className="mt-[var(--space-sm)] text-caption text-text-secondary">
-          Bought by {billing.paidBy.isYou ? "you" : billing.paidBy.name}. It renews on that card until {ownerName} changes it.
+      {billing.stripeUnavailable && (
+        <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
+          Stripe didn&apos;t answer, so the card and any scheduled change aren&apos;t shown. Reload to try again.
         </p>
       )}
 
-      {billing.canPay ? (
+      {billing.canManage ? (
+        <TeamPlanManageV2 qbId={qbId} billing={billing} ownerName={ownerName} onBilling={setBilling} />
+      ) : billing.canPay ? (
         <Button size="sm" className="mt-[var(--space-md)] w-full" onClick={openPay}>
           <CreditCard size={16} strokeWidth={2.25} />
           Pay for {ownerName}&apos;s plan
         </Button>
       ) : (
-        !billing.paidBy && <p className="mt-[var(--space-sm)] text-caption text-text-secondary">{ownerName} already pays for this plan.</p>
+        <p className="mt-[var(--space-sm)] text-caption text-text-secondary">
+          {ownerName}&apos;s plan is billed through the {billing.provider === "apple" ? "App Store" : billing.provider === "google" ? "Google Play" : "app store"}, so only{" "}
+          {ownerName} can change it, from their phone.
+        </p>
       )}
 
       <Modal
@@ -323,9 +345,9 @@ function AdminBilling({ qbId }: { qbId: string }) {
                 {slots > 0 ? ` with ${slots} extra slot${slots === 1 ? "" : "s"}` : ""}.{" "}
               </>
             )}
-            The plan covers all of {ownerName}&apos;s companies and renews every {periodWord} on your card until{" "}
-            {ownerName} changes the card or cancels from their Subscription page. Stripe&apos;s payment page shows the final
-            amount.
+            The plan covers all of {ownerName}&apos;s companies. It renews every {periodWord} on your card, and upgrades or extra
+            slots anyone on the team buys are charged to it too, until someone else puts their card on the plan, it&apos;s
+            cancelled, or you leave the team. Stripe&apos;s payment page shows the final amount.
           </p>
           {overBy > 0 && slotsAfter != null && (
             <p className="rounded-lg border border-warning/30 bg-warning/5 px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-text-secondary">

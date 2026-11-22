@@ -69,6 +69,11 @@ export interface ExtractedData {
   vendorAddress?: string | null;
   /** API field: bankingDetails (not vendorBankDetails) */
   bankingDetails?: string | null;
+  /** The period the invoice pays for (YYYY-MM-DD, inclusive), when printed on it. */
+  servicePeriodStart?: string | null;
+  servicePeriodEnd?: string | null;
+  /** Post to the prepaid account and release monthly. null = nobody decided yet. */
+  isPrepayment?: boolean | null;
 }
 
 export interface ConfidenceBreakdown {
@@ -133,6 +138,8 @@ export interface InvoiceRecord {
   googleDrive?: { fileId?: string | null; fileUrl?: string | null; uploadedAt?: string | null };
   oneDrive?: { fileId?: string | null; fileUrl?: string | null; uploadedAt?: string | null };
   statusHistory?: StatusHistoryItem[];
+  /** The scanner read a service period longer than a month on it. */
+  prepaymentDetected?: boolean;
   /** Set when a person rejected it (see lib/outcomeMix.ts isRejectedInvoice). */
   rejectedAt?: string | null;
   processedBy?: string;

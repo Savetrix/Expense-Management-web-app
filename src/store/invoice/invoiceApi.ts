@@ -220,6 +220,10 @@ export interface PostInvoiceExtractedData {
   vendorAddress?: string | null;
   /** Matches API field name `bankingDetails` (not vendorBankDetails) */
   bankingDetails?: string | null;
+  servicePeriodStart?: string | null;
+  servicePeriodEnd?: string | null;
+  /** true = the bill posts to the prepaid account and a schedule draft is made. */
+  isPrepayment?: boolean | null;
 }
 
 interface PostInvoicePayload {

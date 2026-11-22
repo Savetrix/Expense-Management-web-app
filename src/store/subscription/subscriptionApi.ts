@@ -378,3 +378,66 @@ export const fetchDiscount = createAsyncThunk<CurrentDiscount | null, void, { re
     }
   },
 );
+
+// ================================
+// THE OWNER'S OWN CARD on their plan — e.g. taking it back from a team admin
+// whose card pays for it (Scantrix_API stripe.service.js startPlanCardSetup).
+// The card is entered on Stripe's page (setup mode), back to /subscription.
+// ================================
+export const startOwnerCardSetup = createAsyncThunk<string, void, { rejectValue: { message: string } }>(
+  "subscription/startOwnerCardSetup",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.post("/subscription/card/setup", {});
+      return response.data.data.url as string;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not open the card page" });
+    }
+  },
+);
+
+export const confirmOwnerCardSetup = createAsyncThunk<string, string, { rejectValue: { message: string } }>(
+  "subscription/confirmOwnerCardSetup",
+  async (sessionId, thunkAPI) => {
+    try {
+      const response = await api.post("/subscription/card/confirm", { sessionId }, { timeout: 60_000 });
+      return response.data.message as string;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not put your card on the plan" });
+    }
+  },
+);
+
+// A move down waiting for the period end — queued by a team admin from the
+// Team page, or in Manage billing. The owner sees it and can cancel it.
+export interface ScheduledPlanChange {
+  plan: SubscriptionPlanKey;
+  planName: string;
+  billingInterval: BillingInterval;
+  addonSlots: number;
+  at: string;
+}
+
+export const fetchScheduledChange = createAsyncThunk<ScheduledPlanChange | null, void, { rejectValue: { message: string } }>(
+  "subscription/fetchScheduledChange",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.get("/subscription/scheduled-change");
+      return (response.data.data.scheduledChange ?? null) as ScheduledPlanChange | null;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not load the scheduled change" });
+    }
+  },
+);
+
+export const cancelScheduledChange = createAsyncThunk<string, void, { rejectValue: { message: string } }>(
+  "subscription/cancelScheduledChange",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.delete("/subscription/scheduled-change", { timeout: 60_000 });
+      return response.data.message as string;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not cancel the scheduled change" });
+    }
+  },
+);
