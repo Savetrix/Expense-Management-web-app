@@ -208,6 +208,16 @@ export function ConnectedAccountsTab({ accounts, glAccounts, providerName, onCon
                     </option>
                   ))}
                 </SelectDropdown>
+                {(() => {
+                  // A bank account and a QuickBooks/Xero account in different currencies: lines would be
+                  // booked in the wrong currency, so posting refuses them (posting.ts). Say so here first.
+                  const ledgerCurrency = ledgerAccounts.find((a) => a.id === selected)?.currency;
+                  return selected && acct.currency && ledgerCurrency && acct.currency.toUpperCase() !== ledgerCurrency.toUpperCase() ? (
+                    <p className="mt-[var(--space-xs)] text-caption font-semibold text-status-warning-text">
+                      This bank account is in {acct.currency.toUpperCase()}, but that {providerName} account is in {ledgerCurrency.toUpperCase()}. Its lines won&apos;t be sent: pick a {acct.currency.toUpperCase()} account.
+                    </p>
+                  ) : null;
+                })()}
               </div>
               <Button variant="outline" disabled={!selected || busy || selected === acct.mappedGlAccountId} onClick={() => saveMapping(acct, selected)}>
                 Save mapping
