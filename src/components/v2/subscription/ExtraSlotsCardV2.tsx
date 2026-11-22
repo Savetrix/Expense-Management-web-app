@@ -179,7 +179,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
   // The renewal invoice, line by line — the plan's own price never changes here.
   const renewalBreakdown = (p: AddonSlotsPreview) =>
     [
-      `From ${formatDate(p.renewalDate)}, each renewal is ${formatMoney(p.renewalAmount)}${intervalSuffix}:`,
+      `From ${formatDate(p.renewalDate)}, each renewal is ${formatMoney(p.renewalAmount)}${intervalSuffix}${p.taxOnTop ? " + tax" : ""}:`,
       `• ${subscription.planName} plan: ${formatMoney(p.planPrice)}${p.renewalDiscounted ? " (with your coupon)" : ""}`,
       ...(target > 0 ? [`• ${plural(target)}: ${formatMoney(target * p.addonPrice)}`] : []),
     ].join("\n");
@@ -187,7 +187,8 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
   const handleSave = async () => {
     if (!preview) return;
     const added = target - subscription.addonSlots;
-    const prorated = preview.amountDueNow < preview.fullPeriodAmount - 0.005;
+    // Compared before tax — fullPeriodAmount is the slots' list price.
+    const prorated = preview.amountDueNow - (preview.taxNow ?? 0) < preview.fullPeriodAmount - 0.005;
     const periodWord = interval === "yearly" ? "year" : "month";
 
     const message = keeping
@@ -210,7 +211,7 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
           renewalBreakdown(preview),
         ].join("\n")
       : [
-          `${formatMoney(preview.amountDueNow)} will be charged now to ${cardLabel(preview.paymentMethod)}. No payment page opens.`,
+          `${formatMoney(preview.amountDueNow)}${preview.taxNow ? ` (incl. ${formatMoney(preview.taxNow)} tax)` : ""} will be charged now to ${cardLabel(preview.paymentMethod)}. No payment page opens.`,
           prorated
             ? `That covers the rest of your current billing period, until ${formatDate(preview.renewalDate)}.`
             : `That covers a full ${periodWord}, until ${formatDate(preview.renewalDate)}.`,
@@ -387,15 +388,16 @@ export function ExtraSlotsCardV2({ subscription, startWithOneMore = false }: Ext
                 ) : (
                   <div className="flex flex-col gap-1">
                     <span>
-                      Charged now: <span className="font-bold text-text-primary">{formatMoney(preview.amountDueNow)}</span>{" "}
-                      to {cardLabel(preview.paymentMethod)}
-                      {preview.amountDueNow < preview.fullPeriodAmount - 0.005 && " (rest of this billing period)"}.
+                      Charged now: <span className="font-bold text-text-primary">{formatMoney(preview.amountDueNow)}</span>
+                      {preview.taxNow ? ` (incl. ${formatMoney(preview.taxNow)} tax)` : ""} to {cardLabel(preview.paymentMethod)}
+                      {preview.amountDueNow - (preview.taxNow ?? 0) < preview.fullPeriodAmount - 0.005 && " (rest of this billing period)"}.
                     </span>
                     <span>
                       From {formatDate(preview.renewalDate)}:{" "}
                       <span className="font-bold text-text-primary">
                         {formatMoney(preview.renewalAmount)}
                         {intervalSuffix}
+                        {preview.taxOnTop && " + tax"}
                       </span>{" "}
                       ({formatMoney(preview.planPrice)} plan{preview.renewalDiscounted && " with your coupon"} +{" "}
                       {formatMoney(target * preview.addonPrice)} for {plural(target)}).

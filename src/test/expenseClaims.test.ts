@@ -379,7 +379,9 @@ describe("contributor page access", () => {
     assert.equal(pageKeyOf("/invoices/123/review"), "invoices");
     assert.equal(pageKeyOf("/expense-claims"), "expense-claims");
     assert.equal(pageKeyOf("/quickbooks"), "accounting-software");
-    assert.equal(pageKeyOf("/plans"), "subscription");
+    // The user's own plan is always open (Account page), not a company page.
+    assert.equal(pageKeyOf("/plans"), null);
+    assert.equal(pageKeyOf("/subscription"), null);
     assert.equal(pageKeyOf("/profile"), null);
     assert.equal(pageKeyOf("/"), null);
 
@@ -387,9 +389,14 @@ describe("contributor page access", () => {
     assert.equal(canOpenPage("contributor", ["expense-claims"], "expense-claims"), true);
     // Always-open pages, no list (every page), and other roles are never blocked.
     assert.equal(canOpenPage("contributor", ["expense-claims"], null), true);
+    // Month-end is bookkeeping: never a contributor's, whatever their page list.
+    assert.equal(pageKeyOf("/month-end"), "month-end");
+    assert.equal(canOpenPage("contributor", null, "month-end"), false);
+    assert.equal(canOpenPage("accountant", ["dashboard"], "month-end"), true);
+    assert.equal((ALL_PAGE_KEYS as string[]).includes("month-end"), false);
     assert.equal(canOpenPage("contributor", null, "invoices"), true);
     assert.equal(canOpenPage("accountant", ["expense-claims"], "invoices"), true);
-    assert.equal(canOpenPage("owner", undefined, "subscription"), true);
-    assert.equal(ALL_PAGE_KEYS.length, 9);
+    assert.equal(canOpenPage("contributor", ["dashboard"], pageKeyOf("/subscription")), true);
+    assert.equal(ALL_PAGE_KEYS.length, 8);
   });
 });

@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
-  CreditCard,
   ShieldCheck,
   type LucideIcon,
   FileText,
@@ -20,6 +19,7 @@ import {
   Menu,
   Plus,
   Puzzle,
+  Repeat,
   Store,
   Users,
   X,
@@ -65,12 +65,15 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
   { href: CLAIMS_HREF, label: "Expense Claims", icon: Car },
+  { href: "/month-end", label: "Month-End Adjustments", icon: Repeat },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },
   { href: "/gl-tax-codes", label: "GL Account & TaxCode", icon: Landmark },
   { href: "/accounting-software", label: "Integrations", icon: Puzzle },
-  { href: "/subscription", label: "Subscription", icon: CreditCard },
 ];
+// The user's own plan (/subscription) isn't a sidebar page: it's on the
+// Account page, for owners (ProfileContentV2). An admin pays for the owner of
+// a company they're on from its Team page (TeamBillingCardV2).
 
 // ScanTrix's own admins only (User.isSuperAdmin, sent with the signed-in
 // user). One entry for the whole admin area — its sections are tabs inside

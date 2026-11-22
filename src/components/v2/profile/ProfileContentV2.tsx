@@ -90,6 +90,17 @@ export function ProfileContentV2() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const connections = useAppSelector((state) => state.quickBooks.connections);
+  const subscription = useAppSelector((state) => state.subscription.subscription);
+  // Your own plan: for an owner (disconnected companies count — the plan is
+  // still theirs), someone with no company yet (trial, choosing a plan), or
+  // anyone with a paid plan of their own still running. Someone who's only on
+  // other people's teams doesn't see it — an admin pays for a company's owner
+  // from its Team page.
+  const showSubscription =
+    connections.length === 0 ||
+    connections.some((c) => c.role === "owner") ||
+    (!!subscription && subscription.plan !== "trial" && ["active", "past_due"].includes(subscription.status));
 
   const apiUser = user?.data?.user;
   const name = capitalizeWords(apiUser?.firstName || apiUser?.email?.split("@")[0] || "User");
@@ -149,12 +160,14 @@ export function ProfileContentV2() {
           iconClassName="bg-surface-alt"
           label="Preferences"
         />
-        <SettingsRow
-          href="/subscription"
-          icon={<Gem size={18} strokeWidth={2} className="text-status-warning-text" />}
-          iconClassName="bg-status-warning-bg"
-          label="Subscription"
-        />
+        {showSubscription && (
+          <SettingsRow
+            href="/subscription"
+            icon={<Gem size={18} strokeWidth={2} className="text-status-warning-text" />}
+            iconClassName="bg-status-warning-bg"
+            label="Subscription"
+          />
+        )}
       </div>
 
       <SectionLabel>Legal</SectionLabel>

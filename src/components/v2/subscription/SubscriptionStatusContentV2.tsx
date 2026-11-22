@@ -1,15 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Lock, Settings, Check } from "lucide-react";
+import { ArrowRight, Lock, Settings, Check, CreditCard } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
-import { showToast } from "@/lib/dialogManager";
+import { cardLabel } from "@/lib/cardLabel";
+import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { Spinner } from "@/components/ui/Spinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchMySubscription, openBillingPortal, confirmCheckout } from "@/store/subscription/subscriptionApi";
+import {
+  fetchMySubscription,
+  openBillingPortal,
+  confirmCheckout,
+  startOwnerCardSetup,
+  confirmOwnerCardSetup,
+  fetchScheduledChange,
+  cancelScheduledChange,
+  type ScheduledPlanChange,
+} from "@/store/subscription/subscriptionApi";
 import { ExtraSlotsCardV2 } from "./ExtraSlotsCardV2";
 import { CouponCardV2 } from "./CouponCardV2";
 
@@ -57,6 +67,47 @@ export function SubscriptionStatusContentV2() {
   const loading = useAppSelector((state) => state.subscription.subscriptionLoading);
   const error = useAppSelector((state) => state.subscription.subscriptionError);
   const [openingPortal, setOpeningPortal] = useState(false);
+  // A move down waiting for the period end (a team admin queued it, or Manage billing).
+  const [scheduledChange, setScheduledChange] = useState<ScheduledPlanChange | null>(null);
+  const [cancellingChange, setCancellingChange] = useState(false);
+  // Sales tax is on, but this plan (from before) isn't charged it yet.
+  const [taxPending, setTaxPending] = useState(false);
+  const webPlanLive =
+    subscription?.provider === "stripe" && (subscription.status === "active" || subscription.status === "past_due");
+
+  useEffect(() => {
+    if (!webPlanLive) return;
+    let live = true;
+    dispatch(fetchScheduledChange()).then((result) => {
+      if (live && fetchScheduledChange.fulfilled.match(result)) {
+        setScheduledChange(result.payload.scheduledChange);
+        setTaxPending(result.payload.taxPending);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [webPlanLive, subscription?.plan, subscription?.billingInterval, dispatch]);
+
+  const handleCancelScheduledChange = async () => {
+    if (!scheduledChange) return;
+    const confirmed = await confirmDialog({
+      title: "Cancel the scheduled change?",
+      message: `Your plan won't move to ${scheduledChange.planName} (${scheduledChange.billingInterval}) on ${formatDate(scheduledChange.at)}. It keeps renewing as it is.`,
+      confirmLabel: "Cancel the change",
+      cancelLabel: "Keep it",
+    });
+    if (!confirmed) return;
+    setCancellingChange(true);
+    const result = await dispatch(cancelScheduledChange());
+    setCancellingChange(false);
+    if (cancelScheduledChange.fulfilled.match(result)) {
+      setScheduledChange(null);
+      showToast(result.payload, "success");
+    } else {
+      showToast(result.payload?.message || "Could not cancel the scheduled change.", "error");
+    }
+  };
 
   useEffect(() => {
     dispatch(fetchMySubscription());
@@ -94,8 +145,40 @@ export function SubscriptionStatusContentV2() {
     } else if (checkoutStatus === "cancelled") {
       router.replace("/subscription");
     }
+
+    // Back from Stripe's card page ("Use my card").
+    const cardStatus = searchParams.get("card");
+    if (cardStatus === "success" && sessionId) {
+      router.replace("/subscription");
+      const confirmedKey = `card_confirmed_${sessionId}`;
+      if (typeof window !== "undefined" && sessionStorage.getItem(confirmedKey) === "1") return;
+      if (typeof window !== "undefined") sessionStorage.setItem(confirmedKey, "1");
+      dispatch(confirmOwnerCardSetup(sessionId)).then((result) => {
+        dispatch(fetchMySubscription({ force: true }));
+        if (confirmOwnerCardSetup.fulfilled.match(result)) showToast(result.payload, "success");
+        else showToast(result.payload?.message || "Could not put your card on the plan. Please try again.", "error");
+      });
+    } else if (cardStatus === "cancelled") {
+      router.replace("/subscription");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // Your own card on your plan (Stripe's page) — from then on it pays.
+  const handleUseMyCard = async () => {
+    const confirmed = await confirmDialog({
+      title: "Pay with your own card?",
+      message:
+        "You'll enter your card on Stripe's secure page. It then pays for every renewal and any upgrade or extra slots" +
+        (subscription?.paidBy ? `, instead of ${subscription.paidBy.name}'s card.` : ".") +
+        (subscription?.status === "past_due" ? " What's overdue is charged to it right away." : ""),
+      confirmLabel: "Continue to Stripe",
+    });
+    if (!confirmed) return;
+    const result = await dispatch(startOwnerCardSetup());
+    if (startOwnerCardSetup.fulfilled.match(result)) window.location.href = result.payload;
+    else showToast(result.payload?.message || "Could not open the card page.", "error");
+  };
 
   const handleManageSubscription = async () => {
     setOpeningPortal(true);
@@ -164,10 +247,12 @@ export function SubscriptionStatusContentV2() {
                 </div>
                 <div className="rounded-lg bg-surface/60 p-[var(--space-sm)]">
                   <p className="text-caption text-text-secondary">
-                    {subscription.plan === "trial" ? "Trial ends" : "Next billing"}
+                    {subscription.plan === "trial" ? "Trial ends" : subscription.endsAt ? "Ends" : "Next billing"}
                   </p>
                   <p className="mt-1 text-body-sm font-bold text-text-primary">
-                    {formatDate(subscription.plan === "trial" ? subscription.trialEndsAt : subscription.currentPeriod?.end)}
+                    {formatDate(
+                      subscription.plan === "trial" ? subscription.trialEndsAt : subscription.endsAt ?? subscription.currentPeriod?.end,
+                    )}
                   </p>
                 </div>
                 <div className="rounded-lg bg-surface/60 p-[var(--space-sm)]">
@@ -184,11 +269,74 @@ export function SubscriptionStatusContentV2() {
               </div>
 
               {subscription.paidBy && (
-                <div className="rounded-lg border border-primary/30 bg-surface/60 px-[var(--space-md)] py-[var(--space-sm)]">
+                <div className="flex flex-col gap-[var(--space-xs)] rounded-lg border border-primary/30 bg-surface/60 px-[var(--space-md)] py-[var(--space-sm)]">
                   <p className="text-body-sm text-text-secondary">
-                    <span className="font-bold text-text-primary">{subscription.paidBy.name}</span> (an admin on your team) bought
-                    this plan with their card. It renews on that card. To pay yourself, change the card in Manage billing;
-                    cancel there if you don&apos;t want the next payment.
+                    <span className="font-bold text-text-primary">{subscription.paidBy.name}</span> (an admin on your team) pays
+                    for this plan with their card
+                    {subscription.paidBy.card && ` (${cardLabel(subscription.paidBy.card)})`}
+                    . Renewals, upgrades and extra slots are charged to it. Your team admins can manage the plan from the Team page
+                    too.
+                  </p>
+                  <button type="button" onClick={handleUseMyCard} className="self-start text-body-sm font-semibold text-primary hover:underline">
+                    Pay with my own card instead
+                  </button>
+                </div>
+              )}
+
+              {subscription.payerLeft && (
+                <div className="flex flex-col gap-[var(--space-xs)] rounded-lg border border-warning/30 bg-warning/5 px-[var(--space-md)] py-[var(--space-sm)]">
+                  <p className="text-body-sm text-text-secondary">
+                    <span className="font-bold text-text-primary">{subscription.payerLeft.name}</span> left your team, so their card
+                    came off your plan.{" "}
+                    {subscription.endsAt
+                      ? `With no card of yours on file, the plan ends on ${formatDate(subscription.endsAt)}. Add your card to keep it.`
+                      : "Your own card on file pays for it now."}
+                  </p>
+                  {subscription.endsAt && (
+                    <button type="button" onClick={handleUseMyCard} className="self-start text-body-sm font-semibold text-primary hover:underline">
+                      Add my card
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {scheduledChange && (
+                <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)] rounded-lg border border-primary/30 bg-surface/60 px-[var(--space-md)] py-[var(--space-sm)]">
+                  <p className="text-body-sm text-text-secondary">
+                    Moves to{" "}
+                    <span className="font-bold text-text-primary">
+                      {scheduledChange.planName} ({scheduledChange.billingInterval})
+                    </span>{" "}
+                    on {formatDate(scheduledChange.at)}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleCancelScheduledChange}
+                    disabled={cancellingChange}
+                    className="text-body-sm font-semibold text-primary hover:underline disabled:opacity-60"
+                  >
+                    {cancellingChange ? <Spinner size="sm" /> : "Cancel change"}
+                  </button>
+                </div>
+              )}
+
+              {taxPending && (
+                <div className="flex flex-col gap-[var(--space-xs)] rounded-lg border border-border bg-surface/60 px-[var(--space-md)] py-[var(--space-sm)]">
+                  <p className="text-body-sm text-text-secondary">
+                    Sales tax isn&apos;t charged on your plan yet because we don&apos;t have your billing address. Confirm your card
+                    with its billing address and tax is added from your next renewal.
+                  </p>
+                  <button type="button" onClick={handleUseMyCard} className="self-start text-body-sm font-semibold text-primary hover:underline">
+                    Add billing address
+                  </button>
+                </div>
+              )}
+
+              {subscription.endsAt && !subscription.payerLeft && (
+                <div className="rounded-lg border border-warning/30 bg-warning/5 px-[var(--space-md)] py-[var(--space-sm)]">
+                  <p className="text-body-sm text-text-secondary">
+                    Cancelled. The plan ends on <span className="font-bold text-text-primary">{formatDate(subscription.endsAt)}</span>
+                    . Resume it in Manage billing to keep it.
                   </p>
                 </div>
               )}
@@ -259,6 +407,16 @@ export function SubscriptionStatusContentV2() {
           >
             View all plans <ArrowRight size={18} strokeWidth={2} />
           </Link>
+          {subscription.provider === "stripe" && subscription.status === "past_due" && (
+            <button
+              type="button"
+              onClick={handleUseMyCard}
+              className="flex items-center justify-center gap-[var(--space-sm)] rounded-lg border border-border bg-surface px-[var(--space-md)] py-[var(--space-md)] font-semibold text-text-primary transition-opacity hover:bg-surface-alt"
+            >
+              <CreditCard size={18} strokeWidth={2} />
+              Pay now with my card
+            </button>
+          )}
           {subscription.provider === "stripe" && (
             <button
               type="button"
