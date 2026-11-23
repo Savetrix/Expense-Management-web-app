@@ -39,6 +39,9 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The list as it was at Preview: the page reloads it every 30 s, and a reload
+  // during a slow import would show the rows being saved as "already in your list".
+  const [known, setKnown] = useState<BankTransaction[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Accounts earlier files were imported into, so a repeat import picks the
@@ -56,8 +59,8 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
     const built = buildRows(dataRows, mapping, { dateFormat, outflowMode });
     // A duplicate is the same line in the SAME account (date, amount, description).
     const name = accountName.trim() || "Imported file";
-    return { ...built, ...splitDuplicates(built.valid, existing.filter((t) => t.accountName === name)) };
-  }, [step, dataRows, mapping, dateFormat, outflowMode, existing, accountName]);
+    return { ...built, ...splitDuplicates(built.valid, known.filter((t) => t.accountName === name)) };
+  }, [step, dataRows, mapping, dateFormat, outflowMode, known, accountName]);
 
   const reset = () => {
     setStep("file");
@@ -153,7 +156,13 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
         <Button variant="outline" onClick={() => setStep("file")}>
           Back
         </Button>
-        <Button disabled={Boolean(mappingProblem)} onClick={() => setStep("preview")}>
+        <Button
+          disabled={Boolean(mappingProblem)}
+          onClick={() => {
+            setKnown(existing);
+            setStep("preview");
+          }}
+        >
           Preview
         </Button>
       </>
