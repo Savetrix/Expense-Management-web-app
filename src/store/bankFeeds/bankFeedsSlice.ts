@@ -7,6 +7,8 @@ import { createSlice, isAnyOf } from "@reduxjs/toolkit";
 
 import {
   bulkUpdateBankTransactions,
+  linkFoundEntry,
+  unlinkFoundEntry,
   completeBankRelogin,
   disconnectBankAccount,
   exchangePublicToken,
@@ -152,6 +154,12 @@ const bankFeedsSlice = createSlice({
       })
       .addCase(bulkUpdateBankTransactions.fulfilled, (state, action) => {
         replaceRows(state, action.payload.updated);
+      })
+      .addCase(linkFoundEntry.fulfilled, (state, action) => {
+        replaceRows(state, [action.payload.transaction]);
+      })
+      .addCase(unlinkFoundEntry.fulfilled, (state, action) => {
+        replaceRows(state, [action.payload.transaction]);
       })
       .addCase(importBankCsv.fulfilled, (state, action) => {
         state.transactions = action.payload.transactions;

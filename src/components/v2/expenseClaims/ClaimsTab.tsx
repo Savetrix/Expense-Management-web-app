@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, ExternalLink, Receipt, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, ExternalLink, Pencil, Receipt, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -28,7 +28,18 @@ import { useAppDispatch } from "@/store/hooks";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 import { PayEmployeeModal } from "./PayEmployeeModal";
-import { CARD_CLASS, CLAIM_STATUS_META, TOOLBAR_CLASS, errorMessage, isApprover, money, monthLabel, shortDate, type CompanyRole } from "./shared";
+import {
+  CARD_CLASS,
+  CLAIM_STATUS_META,
+  TOOLBAR_CLASS,
+  errorMessage,
+  isApprover,
+  money,
+  monthLabel,
+  receiptEditHref,
+  shortDate,
+  type CompanyRole,
+} from "./shared";
 
 interface ClaimsTabProps {
   claims: ExpenseClaimDto[];
@@ -41,6 +52,8 @@ interface ClaimsTabProps {
   /** False for a contributor without the Invoices page: no link to a receipt there. */
   canOpenInvoices: boolean;
   onNewClaim: () => void;
+  /** Open this claim on arrival (back from editing one of its receipts). */
+  initialOpenClaimId?: string | null;
 }
 
 const STATUS_ORDER: ClaimStatus[] = ["awaiting_review", "awaiting_reimbursement", "paid", "rejected"];
@@ -51,13 +64,13 @@ export const claimTitle = (claim: Pick<ExpenseClaimDto, "claimant" | "month">) =
 
 type BusyAction = "approve" | "approvePay" | "reject" | "markPaid" | "removeReceipt" | "deleteClaim" | "note";
 
-export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allowSelfApproval, canOpenInvoices, onNewClaim }: ClaimsTabProps) {
+export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allowSelfApproval, canOpenInvoices, onNewClaim, initialOpenClaimId = null }: ClaimsTabProps) {
   const dispatch = useAppDispatch();
   const provider = useActiveProvider();
   const approver = isApprover(role);
   const [status, setStatus] = useState<View>(approver ? "assigned" : "awaiting_review");
   const [search, setSearch] = useState("");
-  const [openClaimId, setOpenClaimId] = useState<string | null>(null);
+  const [openClaimId, setOpenClaimId] = useState<string | null>(initialOpenClaimId);
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [payClaimId, setPayClaimId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<{ receiptId: string; text: string } | null>(null);
@@ -454,15 +467,31 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
                       </div>
                     )}
                     <div className="mt-[var(--space-xs)] flex flex-wrap items-center gap-[var(--space-sm)]">
-                      {/* An approver fixes GL/tax/amounts on the usual review screen while the claim is in review. */}
-                      {canOpenInvoices && (
-                        <Link
-                          href={approver && openClaim.status === "awaiting_review" ? `/invoices/${receipt.id}/review` : `/invoices/${receipt.id}`}
-                          className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline"
-                        >
-                          {approver && openClaim.status === "awaiting_review" ? "Review" : "Open receipt"}
-                        </Link>
-                      )}
+                      {/* GL/tax/amounts are fixed on the review screen while the claim is in review; Save there comes back to this claim. */}
+                      {canOpenInvoices &&
+                        (canEditReceipts(openClaim) ? (
+                          receipt.glAccountId ? (
+                            <Link
+                              href={receiptEditHref(receipt.id, `/reimbursements?claim=${openClaim.id}`)}
+                              className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline"
+                            >
+                              <Pencil size={12} strokeWidth={2.5} />
+                              Edit details
+                            </Link>
+                          ) : (
+                            <Link
+                              href={receiptEditHref(receipt.id, `/reimbursements?claim=${openClaim.id}`)}
+                              className="inline-flex items-center gap-[var(--space-xs)] rounded-pill bg-status-warning-bg px-[var(--space-sm)] py-[var(--space-xs)] text-caption font-bold text-status-warning-text hover:underline"
+                            >
+                              <AlertTriangle size={12} strokeWidth={2.5} />
+                              Pick GL account
+                            </Link>
+                          )
+                        ) : (
+                          <Link href={`/invoices/${receipt.id}`} className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline">
+                            Open receipt
+                          </Link>
+                        ))}
                       {canEditReceipts(openClaim) && noteDraft?.receiptId !== receipt.id && (
                         <button
                           type="button"
@@ -529,7 +558,7 @@ export function ClaimsTab({ claims, loading, error, onRetry, role, selfId, allow
             )}
             {approver && openClaim.status === "awaiting_review" && uncoded(openClaim).length > 0 && (
               <p className="text-caption font-semibold text-status-warning-text">
-                Pick a GL account for {uncoded(openClaim).map((r) => r.vendor).join(", ")} before approving — use Review on the receipt.
+                Pick a GL account for {uncoded(openClaim).map((r) => r.vendor).join(", ")} before approving — use Pick GL account on the receipt above.
               </p>
             )}
             {approver && openClaim.status === "awaiting_review" && !canAct(openClaim) && (

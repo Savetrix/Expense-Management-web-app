@@ -393,7 +393,8 @@ function FieldRow({
   );
 }
 
-export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
+/** `returnTo`: where Back and a claim receipt's Save go (an in-app path, e.g. the expense claim it was opened from). */
+export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: string; returnTo?: string }) {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const provider = useActiveProvider();
@@ -886,7 +887,22 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     () => computeLineItemsTax(lineItems, cleanValue(invoice.taxCodeId), taxCodeById, discounts),
     [lineItems, invoice.taxCodeId, taxCodeById, discounts],
   );
-  const computedTax = lineItemsTax.tax;
+  // An expense claim repays what the employee paid: with no tax code on the
+  // invoice or any line, approving it adds the receipt's scanned tax as a line
+  // of its own (the backend's planBillLines taxLeftOut / anyLineTaxed). Count
+  // it here too, so the total doesn't read short by the tax — and a Save
+  // doesn't cut the claim by it. A line coded 0%/exempt is "taxed" there, so
+  // it isn't here either.
+  const isClaimReceipt = Boolean(invoiceObject?.expenseClaimId || invoiceObject?.claimReceipt);
+  const scannedTax = Number(invoiceObject?.extractedData?.taxAmount) || 0;
+  const anyTaxCode = !!cleanValue(invoice.taxCodeId) || lineItems.some((item) => !!item.taxCodeId);
+  // Tax-inclusive line items (e.g. VAT receipts) already add up to the total —
+  // the tax is inside them, so it isn't added again (same rule as the backend).
+  const scannedTotal = Number(invoiceObject?.extractedData?.totalAmount) || 0;
+  const linesNet = lineItemsSum + extraChargesSum - discountsSum;
+  const linesAlreadyGross = lineItems.length > 0 && scannedTotal > 0 && Math.abs(linesNet - scannedTotal) <= 0.01;
+  const taxAddedAsLine = isClaimReceipt && !anyTaxCode && scannedTax > 0 && !linesAlreadyGross;
+  const computedTax = taxAddedAsLine ? scannedTax : lineItemsTax.tax;
 
   // Flags the invoice-level GL/tax dropdowns as "mixed" when line items don't
   // all resolve to the same effective code (a line's own override, else the
@@ -999,8 +1015,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
   // "PST (BC) Purchase · 7%" as separate rows, the way invoices print them.
   const taxBreakdown = lineItemsTax.breakdown;
   const taxRateRowLabel = (entry: { name: string; rate: number }) => `${entry.name} · ${formatTaxRate(entry.rate)}`;
-  const taxTotalRowLabel =
-    taxBreakdown.length === 1 ? `Tax · ${taxRateRowLabel(taxBreakdown[0])}` : taxBreakdown.length > 1 ? "Total Tax" : "Tax (0%)";
+  const taxTotalRowLabel = taxAddedAsLine
+    ? "Tax (as scanned)"
+    : taxBreakdown.length === 1 ? `Tax · ${taxRateRowLabel(taxBreakdown[0])}` : taxBreakdown.length > 1 ? "Total Tax" : "Tax (0%)";
   // Before Tax is now always kept in sync with the line items' own sum (see
   // the effect above), so the only independent thing left to cross-check is
   // the computed total against what the scanned invoice itself says its
@@ -1080,19 +1097,23 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     const errors: Record<string, string> = {};
     if (!cleanValue(invoice.vendor)) errors.vendor = "Vendor name is required";
     if (!cleanValue(invoice.currency)) errors.currency = "Currency is required";
-    if (!cleanValue(invoice.invoiceNumber)) errors.invoiceNumber = "Invoice number is required";
+    // A shop receipt often has no number, and a claim receipt is billed on
+    // the claim's own bill — it only needs one to be posted on its own.
+    if (!cleanValue(invoice.invoiceNumber) && !isClaimReceipt) errors.invoiceNumber = "Invoice number is required";
     if (!cleanValue(invoice.amountBeforeTax)) errors.amountBeforeTax = "Amount before tax is required";
     if (!cleanValue(invoice.totalAfterTax)) errors.totalAfterTax = "Total amount is required";
     // Satisfied by the invoice-level GL, or by every row carrying its own.
     const glRows = [...lineItems, ...extraCharges, ...discounts];
     const everyRowHasGl = glRows.length > 0 && glRows.every((row) => row.glAccountId);
-    if (!cleanValue(invoice.glAccountId) && !everyRowHasGl) errors.glAccountId = "GL account is required";
+    // A claim receipt can be saved uncoded — whoever approves the claim picks
+    // the GL account (approving refuses until every receipt has one).
+    if (!cleanValue(invoice.glAccountId) && !everyRowHasGl && !isClaimReceipt) errors.glAccountId = "GL account is required";
     return errors;
   };
 
   // An expense claim receipt is billed by its claim — the backend refuses
   // posting or rejecting it on its own (CLAIM_RECEIPT / RECEIPT_ON_CLAIM).
-  const onExpenseClaim = Boolean(invoiceObject?.expenseClaimId || invoiceObject?.claimReceipt);
+  const onExpenseClaim = isClaimReceipt;
   const isPostDisabled = posting || rejecting || onExpenseClaim || (vendorResolutionRequired && !vendorIsResolved);
   const isRejectDisabled = posting || rejecting || onExpenseClaim;
   const isSaveDisabled = updatingExtractedData || posting || rejecting;
@@ -1105,7 +1126,9 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     amountBeforeTax: Number(invoice.amountBeforeTax) || 0,
     // Straight from the computed values rather than their synced copies on
     // `invoice` — what's shown on screen is exactly what gets saved/posted.
-    taxAmount: computedTax,
+    // A claim receipt with tax-inclusive lines keeps its scanned tax (it's
+    // inside the lines, so the total is unchanged and nothing is added twice).
+    taxAmount: isClaimReceipt && linesAlreadyGross && !anyTaxCode ? scannedTax : computedTax,
     totalAmount: computedTotal,
     lineItems,
     // Extra charges are always non-taxable (backend posts them as NON) —
@@ -1268,6 +1291,12 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
     );
 
     if (updateInvoiceExtractedData.fulfilled.match(result)) {
+      if (onExpenseClaim) {
+        // Edited from the claims page — go straight back there.
+        showToast("Receipt saved.", "success");
+        router.push(returnTo ?? "/reimbursements");
+        return;
+      }
       showToast("Draft saved.", "success");
     } else {
       const payload = result.payload as { message?: string } | string | undefined;
@@ -1390,7 +1419,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         <div className="flex items-center gap-[var(--space-sm)]">
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={() => (returnTo ? router.push(returnTo) : router.back())}
             className="inline-flex items-center gap-[var(--space-xs)] rounded-md px-[var(--space-xs)] py-[var(--space-xs)] text-body-sm font-bold text-content-secondary hover:bg-surface-alt hover:text-content-primary"
           >
             <ChevronLeft size={18} strokeWidth={2.25} />
@@ -1467,7 +1496,18 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
             </div>
           )}
 
-          {isPendingReview && (
+          {isPendingReview && onExpenseClaim ? (
+            // Posted or rejected only with its claim — saving is the one action here.
+            <button
+              type="button"
+              onClick={() => void handleQuickSave()}
+              disabled={isSaveDisabled}
+              className="inline-flex h-9 items-center gap-[var(--space-xs)] rounded-md bg-accent px-[var(--space-md)] text-caption font-bold text-accent-ink hover:bg-accent-hover disabled:opacity-45"
+            >
+              <Save size={14} strokeWidth={2.25} />
+              {updatingExtractedData ? "Saving…" : "Save & back to claims"}
+            </button>
+          ) : isPendingReview && (
             <button
               type="button"
               onClick={() => void handleQuickSave()}
@@ -1479,7 +1519,7 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
             </button>
           )}
 
-          {isPendingReview ? (
+          {isPendingReview && onExpenseClaim ? null : isPendingReview ? (
             <>
               <button
                 type="button"
@@ -1515,10 +1555,10 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {onExpenseClaim && (
             <div className="rounded-md border border-status-info-border bg-status-info-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-info-text">
-              This is a reimbursement receipt. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved —
-              not on its own. You can still fix its details here while the claim is awaiting review.{" "}
-              <Link href="/reimbursements" className="font-bold underline">
-                View reimbursements
+              <span className="font-semibold">Reimbursement receipt.</span> Fix anything the scan got wrong — vendor, date, amounts, GL account —
+              then press Save. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved, never on its own.{" "}
+              <Link href={returnTo ?? "/reimbursements"} className="font-bold underline">
+                Back to reimbursements
               </Link>
             </div>
           )}
@@ -1848,7 +1888,11 @@ export function InvoiceReviewContentV2({ invoiceId }: { invoiceId: string }) {
               ))}
             <FieldRow id="field-taxAmount" label={taxTotalRowLabel}>
               <ReadOnlyAmount>{formatDetailAmount(computedTax, currencyForAmount)}</ReadOnlyAmount>
-              {hasLineItemsForTotal && lineItemsTax.usedCodeIds.length === 0 && (
+              {taxAddedAsLine ? (
+                <p className="mt-[var(--space-xs)] text-right text-caption text-content-secondary">
+                  Tax as scanned — no tax code on any line, so it goes on the claim&apos;s bill as its own line.
+                </p>
+              ) : hasLineItemsForTotal && lineItemsTax.usedCodeIds.length === 0 && (
                 <p className="mt-[var(--space-xs)] text-right text-caption text-content-secondary">
                   No tax code on any line item.
                 </p>

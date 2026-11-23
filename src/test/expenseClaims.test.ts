@@ -95,7 +95,7 @@ describe("expenseClaims slice", () => {
 
   it("puts a new or changed claim in place, and drops one whose last receipt was removed", () => {
     let s = ec(loadClaims([claim("a"), claim("b")], "co"));
-    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"] }, inCo("co")));
+    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { receiptIds: ["x"] }, inCo("co")));
     assert.deepEqual(s.claims.map((c) => c.id), ["c", "a", "b"]);
 
     s = expenseClaimsReducer(s, approveExpenseClaim.fulfilled(claim("a", { status: "awaiting_reimbursement" }), "r", { id: "a" }, inCo("co")));
@@ -108,7 +108,7 @@ describe("expenseClaims slice", () => {
     assert.equal(s.claims.length, 3);
     s = expenseClaimsReducer(s, deleteExpenseClaim.fulfilled("c", "r", "c", inCo("co")));
     assert.deepEqual(s.claims.map((c) => c.id), ["a", "b"]);
-    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { claimant: { name: "C" }, receiptIds: ["x"] }, inCo("co")));
+    s = expenseClaimsReducer(s, createExpenseClaim.fulfilled(claim("c"), "r", { receiptIds: ["x"] }, inCo("co")));
 
     s = expenseClaimsReducer(
       s,
@@ -168,7 +168,7 @@ describe("invoice slice follows receipts onto and off claims", () => {
       createExpenseClaim.fulfilled(
         claim("c1", { receipts: [receipt("r1"), receipt("r2")] }),
         "r",
-        { claimant: { name: "A" }, receiptIds: ["r1", "r2"] },
+        { receiptIds: ["r1", "r2"] },
         inCo("co"),
       ),
     );
@@ -364,7 +364,7 @@ describe("approver is the manager, worked out by the backend", () => {
     const originalPost = api.post;
     try {
       api.post = (async () => ({ data: { data: { claim: claim("c1"), autoApproveError: "Pick a GL account for these receipts first: Cafe" } } })) as unknown as typeof api.post;
-      const res = await store.dispatch(createExpenseClaim({ claimant: { name: "Kim" }, receiptIds: ["r1"] }));
+      const res = await store.dispatch(createExpenseClaim({ receiptIds: ["r1"] }));
       assert.ok(createExpenseClaim.fulfilled.match(res));
       assert.equal(res.meta.autoApproveError, "Pick a GL account for these receipts first: Cafe");
     } finally {

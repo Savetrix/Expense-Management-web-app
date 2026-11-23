@@ -18,6 +18,10 @@ export const PAGE_ACCESS_OPTIONS = [
 
 export type PageKey = (typeof PAGE_ACCESS_OPTIONS)[number]["key"];
 export const ALL_PAGE_KEYS: PageKey[] = PAGE_ACCESS_OPTIONS.map((p) => p.key);
+// What a new contributor ("upload and edit invoices only") starts with on the
+// invite form — the owner ticks more if they want; company admin pages
+// (Team, Subscription, Integrations…) stay off unless picked.
+export const CONTRIBUTOR_DEFAULT_PAGES: PageKey[] = ["dashboard", "invoices", "expense-claims"];
 
 // Pages reached from a sidebar page rather than the sidebar itself: they
 // follow that page's access.

@@ -144,7 +144,8 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
 
   const footer =
     step === "file" ? (
-      <Button disabled={rows.length === 0} onClick={() => setStep("map")}>
+      // Every imported line is filed under this account — a blank one can't be told apart later.
+      <Button disabled={rows.length === 0 || !accountName.trim()} onClick={() => setStep("map")}>
         Next
       </Button>
     ) : step === "map" ? (
@@ -208,7 +209,7 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
           {error && <p className="text-caption font-semibold text-status-danger-text">{error}</p>}
           <div>
             <label className={FIELD_LABEL_CLASS} htmlFor="import-account">
-              Account
+              Account *
             </label>
             {(bankAccounts.length > 0 || importedNames.length > 0) && (
               <SelectDropdown
@@ -238,6 +239,9 @@ export function ImportFileModal({ open, onClose, bankAccounts, existing, onImpor
               onChange={(e) => setAccountName(e.target.value)}
               className="mt-[var(--space-xs)] w-full"
             />
+            {rows.length > 0 && !accountName.trim() && (
+              <p className="mt-[var(--space-xs)] text-caption text-content-secondary">Name the account these transactions came from to continue.</p>
+            )}
           </div>
         </div>
       )}

@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { vendorInitials } from "@/components/invoices/SelectedInvoiceCard";
 import { Avatar, DataTable, SearchInput, SelectDropdown, StatusPill } from "@/components/v2/ui";
+import { isRejectedInvoice } from "@/lib/outcomeMix";
 import type { DataTableColumn } from "@/components/v2/ui";
 import { OutcomeMixCardV2 } from "@/components/v2/invoices/OutcomeMixCardV2";
 import { TopVendorsCardV2 } from "@/components/v2/invoices/TopVendorsCardV2";
@@ -284,7 +285,7 @@ export function InvoiceListContentV2() {
         const status = getInvoiceStatus(invoice.postedStatus);
         return (
           <span className="block truncate whitespace-nowrap">
-            <StatusPill status={status} />
+            <StatusPill status={status} rejected={isRejectedInvoice(invoice)} />
           </span>
         );
       },

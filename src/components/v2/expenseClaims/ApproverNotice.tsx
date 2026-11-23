@@ -54,12 +54,15 @@ export function ApproverNotice({
   error,
   providerName,
   noun,
+  selfId,
 }: {
   loading: boolean;
   preview: ApproverPreviewDto | null;
   error: string;
   providerName: string;
   noun: "claim" | "trip";
+  /** The signed-in user — named "You" when they're the approver. */
+  selfId?: string;
 }) {
   // role="status": a screen reader hears why Send is unavailable.
   const box = "rounded-md border px-[var(--space-md)] py-[var(--space-sm)] text-body-sm";
@@ -82,7 +85,7 @@ export function ApproverNotice({
   return (
     <p className={`${box} border-border bg-page text-content-primary`}>
       <span className="text-content-secondary">Approver: </span>
-      <span className="font-semibold">{preview.approver.name}</span>
+      <span className="font-semibold">{preview.approver.userId === selfId ? "You" : preview.approver.name}</span>
       <span className="text-content-secondary"> (manager)</span>
     </p>
   );

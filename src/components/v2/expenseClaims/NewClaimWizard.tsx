@@ -1,65 +1,56 @@
 "use client";
 
-import { AlertCircle, Inbox, Trash2, Upload } from "lucide-react";
+import { AlertCircle, Inbox, Pencil, Trash2, Upload } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
-import { CreatableCombobox, Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
+import { Modal, ModalDefinitionRow, ProgressBar } from "@/components/v2/ui";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import {
   createExpenseClaim,
   deleteClaimReceipt,
   fetchClaimReceipts,
   uploadClaimReceipts,
-  type ClaimContactDto,
   type ClaimableReceiptDto,
 } from "@/store/expenseClaims/expenseClaimsApi";
 import { useAppDispatch } from "@/store/hooks";
 
-import {
-  FIELD_LABEL_CLASS,
-  errorMessage,
-  isApprover,
-  money,
-  monthLabel,
-  shortDate,
-  todayIso,
-  type CompanyRole,
-} from "./shared";
-import type { TeamPerson } from "./useTeamMembers";
+import { errorMessage, isApprover, money, monthLabel, receiptEditHref, shortDate, todayIso, type CompanyRole } from "./shared";
 import { ApproverNotice, useApproverPreview } from "./ApproverNotice";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 
 interface NewClaimWizardProps {
   open: boolean;
   onClose: () => void;
-  members: TeamPerson[];
-  /** Claimants outside the team from earlier claims. */
-  contacts: ClaimContactDto[];
   role: CompanyRole;
   selfId: string;
+  /** False for a contributor without the Invoices page: receipts can't be opened for editing there. */
+  canOpenInvoices: boolean;
+  /** Receipts to tick when the wizard opens (coming back from editing one). */
+  initialSelected?: string[] | null;
   onCreated: () => void;
 }
 
-type Step = 1 | 2 | 3;
-const STEP_TITLES: Record<Step, string> = { 1: "Add receipts", 2: "Choose approver", 3: "Review & send" };
+type Step = 1 | 2;
+const STEP_TITLES: Record<Step, string> = { 1: "Add receipts", 2: "Review & send" };
 
-// Picker ids: a team member is their userId; a saved contact and a name typed
-// just now get these prefixes. A typed name becomes a contact on the server.
-const NAME_PREFIX = "name:";
-const CONTACT_PREFIX = "contact:";
+// Uploader key for a receipt whose uploader's account no longer exists.
+const GONE = "__gone__";
 
 // Same limit as the dashboard's scanner (the backend takes 10 files per upload).
 const MAX_UPLOAD_FILES = 10;
 // A scan usually takes well under a minute; check back this often meanwhile.
 const POLL_MS = 4000;
 
-export function NewClaimWizard({ open, onClose, members, contacts, role, selfId, onCreated }: NewClaimWizardProps) {
+// The claimant is whoever uploaded the receipts — nobody picks one (the
+// backend works it out the same way and refuses receipts from two people).
+export function NewClaimWizard({ open, onClose, role, selfId, canOpenInvoices, initialSelected, onCreated }: NewClaimWizardProps) {
   const provider = useActiveProvider();
   const dispatch = useAppDispatch();
-  // Submitters (contributors) claim only for themselves.
+  // Submitters (contributors) see and claim only their own uploads.
   const submitterOnly = !isApprover(role);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,12 +63,17 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
   const [autoSelect, setAutoSelect] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [typedNames, setTypedNames] = useState<string[]>([]);
   const [step, setStep] = useState<Step>(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [claimantKey, setClaimantKey] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
+
+  // Coming back from a receipt's review screen: tick what was ticked before.
+  const [seededFrom, setSeededFrom] = useState<string[] | null | undefined>(null);
+  if (open && initialSelected && seededFrom !== initialSelected) {
+    setSeededFrom(initialSelected);
+    setSelected(new Set(initialSelected));
+  }
 
   // A failed background refresh (polling) keeps the list it has.
   const applyReceipts = useCallback((result: Awaited<ReturnType<ReturnType<typeof fetchClaimReceipts>>>) => {
@@ -124,33 +120,45 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
     });
   }
 
-  const options = useMemo(() => {
-    const team = members.filter((m) => !submitterOnly || m.userId === selfId).map((m) => ({ id: m.userId, label: m.name }));
-    if (submitterOnly) return team;
-    const known = new Set(contacts.map((c) => c.name.toLowerCase()));
-    return [
-      ...team,
-      ...contacts.map((c) => ({ id: `${CONTACT_PREFIX}${c.id}`, label: c.email ? `${c.name} (${c.email})` : c.name })),
-      ...typedNames.filter((n) => !known.has(n.toLowerCase())).map((n) => ({ id: `${NAME_PREFIX}${n}`, label: n })),
-    ];
-  }, [members, contacts, typedNames, submitterOnly, selfId]);
+  // Only scanned receipts can go on the claim.
+  const chosen = useMemo(() => receipts.filter((r) => r.status === "pending" && selected.has(r.id)), [receipts, selected]);
+  const currencies = useMemo(() => [...new Set(chosen.map((r) => r.currency).filter(Boolean))], [chosen]);
+  // A receipt whose uploader's account is gone comes back with no uploader —
+  // it counts as someone else's, so it never passes as yours.
+  const uploaders = useMemo(() => [...new Set(chosen.map((r) => r.uploadedBy?.id ?? GONE))], [chosen]);
+  const mixedCurrency = currencies.length > 1;
+  const mixedUploaders = uploaders.length > 1;
+  const total = chosen.reduce((sum, r) => sum + r.amount, 0);
+  // The server files the claim under the month of its latest receipt.
+  const month = useMemo(() => {
+    const latest = chosen.map((r) => r.date).filter(Boolean).sort().pop();
+    return (latest || todayIso()).slice(0, 7);
+  }, [chosen]);
 
-  const effectiveClaimantKey = submitterOnly ? selfId : claimantKey;
-  const claimantLabel = options.find((o) => o.id === effectiveClaimantKey)?.label ?? "";
+  // Whose claim it is: the one person who uploaded the chosen receipts.
+  const uploaderGone = uploaders.includes(GONE);
+  const claimantId = mixedUploaders || uploaderGone ? "" : (uploaders[0] ?? "");
+  const claimantName = claimantId === selfId ? "You" : (chosen.find((r) => r.uploadedBy?.id === claimantId)?.uploadedBy?.name ?? "");
 
-  // It goes to the claimant's manager — a team member's own, or yours for
-  // someone outside the team (a contact or a typed name). Shown from step 2.
-  const claimantIsTeamMember = !!effectiveClaimantKey && !effectiveClaimantKey.startsWith(NAME_PREFIX) && !effectiveClaimantKey.startsWith(CONTACT_PREFIX);
-  const approverFor = claimantIsTeamMember && effectiveClaimantKey !== selfId ? effectiveClaimantKey : null;
-  const route = useApproverPreview(approverFor, open && step >= 2 && !!effectiveClaimantKey);
-  const approverName = route.preview?.approver?.name ?? "";
+  // Who it goes to (the claimant's manager), checked as soon as receipts are
+  // picked — a claimant with no manager can't be sent, and the wizard says so
+  // before Next instead of failing at the end.
+  const route = useApproverPreview(claimantId && claimantId !== selfId ? claimantId : null, open && !!claimantId);
+  const approverName = route.preview?.approver?.userId === selfId ? "you" : (route.preview?.approver?.name ?? "");
   const autoApprove = !!route.preview?.autoApprove;
+
+  // Approving posts the bill, which needs a GL account on every receipt.
+  const uncoded = chosen.filter((r) => !r.glAccountId);
+  // The owner's own are approved as they're sent — so they must be coded first.
+  const blockedByGl = autoApprove && uncoded.length > 0;
+
+  // Coming back here after editing a receipt keeps these ticked.
+  const editHref = (receiptId: string) => receiptEditHref(receiptId, `/reimbursements?newClaim=${[...selected].join(",")}`);
 
   const reset = () => {
     setStep(1);
     setSelected(new Set());
     setAutoSelect(new Set());
-    setClaimantKey("");
     setNotes({});
   };
 
@@ -160,16 +168,6 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
     setReceiptsLoaded(false);
     onClose();
   };
-
-  // Only scanned receipts can go on the claim.
-  const chosen = useMemo(() => receipts.filter((r) => r.status === "pending" && selected.has(r.id)), [receipts, selected]);
-  const currencies = useMemo(() => [...new Set(chosen.map((r) => r.currency).filter(Boolean))], [chosen]);
-  const total = chosen.reduce((sum, r) => sum + r.amount, 0);
-  // The server files the claim under the month of its latest receipt.
-  const month = useMemo(() => {
-    const latest = chosen.map((r) => r.date).filter(Boolean).sort().pop();
-    return (latest || todayIso()).slice(0, 7);
-  }, [chosen]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -224,44 +222,11 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
     }
   };
 
-  const handleAddName = (name: string) => {
-    const trimmed = name.trim().replace(/\s+/g, " ");
-    if (!trimmed) {
-      showToast("Type the claimant's name first, then add it.", "warning");
-      return;
-    }
-    // Already a contact: pick that one instead of adding a duplicate.
-    const existing = contacts.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
-    if (existing) {
-      setClaimantKey(`${CONTACT_PREFIX}${existing.id}`);
-      return;
-    }
-    setTypedNames((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-    setClaimantKey(`${NAME_PREFIX}${trimmed}`);
-  };
-
-  const goNext = () => {
-    // An approver claiming receipts one team member uploaded: that's most
-    // likely the claimant, so start there.
-    if (step === 1 && !submitterOnly && !claimantKey) {
-      const uploaders = [...new Set(chosen.map((r) => r.uploadedBy?.id).filter(Boolean))];
-      if (uploaders.length === 1 && members.some((m) => m.userId === uploaders[0])) setClaimantKey(uploaders[0] as string);
-    }
-    setStep((s) => (s + 1) as Step);
-  };
-
   const handleCreate = async () => {
-    if (!effectiveClaimantKey || !route.ready) return;
+    if (!claimantId || !route.ready || blockedByGl) return;
     setCreating(true);
-    const claimant = effectiveClaimantKey.startsWith(NAME_PREFIX)
-      ? { name: effectiveClaimantKey.slice(NAME_PREFIX.length) }
-      : effectiveClaimantKey.startsWith(CONTACT_PREFIX)
-        ? { contactId: effectiveClaimantKey.slice(CONTACT_PREFIX.length) }
-        : { userId: effectiveClaimantKey };
     const filledNotes = Object.fromEntries(chosen.map((r) => [r.id, (notes[r.id] ?? "").trim()] as const).filter(([, note]) => note));
-    const result = await dispatch(
-      createExpenseClaim({ claimant, receiptIds: chosen.map((r) => r.id), notes: filledNotes }),
-    );
+    const result = await dispatch(createExpenseClaim({ receiptIds: chosen.map((r) => r.id), notes: filledNotes }));
     setCreating(false);
     if (createExpenseClaim.fulfilled.match(result)) {
       const { autoApproveError } = result.meta;
@@ -278,21 +243,19 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
     }
   };
 
-  const mixedCurrency = currencies.length > 1;
-  const nextDisabled =
-    (step === 1 && (chosen.length === 0 || mixedCurrency || uploading)) || (step === 2 && (!effectiveClaimantKey || !route.ready));
+  const nextDisabled = chosen.length === 0 || mixedCurrency || mixedUploaders || uploaderGone || uploading || !route.ready;
 
   const footer = (
     <div className="flex w-full items-center justify-between gap-[var(--space-sm)]">
-      <Button variant="outline" size="sm" onClick={step === 1 ? close : () => setStep((s) => (s - 1) as Step)} disabled={creating || uploading}>
+      <Button variant="outline" size="sm" onClick={step === 1 ? close : () => setStep(1)} disabled={creating || uploading}>
         {step === 1 ? "Cancel" : "Back"}
       </Button>
-      {step < 3 ? (
-        <Button size="sm" onClick={goNext} disabled={nextDisabled}>
+      {step === 1 ? (
+        <Button size="sm" onClick={() => setStep(2)} disabled={nextDisabled}>
           Next
         </Button>
       ) : (
-        <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || chosen.length === 0 || mixedCurrency || !route.ready}>
+        <Button size="sm" onClick={handleCreate} loading={creating} disabled={creating || nextDisabled || blockedByGl}>
           {autoApprove ? `Approve & post to ${provider.name}` : `Send to ${approverName}`}
         </Button>
       )}
@@ -316,17 +279,89 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
     </>
   );
 
+  const editLink = (receipt: ClaimableReceiptDto, label = "Edit details") =>
+    canOpenInvoices && (
+      <Link
+        href={editHref(receipt.id)}
+        // Inside the row's <label>: don't toggle the checkbox too.
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex items-center gap-[var(--space-xs)] text-caption font-bold text-accent hover:underline"
+      >
+        <Pencil size={12} strokeWidth={2.5} />
+        {label}
+      </Link>
+    );
+
+  const receiptRow = (r: ClaimableReceiptDto) =>
+    r.status === "pending" ? (
+      <label
+        key={r.id}
+        className={`flex cursor-pointer items-start gap-[var(--space-sm)] rounded-md border px-[var(--space-md)] py-[var(--space-sm)] ${
+          selected.has(r.id) ? "border-accent bg-surface-alt" : "border-border bg-page"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={selected.has(r.id)}
+          onChange={() => toggle(r.id)}
+          className="mt-1 rounded border-border-strong text-accent focus:ring-accent"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-start justify-between gap-[var(--space-sm)]">
+            <span className="truncate text-body-sm font-semibold text-content-primary">{r.vendor}</span>
+            <span className="shrink-0 text-body-sm font-bold text-content-primary">{money(r.amount, r.currency)}</span>
+          </span>
+          <span className="block text-caption text-content-secondary">
+            {shortDate(r.date)} · Tax {money(r.tax, r.currency)} ·{" "}
+            {r.glAccount ?? (r.glAccountId ? "GL account set" : <span className="text-status-warning-text">No GL account</span>)}
+          </span>
+          <span className="mt-[2px] block">{editLink(r)}</span>
+        </span>
+        <DeleteReceiptButton receipt={r} busy={deletingId === r.id} onDelete={handleDelete} />
+      </label>
+    ) : (
+      <div key={r.id} className="flex items-start gap-[var(--space-sm)] rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]">
+        <span className="mt-[2px] shrink-0">
+          {r.status === "processing" ? <Spinner size="sm" /> : <AlertCircle size={16} strokeWidth={2.25} className="text-status-danger-text" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-body-sm font-semibold text-content-primary">
+            {r.status === "processing" ? "Scanning receipt…" : "Couldn't read this receipt"}
+          </span>
+          <span className="block text-caption text-content-secondary">
+            {r.status === "processing" ? "It'll be ready to add in a moment." : r.reason || "Delete it and upload a clearer photo."}
+          </span>
+        </span>
+        {r.status === "failed" && <DeleteReceiptButton receipt={r} busy={deletingId === r.id} onDelete={handleDelete} />}
+      </div>
+    );
+
+  // An approver sees everyone's receipts — grouped by who uploaded them, since
+  // a claim takes one person's.
+  const groups = useMemo(() => {
+    const byUploader = new Map<string, { name: string; items: ClaimableReceiptDto[] }>();
+    for (const r of receipts) {
+      const id = r.uploadedBy?.id ?? GONE;
+      const name = id === selfId ? "Your receipts" : (r.uploadedBy?.name ?? "Uploader no longer on the team");
+      const group = byUploader.get(id) ?? { name, items: [] };
+      group.items.push(r);
+      byUploader.set(id, group);
+    }
+    // Your own first.
+    return [...byUploader.entries()].sort(([a], [b]) => (a === selfId ? -1 : b === selfId ? 1 : 0)).map(([, g]) => g);
+  }, [receipts, selfId]);
+
   return (
     <Modal open={open} onClose={close} title="New reimbursement" widthClassName="max-w-lg" footer={footer}>
       <div className="flex flex-col gap-[var(--space-md)]">
         <div>
           <div className="flex items-center justify-between text-caption font-semibold text-content-secondary">
             <span>
-              Step {step} of 3 · {STEP_TITLES[step]}
+              Step {step} of 2 · {STEP_TITLES[step]}
             </span>
           </div>
           <div className="mt-[var(--space-xs)]">
-            <ProgressBar percent={(step / 3) * 100} label="Wizard progress" />
+            <ProgressBar percent={(step / 2) * 100} label="Wizard progress" />
           </div>
         </div>
 
@@ -334,7 +369,9 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
           <div className="flex flex-col gap-[var(--space-sm)]">
             <div className="flex items-center justify-between gap-[var(--space-sm)]">
               <p className="text-body-sm text-content-secondary">
-                {submitterOnly ? "Upload the receipts you paid for out of pocket." : "Upload or pick the receipts the employee paid for out of pocket."}
+                {submitterOnly
+                  ? "Upload the receipts you paid for out of pocket. Check what was read, and fix it with Edit details."
+                  : "Pick one person's receipts — the claim is theirs and repays them."}
               </p>
               <span className="shrink-0">{uploadButton}</span>
             </div>
@@ -351,107 +388,48 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
                 title="No receipts yet"
                 description="Upload a photo or PDF of each receipt. They're scanned like invoices, but they only ever go to your accounting software through an approved claim."
               />
+            ) : groups.length > 1 ? (
+              groups.map((g) => (
+                <div key={g.name} className="flex flex-col gap-[var(--space-sm)]">
+                  <p className="text-tiny font-bold uppercase tracking-wider text-content-muted">{g.name}</p>
+                  {g.items.map(receiptRow)}
+                </div>
+              ))
             ) : (
-              receipts.map((r) =>
-                r.status === "pending" ? (
-                  <label
-                    key={r.id}
-                    className={`flex cursor-pointer items-start gap-[var(--space-sm)] rounded-md border px-[var(--space-md)] py-[var(--space-sm)] ${
-                      selected.has(r.id) ? "border-accent bg-surface-alt" : "border-border bg-page"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.has(r.id)}
-                      onChange={() => toggle(r.id)}
-                      className="mt-1 rounded border-border-strong text-accent focus:ring-accent"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-start justify-between gap-[var(--space-sm)]">
-                        <span className="truncate text-body-sm font-semibold text-content-primary">{r.vendor}</span>
-                        <span className="shrink-0 text-body-sm font-bold text-content-primary">{money(r.amount, r.currency)}</span>
-                      </span>
-                      <span className="text-caption text-content-secondary">
-                        {shortDate(r.date)} · Tax {money(r.tax, r.currency)}
-                        {!submitterOnly && r.uploadedBy && r.uploadedBy.id !== selfId ? ` · uploaded by ${r.uploadedBy.name}` : ""}
-                      </span>
-                    </span>
-                    <DeleteReceiptButton receipt={r} busy={deletingId === r.id} onDelete={handleDelete} />
-                  </label>
-                ) : (
-                  <div
-                    key={r.id}
-                    className="flex items-start gap-[var(--space-sm)] rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)]"
-                  >
-                    <span className="mt-[2px] shrink-0">
-                      {r.status === "processing" ? <Spinner size="sm" /> : <AlertCircle size={16} strokeWidth={2.25} className="text-status-danger-text" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-body-sm font-semibold text-content-primary">
-                        {r.status === "processing" ? "Scanning receipt…" : "Couldn't read this receipt"}
-                      </span>
-                      <span className="block text-caption text-content-secondary">
-                        {r.status === "processing" ? "It'll be ready to add in a moment." : r.reason || "Delete it and upload a clearer photo."}
-                      </span>
-                    </span>
-                    {r.status === "failed" && <DeleteReceiptButton receipt={r} busy={deletingId === r.id} onDelete={handleDelete} />}
-                  </div>
-                ),
-              )
+              receipts.map(receiptRow)
             )}
 
-            {mixedCurrency ? (
-              <p className="text-caption font-semibold text-status-danger-text">
+            {uploaderGone && !mixedUploaders ? (
+              <p role="status" className="text-caption font-semibold text-status-danger-text">
+                Whoever uploaded {chosen.length === 1 ? "this receipt" : "these receipts"} is no longer on the team, so it can&apos;t be claimed — delete it instead.
+              </p>
+            ) : mixedUploaders ? (
+              <p role="status" className="text-caption font-semibold text-status-danger-text">
+                These receipts were uploaded by different people. A claim repays one person, so pick one person&apos;s receipts.
+              </p>
+            ) : mixedCurrency ? (
+              <p role="status" className="text-caption font-semibold text-status-danger-text">
                 These receipts are in different currencies ({currencies.join(", ")}). A claim is one bill, so put each currency on its own claim.
               </p>
             ) : (
               chosen.length > 0 && (
-                <p className="text-caption font-semibold text-content-secondary">
-                  {chosen.length} selected · {money(total, currencies[0])}
-                </p>
+                <>
+                  <p className="text-caption font-semibold text-content-secondary">
+                    {chosen.length} selected · {money(total, currencies[0])}
+                    {claimantId !== selfId && claimantName ? ` · claim for ${claimantName}` : ""}
+                  </p>
+                  <ApproverNotice loading={route.loading} preview={route.preview} error={route.error} providerName={provider.name} noun="claim" selfId={selfId} />
+                </>
               )
             )}
           </div>
         )}
 
         {step === 2 && (
-          <div className="flex flex-col gap-[var(--space-sm)]">
-            <label className={FIELD_LABEL_CLASS}>Claimant *</label>
-            {submitterOnly ? (
-              <p className="rounded-md border border-border bg-page px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-content-primary">
-                {claimantLabel || "You"}
-              </p>
-            ) : (
-              <CreatableCombobox
-                options={options}
-                noun="claimant"
-                ariaLabel="Claimant"
-                value={claimantKey}
-                onSelect={setClaimantKey}
-                onAddNew={handleAddName}
-                placeholder="Search team members and contacts, or type a new name"
-                uiSize="md"
-              />
-            )}
-            <p className="text-caption text-content-secondary">
-              {submitterOnly
-                ? "You can only claim for yourself."
-                : "When approved, the claim is posted as one bill payable to this person. Not on your team? Type their name — they're saved as a contact for next time."}
-            </p>
-
-            {effectiveClaimantKey && (
-              <div className="mt-[var(--space-sm)]">
-                <ApproverNotice loading={route.loading} preview={route.preview} error={route.error} providerName={provider.name} noun="claim" />
-              </div>
-            )}
-          </div>
-        )}
-
-        {step === 3 && (
           <div className="flex flex-col gap-[var(--space-md)]">
             <div>
-              <ModalDefinitionRow label="Claimant">{claimantLabel}</ModalDefinitionRow>
-              <ModalDefinitionRow label="Approver">{autoApprove ? "You (owner) — approved on send" : approverName}</ModalDefinitionRow>
+              <ModalDefinitionRow label="Claimant">{claimantName}</ModalDefinitionRow>
+              <ModalDefinitionRow label="Approver">{autoApprove ? "You (owner) — approved on send" : approverName === "you" ? "You" : approverName}</ModalDefinitionRow>
               <ModalDefinitionRow label="Month">{monthLabel(month)}</ModalDefinitionRow>
               <ModalDefinitionRow label="Receipts">{chosen.length}</ModalDefinitionRow>
             </div>
@@ -461,7 +439,9 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
                   <div className="flex items-center justify-between gap-[var(--space-sm)]">
                     <span className="min-w-0">
                       <span className="block truncate text-body-sm font-semibold text-content-primary">{r.vendor}</span>
-                      <span className="block text-caption text-content-secondary">{shortDate(r.date)}</span>
+                      <span className="block text-caption text-content-secondary">
+                        {shortDate(r.date)} · {r.glAccount ?? (r.glAccountId ? "GL account set" : "No GL account")}
+                      </span>
                     </span>
                     <span className="shrink-0 text-body-sm font-bold text-content-primary">{money(r.amount, r.currency)}</span>
                   </div>
@@ -481,10 +461,34 @@ export function NewClaimWizard({ open, onClose, members, contacts, role, selfId,
               <span>Total</span>
               <span>{money(total, currencies[0])}</span>
             </div>
+            {uncoded.length > 0 && (
+              <div
+                role="status"
+                className={`rounded-md border px-[var(--space-md)] py-[var(--space-sm)] text-body-sm ${
+                  blockedByGl
+                    ? "border-status-warning-border bg-status-warning-bg text-status-warning-text"
+                    : "border-border bg-page text-content-secondary"
+                }`}
+              >
+                <p>
+                  {blockedByGl
+                    ? `It's posted to ${provider.name} the moment you send it, so every receipt needs a GL account first:`
+                    : `No GL account yet on ${uncoded.length === 1 ? "this receipt" : "these receipts"} — ${approverName} picks one before approving:`}
+                </p>
+                <ul className="mt-[var(--space-xs)] flex flex-col gap-[2px]">
+                  {uncoded.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-[var(--space-sm)]">
+                      <span className="truncate font-semibold">{r.vendor}</span>
+                      {editLink(r, "Pick GL account")}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <p className="text-caption text-content-secondary">
               {autoApprove
                 ? `It's approved and posted to ${provider.name} as one bill payable to the claimant as soon as you send it.`
-                : `${approverName} gets it in Awaiting review. Approving it posts it to ${provider.name}; rejecting it keeps it out.`}
+                : `${approverName === "you" ? "You get" : `${approverName} gets`} it in Awaiting review. Approving it posts it to ${provider.name}; rejecting it keeps it out.`}
             </p>
           </div>
         )}

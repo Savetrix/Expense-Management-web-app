@@ -57,6 +57,7 @@ import { setSelectedInvoice } from "@/store/invoice/invoiceSlice";
 import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import { isRejectedInvoice } from "@/lib/outcomeMix";
 
 /**
  * v2 redesign of DashboardContent (see .claude/skills/redesign-v2). All
@@ -310,7 +311,7 @@ function RecentInvoiceRowV2({
         {getUserDisplayName(invoice.uploadedBy) || "—"}
       </td>
       <td className="px-[var(--space-sm)] py-[var(--space-sm)] align-middle">
-        <StatusPill status={status} />
+        <StatusPill status={status} rejected={isRejectedInvoice(invoice)} />
       </td>
       <td className="whitespace-nowrap px-[var(--space-sm)] py-[var(--space-sm)] text-right font-bold text-text-primary align-middle">
         {getInvoiceAmount(invoice)}
@@ -354,6 +355,7 @@ export function DashboardContentV2() {
     loading: invoiceLoading,
     error: invoiceError,
   } = useAppSelector((state) => state.invoice);
+  const rejectedCount = useMemo(() => failedInvoices.filter(isRejectedInvoice).length, [failedInvoices]);
   const { connected, statusLoading, qbConnectionId, disconnectReason } =
     useAppSelector((state) => state.quickBooks);
   const needsReconnect = disconnectReason === "reconnect_required";
@@ -757,10 +759,17 @@ export function DashboardContentV2() {
               colorClass="text-status-info-text"
             />
             <StatRowV2
-              count={failedInvoices.length}
+              count={failedInvoices.length - rejectedCount}
               label="Failed"
               href="/invoices?type=failed"
               colorClass="text-status-danger-text"
+            />
+            {/* A person's decision, not an error — counted on its own. */}
+            <StatRowV2
+              count={rejectedCount}
+              label="Rejected"
+              href="/invoices?type=failed"
+              colorClass="text-content-secondary"
               last
             />
           </div>
