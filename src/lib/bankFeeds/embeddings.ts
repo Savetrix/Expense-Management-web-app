@@ -21,7 +21,8 @@ const BATCH = 100;
 /** The OpenAI embedder, or null when this server has no key (step 3 then stays off). */
 export function openAiEmbedder(apiKey = process.env.OPENAI_API_KEY?.trim()): Embedder | null {
   if (!apiKey) return null;
-  const client = new OpenAI({ apiKey });
+  // 20 s and one retry: a slow OpenAI never holds an import or a page (24 Nov production check; the library default is 10 min, 2 retries).
+  const client = new OpenAI({ apiKey, timeout: 20_000, maxRetries: 1 });
   return {
     model: `openai:${EMBED_MODEL}@${EMBED_DIMENSIONS}`,
     async embed(texts) {

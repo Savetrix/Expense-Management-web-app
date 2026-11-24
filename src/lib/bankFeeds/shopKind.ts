@@ -37,7 +37,8 @@ export function cleanKind(raw: unknown): string | null {
 /** The OpenAI labeller on the app's chat model, or null when this server has no key. */
 export function openAiLabeller(apiKey = process.env.OPENAI_API_KEY?.trim()): Labeller | null {
   if (!apiKey) return null;
-  const client = new OpenAI({ apiKey });
+  // 20 s and one retry: a slow OpenAI never holds an import or a page (24 Nov production check; the library default is 10 min, 2 retries).
+  const client = new OpenAI({ apiKey, timeout: 20_000, maxRetries: 1 });
   const model = process.env.OPENAI_MODEL?.trim() || "gpt-5.4-mini";
   return {
     model: `openai:${model}`,
