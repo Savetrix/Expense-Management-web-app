@@ -20,9 +20,16 @@ import {
   importBankCsv,
   postBankTransactions,
   updateBankTransaction,
+  fetchSuggestionSettings,
+  fetchOpenBills,
+  refuseTransferPair,
+  syncDueBanks,
+  type OpenBillDto,
+  ALL_FEATURES_ON,
   type BankTxnPatch,
+  type SuggestionSettingsDto,
 } from "@/store/bankFeeds/bankFeedsApi";
-import { getInvoices } from "@/store/invoice/invoiceApi";
+import { getInvoices, postInvoiceToQuickBooks } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
 import { requestAiPick, requestHistoryRead, requestSimilarSync } from "@/components/v2/suggestions/historyClient";
@@ -31,11 +38,14 @@ import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
-import { closedBills, toCandidates, type StrongSuggestion } from "./matching";
+import { closedBills, toCandidates, withLedgerBills, type StrongSuggestion } from "./matching";
 import { fetchPaperwork } from "./paperworkClient";
 import { PaperworkTab } from "./PaperworkTab";
 import { TransactionModal } from "./TransactionModal";
-import { currencyMismatch, lineCurrency } from "./glList";
+import { currencyMismatch, lineCurrency, lineLedgerId } from "./glList";
+import { billReadiness } from "./billPay";
+import { confirmThenPost } from "./postWarning";
+import { findTransferPairs, pairPatches, type TransferPair } from "./transferPairs";
 import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
 
@@ -147,6 +157,26 @@ export function BankTransactionsContentV2() {
     if (results.some((r) => r.transaction?.status === "transfer")) dispatch(fetchBankTransactions());
   };
 
+  // New bank lines without "Sync now" (24 Nov): when the page opens and every
+  // 5 minutes while it is visible, the server syncs any bank login not synced
+  // for 15 minutes (the safety net for a missing or late Plaid webhook).
+  useEffect(() => {
+    if (!qbConnectionId || bankAccounts.length === 0) return;
+    const due = () => {
+      if (document.visibilityState !== "visible") return;
+      void dispatch(syncDueBanks()).then((r) => {
+        if (syncDueBanks.fulfilled.match(r) && r.payload.added > 0) {
+          dispatch(fetchBankTransactions());
+          dispatch(fetchBankAccounts());
+        }
+      });
+    };
+    due();
+    const timer = window.setInterval(due, 5 * 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, qbConnectionId, bankAccounts.length > 0]);
+
   // New lines arrive through Plaid's webhook while the page is open; check
   // every 30 seconds (only while the tab is visible) and on coming back to the
   // tab, so they appear without a reload.
@@ -165,9 +195,11 @@ export function BankTransactionsContentV2() {
     };
   }, [dispatch, qbConnectionId]);
 
+  // Bills entered straight into QuickBooks/Xero are candidates too (24 Nov), read when the page opens and every 5 minutes.
+  const [ledgerBills, setLedgerBills] = useState<OpenBillDto[]>([]);
   const candidates = useMemo(
-    () => toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices),
-    [pendingInvoices, autoPostedInvoices, manualPostedInvoices],
+    () => withLedgerBills(toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices), ledgerBills),
+    [pendingInvoices, autoPostedInvoices, manualPostedInvoices, ledgerBills],
   );
   // Bills paid in QuickBooks/Xero (or matched to a line already) aren't offered
   // for a match. Asked once per set of bills; on failure every bill is offered.
@@ -184,6 +216,49 @@ export function BankTransactionsContentV2() {
     };
   }, [dispatch, qbConnectionId, billIdsKey]);
   const closed = useMemo(() => closedBills(txns, candidates, paidBills), [txns, candidates, paidBills]);
+
+  // Auto-classification and the 24 Nov feature switches (Autopilot > Settings); all on until they load.
+  const [settings, setSettings] = useState<SuggestionSettingsDto | null>(null);
+  useEffect(() => {
+    if (!qbConnectionId) return;
+    let cancelled = false;
+    void dispatch(fetchSuggestionSettings()).then((r) => {
+      if (!cancelled && fetchSuggestionSettings.fulfilled.match(r)) setSettings(r.payload);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId]);
+  const mode = settings?.autoClassification ?? "fill";
+  const features = settings?.features ?? ALL_FEATURES_ON;
+  useEffect(() => {
+    if (!qbConnectionId || !canPost || !features.autoMatch) {
+      setLedgerBills([]);
+      return;
+    }
+    let cancelled = false;
+    const read = () =>
+      void dispatch(fetchOpenBills()).then((r) => {
+        if (!cancelled && fetchOpenBills.fulfilled.match(r)) setLedgerBills(r.payload);
+      });
+    read();
+    const timer = window.setInterval(() => document.visibilityState === "visible" && read(), 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [dispatch, qbConnectionId, canPost, features.autoMatch]);
+  // Suggested transfers: one clean pair between two mapped accounts (transferPairs.ts).
+  const pairs = useMemo(
+    () =>
+      features.transferSuggestions
+        ? findTransferPairs(txns, {
+            ledgerIdOf: (t) => lineLedgerId(t, bankAccounts, named),
+            currencyOf: (t) => lineCurrency(t, { bankAccounts, named, chart: ledger.accounts, homeCurrency }),
+          })
+        : [],
+    [features.transferSuggestions, txns, bankAccounts, named, ledger.accounts, homeCurrency],
+  );
 
   // Every decision is saved on the server. A status change carries the line's
   // version, so a teammate's newer change is never overwritten; field edits
@@ -245,7 +320,15 @@ export function BankTransactionsContentV2() {
       picked.map((x) => ({ txn: x.txn, patch: { status: "matched" as const, matchedInvoiceId: x.invoice.id }, sendable: Boolean(x.invoice.billId) })),
       "match",
     );
-  const postLines = async (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => {
+  const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) =>
+    // One popup per click: "Post it anyway?" when nothing is attached, or the batch count (postWarning.ts). A warning, never a block.
+    confirmThenPost(
+      items,
+      { providerName: provider.name, sendsNow: canPost && !ledgerBlock(ledger.reason, ledger.error, provider.name), warnReceipts: features.receiptWarning },
+      (d) => confirmDialog(d),
+      postCheckedLines,
+    );
+  const postCheckedLines = async (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => {
     // A vendor in another currency than the bank account would book the line in
     // the wrong currency (Saurabh, 18 Nov: currency must be right): ask first.
     const odd = items.flatMap(({ txn, patch }) => {
@@ -297,6 +380,57 @@ export function BankTransactionsContentV2() {
       cancelled = true;
     };
   }, [dispatch, qbConnectionId, canPost]);
+  // A suggested transfer: both lines saved as a transfer to each other, then one entry sent (posting.ts marks the other side).
+  const postPair = async (pair: TransferPair) => {
+    const result = await dispatch(bulkUpdateBankTransactions({ items: pairPatches(pair).map((x) => ({ id: x.id, ...(x.patch as BankTxnPatch) })) }));
+    if (!bulkUpdateBankTransactions.fulfilled.match(result)) {
+      showToast(result.payload?.message ?? "Couldn't save the transfer.", "error");
+      return;
+    }
+    if (result.payload.failed.length > 0) {
+      showToast(`Not saved: ${result.payload.failed[0].error ?? "try again"}`, "error");
+      dispatch(fetchBankTransactions());
+      return;
+    }
+    refetchSoon();
+    const blocked = canPost ? ledgerBlock(ledger.reason, ledger.error, provider.name) : `Your role can't send lines to ${provider.name}.`;
+    if (blocked) showToast(`Both lines marked as a transfer. ${blocked}`, "info");
+    else await sendLines([pair.out.id]);
+  };
+  const refusePair = async (pair: TransferPair) => {
+    const result = await dispatch(refuseTransferPair([pair.out.id, pair.in.id]));
+    if (refuseTransferPair.fulfilled.match(result)) {
+      dispatch(fetchBankTransactions());
+      showToast("Both lines stay in To review. ScanTrix won't pair them again.", "info");
+    } else showToast(result.payload?.message ?? "Couldn't save that.", "error");
+  };
+  // "Bill not in QuickBooks yet": post the bill as the invoice screen would, then pay it with the line (billPay.ts).
+  const billWaiting = (invoiceId: string): string | null => {
+    const r = billReadiness(pendingInvoices.find((i) => i._id === invoiceId));
+    return r.ok ? null : r.reason;
+  };
+  const postBillAndPay = async (s: StrongSuggestion) => {
+    const ready = billReadiness(pendingInvoices.find((i) => i._id === s.invoice.id));
+    if (!ready.ok) {
+      showToast(`Bill waiting in ScanTrix: ${ready.reason} Open it from the paperclip to finish it.`, "info");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: `Post the bill and pay it?`,
+      message: `ScanTrix posts ${s.invoice.vendor}${s.invoice.number ? ` #${s.invoice.number}` : ""} to ${provider.name} as a bill, then sends this bank line as its payment: one bill and one payment.`,
+      confirmLabel: "Post bill & pay",
+      cancelLabel: "Go back",
+    });
+    if (!ok) return;
+    const posted = await dispatch(postInvoiceToQuickBooks(ready.payload as Parameters<typeof postInvoiceToQuickBooks>[0]));
+    if (!postInvoiceToQuickBooks.fulfilled.match(posted)) {
+      const msg = typeof posted.payload === "string" ? posted.payload : `Couldn't post the bill to ${provider.name}.`;
+      showToast(`${msg} Nothing was paid.`, "error");
+      return;
+    }
+    dispatch(getInvoices());
+    await saveAndSend([{ txn: s.txn, patch: { status: "matched", matchedInvoiceId: s.invoice.id }, sendable: true }], "match");
+  };
   const linkFound = async (id: string, key: string) => {
     const result = await dispatch(linkFoundEntry({ id, key }));
     if (linkFoundEntry.fulfilled.match(result)) showToast(`Linked to the entry in ${provider.name}. Moved to Matched.`, "success");
@@ -415,6 +549,13 @@ export function BankTransactionsContentV2() {
             closedBills={closed}
             onBulkUpdate={patchMany}
             onPost={postLines}
+            mode={mode}
+            features={features}
+            pairs={pairs}
+            onPostPair={(p) => void postPair(p)}
+            onRefusePair={(p) => void refusePair(p)}
+            onPostBillAndPay={(x) => void postBillAndPay(x)}
+            billWaiting={billWaiting}
             lookups={lookups}
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
             ledger={ledger}

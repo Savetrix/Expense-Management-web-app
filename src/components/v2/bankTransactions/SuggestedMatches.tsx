@@ -38,6 +38,9 @@ interface SuggestedMatchesProps {
   onAccept: (s: StrongSuggestion) => void;
   onDismiss: (txnId: string) => void;
   onAcceptAll: () => void;
+  /** "Bill not in QuickBooks yet": post the ScanTrix bill, then pay it with the line (absent when switched off). */
+  onPostBillAndPay?: (s: StrongSuggestion) => void;
+  billWaiting?: (invoiceId: string) => string | null;
 }
 
 /**
@@ -45,7 +48,7 @@ interface SuggestedMatchesProps {
  * date and vendor. Each one shows the same details as a line below — the bill's
  * vendor, GL account and tax code — so the person sees where the money goes.
  */
-export function SuggestedMatches({ suggestions, lookups, providerName, sends, onAccept, onDismiss, onAcceptAll }: SuggestedMatchesProps) {
+export function SuggestedMatches({ suggestions, lookups, providerName, sends, onAccept, onDismiss, onAcceptAll, onPostBillAndPay, billWaiting }: SuggestedMatchesProps) {
   if (suggestions.length === 0) return null;
   const n = suggestions.length;
 
@@ -123,9 +126,19 @@ export function SuggestedMatches({ suggestions, lookups, providerName, sends, on
         const sendsThis = sends && Boolean(s.invoice.billId);
         return (
           <span className="inline-flex items-center gap-[var(--space-xs)]">
-            <Button size="sm" onClick={() => onAccept(s)} title={sendsThis ? `Match and send the payment to ${providerName}` : "Match only; send it later from Matched"}>
-              {sendsThis ? "Accept & send" : "Accept"}
-            </Button>
+            {sends && !s.invoice.billId && onPostBillAndPay && billWaiting?.(s.invoice.id) ? (
+              <Link href={`/invoices/${s.invoice.id}`} className="text-caption font-semibold text-accent hover:underline" title={billWaiting(s.invoice.id) ?? undefined}>
+                Bill waiting in ScanTrix
+              </Link>
+            ) : sends && !s.invoice.billId && onPostBillAndPay ? (
+              <Button size="sm" onClick={() => onPostBillAndPay(s)} title={`Post this bill to ${providerName}, then pay it with this bank line`}>
+                Post bill &amp; pay
+              </Button>
+            ) : (
+              <Button size="sm" onClick={() => onAccept(s)} title={sendsThis ? `Match and send the payment to ${providerName}` : "Match only; send it later from Matched"}>
+                {sendsThis ? "Accept & send" : "Accept"}
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => onDismiss(s.txn.id)}>
               Not this
             </Button>

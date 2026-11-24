@@ -4,6 +4,18 @@ import type { BankTransaction, InvoiceCandidate } from "./types";
 
 const DAY_MS = 86_400_000;
 
+/** Open bills read from QuickBooks/Xero, as candidates; a bill ScanTrix already lists (same bill id) is left out. */
+export function withLedgerBills(candidates: InvoiceCandidate[], bills: readonly { billId: string; vendorId: string; vendorName: string; number: string; date: string; balance: number }[]): InvoiceCandidate[] {
+  const known = new Set(candidates.map((c) => c.billId).filter(Boolean));
+  const extra = bills
+    .filter((b) => !known.has(b.billId))
+    .map((b) => ({ id: `ledger:${b.billId}:${b.vendorId}`, vendor: b.vendorName || "Unknown vendor", number: b.number, date: b.date, total: b.balance, billId: b.billId, glAccountId: null, taxCodeId: null }));
+  return [...candidates, ...extra];
+}
+
+/** A bill that exists only in QuickBooks/Xero (no ScanTrix invoice to open). */
+export const isLedgerBill = (id: string | null | undefined) => Boolean(id?.startsWith("ledger:"));
+
 export function toCandidates(...lists: InvoiceRecord[][]): InvoiceCandidate[] {
   const seen = new Set<string>();
   const out: InvoiceCandidate[] = [];
@@ -47,17 +59,22 @@ const words = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").s
  * Bank text is often short or coded ("AMZN MKTP"), so false is common and
  * only means "can't tell", not "a different vendor".
  */
-export function vendorAgrees(txn: Pick<BankTransaction, "description" | "payee" | "merchantName">, c: Pick<InvoiceCandidate, "vendor">): boolean {
+export function vendorAgrees(txn: Pick<BankTransaction, "description" | "payee" | "merchantName" | "suggestion">, c: Pick<InvoiceCandidate, "vendor">): boolean {
   const vendor = words(c.vendor);
   if (vendor.length === 0 || c.vendor === "Unknown vendor") return false;
+  const compact = vendor.join("");
+  // The vendor steps 2 and 3 found for this payee (a person linked it, or its clean name) counts too (24 Nov).
+  const suggested = (txn.suggestion as { payee?: string } | null | undefined)?.payee;
+  if (suggested && words(suggested).join("") === compact) return true;
   const bank = words(`${txn.merchantName ?? ""} ${txn.payee ?? ""} ${txn.description}`);
   if (bank.length === 0) return false;
   if (vendor[0].length >= 3 && bank.includes(vendor[0])) return true;
-  const compact = vendor.join("");
+  // A shortened bank name that starts with the vendor's first word: "PETROCAN 0123" for Petro-Canada.
+  if (vendor[0].length >= 4 && bank.some((b) => b.startsWith(vendor[0]))) return true;
   return compact.length >= 4 && bank.join("").includes(compact);
 }
 
-type MatchableLine = Pick<BankTransaction, "amount" | "date" | "description" | "payee" | "merchantName">;
+type MatchableLine = Pick<BankTransaction, "amount" | "date" | "description" | "payee" | "merchantName" | "suggestion">;
 
 /**
  * Closest first: smallest amount difference (money in or out compared by size),
