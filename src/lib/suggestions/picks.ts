@@ -71,6 +71,8 @@ export interface SuggestionPick {
   evidence: Evidence[];
   /** Step 4 only: the AI's one-line reason ("looks like a courier service"). */
   aiReason?: string;
+  /** Step 3 only: the tax codes of the similar posted items behind this account (prefill.ts agreedTaxCode). */
+  taxVotes?: (string | null)[];
 }
 
 export const MAX_PICKS = 3;

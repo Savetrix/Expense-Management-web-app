@@ -8,7 +8,7 @@
 // (Scantrix_API xero/auth.js DEFAULT_SCOPES); without them Xero answers 401
 // insufficient_scope and the company has to sign in to Xero again once.
 import { ledgerFetch, round2 } from "./http";
-import { LedgerError, type LedgerAccount, type LedgerAdapter, type LedgerContext, type LedgerEntry, type LedgerRequest, type PostedEntry, type Posting } from "./types";
+import { LedgerError, type LedgerAccount, type LedgerAdapter, type LedgerContext, type LedgerEntry, type LedgerRequest, type OpenBill, type PostedEntry, type Posting } from "./types";
 
 /** XERO_API_BASE replaces the host in tests against a stand-in; never set in production. */
 const apiBase = () => process.env.XERO_API_BASE?.trim() || "https://api.xero.com/api.xro/2.0";
@@ -143,6 +143,27 @@ export function buildXeroBillRequests(billIds: string[]): LedgerRequest[] {
   return out;
 }
 
+/** Pure: one page (100) of approved bills still owed. */
+export function buildXeroOpenBillsRequest(page = 1): LedgerRequest {
+  return { method: "GET", path: "/Invoices", query: { where: 'Type=="ACCPAY" AND Status=="AUTHORISED"', page: String(page) } };
+}
+
+/** Pure: the bills in an answer with something left to pay. */
+export function openBillsFromXeroAnswer(data: Record<string, unknown>): OpenBill[] {
+  const rows = (data.Invoices ?? []) as { InvoiceID?: string; Type?: string; Status?: string; Contact?: { ContactID?: string; Name?: string }; InvoiceNumber?: string; DateString?: string; AmountDue?: number; CurrencyCode?: string }[];
+  return rows
+    .filter((b) => b.InvoiceID && b.Contact?.ContactID && (b.Type ?? "ACCPAY") === "ACCPAY" && b.Status === "AUTHORISED" && typeof b.AmountDue === "number" && b.AmountDue > 0)
+    .map((b) => ({
+      billId: b.InvoiceID as string,
+      vendorId: b.Contact?.ContactID as string,
+      vendorName: b.Contact?.Name ?? "",
+      number: b.InvoiceNumber ?? "",
+      date: (b.DateString ?? "").slice(0, 10),
+      balance: b.AmountDue as number,
+      currency: b.CurrencyCode ?? null,
+    }));
+}
+
 /** Pure: the bills in an answer that can't be paid any more: paid in full, voided or deleted. */
 export function paidFromXeroAnswer(data: Record<string, unknown>): string[] {
   const rows = (data.Invoices ?? []) as { InvoiceID?: string; Status?: string; AmountDue?: number }[];
@@ -252,6 +273,16 @@ export const xero: LedgerAdapter = {
     const data = await call(ctx, { method: "GET", path: "/Organisation" });
     const org = ((data.Organisations ?? []) as { CountryCode?: string; BaseCurrency?: string }[])[0];
     return { country: org?.CountryCode ?? null, homeCurrency: org?.BaseCurrency ?? null };
+  },
+
+  async openBills(ctx) {
+    const out: OpenBill[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const data = await call(ctx, buildXeroOpenBillsRequest(page));
+      out.push(...openBillsFromXeroAnswer(data));
+      if (((data.Invoices as unknown[] | undefined) ?? []).length < 100) break;
+    }
+    return out;
   },
 
   async paidBills(ctx, billIds) {

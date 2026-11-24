@@ -239,3 +239,52 @@ export async function syncItem(db: Db, gateway: PlaidGateway, config: BankFeedsC
   }
   return { status: "synced", ...totals };
 }
+
+/** A login not synced for this long is synced when the bank page asks (syncDueItems). */
+export const SYNC_DUE_MS = 15 * 60_000;
+
+export interface SyncDueOutcome {
+  checked: number;
+  synced: number;
+  added: number;
+  webhooksSet: number;
+}
+
+/**
+ * New bank lines without "Sync now" (Saurabh, 24 Nov). Plaid's webhook brings
+ * them when this server's webhook address is set (PLAID_WEBHOOK_URL or the
+ * site address) and the login knows it; this is the safety net, called by the
+ * bank page when it opens and every few minutes while it is open:
+ *   - a login connected before the webhook address was set is pointed at it
+ *     once (Plaid /item/webhook/update), so later lines come by webhook;
+ *   - a login not synced for 15 minutes is synced now.
+ * Only this company's logins; one sync at a time per login (syncItem's lease).
+ */
+export async function syncDueItems(db: Db, gateway: PlaidGateway, config: BankFeedsConfig, qbConnectionId: string, now = Date.now()): Promise<SyncDueOutcome> {
+  const out: SyncDueOutcome = { checked: 0, synced: 0, added: 0, webhooksSet: 0 };
+  const items = await db.items.find({ qbConnectionId, removedAt: null, status: { $in: ["active", "pending_expiration"] } }).toArray();
+  for (const item of items) {
+    out.checked += 1;
+    if (config.webhookUrl && item.webhookUrl !== config.webhookUrl && gateway.updateWebhook) {
+      const token = openAccessToken(config, item);
+      if (token) {
+        try {
+          await gateway.updateWebhook(token, config.webhookUrl);
+          await db.items.updateOne({ _id: item._id, qbConnectionId }, { $set: { webhookUrl: config.webhookUrl, updatedAt: new Date() } });
+          out.webhooksSet += 1;
+        } catch (error) {
+          // Not fatal: the timed sync below still brings the lines.
+          console.error("[bank] webhook update", error instanceof PlaidCallError ? error.code : (error as Error)?.message);
+        }
+      }
+    }
+    const last = item.lastSyncedAt ? new Date(item.lastSyncedAt).getTime() : 0;
+    if (now - last < SYNC_DUE_MS) continue;
+    const result = await syncItem(db, gateway, config, item._id, "auto");
+    if (result.status === "synced") {
+      out.synced += 1;
+      out.added += result.added;
+    }
+  }
+  return out;
+}

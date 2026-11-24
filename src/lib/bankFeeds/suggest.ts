@@ -55,7 +55,7 @@ export { MIN_AGREEING_WEIGHT, MIN_AGREEMENT, voteWeight } from "@/lib/suggestion
  * whose suggestion was made under another version (a release corrects itself
  * without waiting for someone to post or import).
  */
-export const SCORING_RULES = 2;
+export const SCORING_RULES = 3;
 
 export type SuggestionKind = "expense" | "transfer" | "exclude" | "bill";
 

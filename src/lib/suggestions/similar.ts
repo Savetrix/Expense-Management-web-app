@@ -169,6 +169,7 @@ export function similarPicks(query: { vector: number[]; out: boolean }, memory: 
     .map((p, i) => {
       const share = total > 0 ? p.weight / total : 0;
       const medium = i === 0 && close.length >= MEDIUM_MIN_CLOSE && share >= MEDIUM_SHARE && close[0].sim >= MEDIUM_MIN_SIMILARITY;
-      return { ...p, step: "similar" as const, confidence: medium ? ("medium" as const) : ("low" as const) };
+      const taxVotes = close.filter(({ m }) => m.glAccountId === p.glAccountId).map(({ m }) => m.taxCodeId ?? null);
+      return { ...p, step: "similar" as const, confidence: medium ? ("medium" as const) : ("low" as const), taxVotes };
     });
 }

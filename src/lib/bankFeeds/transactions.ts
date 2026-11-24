@@ -45,6 +45,8 @@ export interface BankTransactionView {
   ledgerCandidates?: FoundEntryView[];
   /** Receipts uploaded for the line (paperwork requests). */
   attachments?: { id: string; name: string; mimeType: string; size: number; uploadedAt: string }[];
+  /** Lines a person said "Not this" to as a suggested transfer pair. */
+  notTransferWith?: string[];
   decidedAt?: string;
   version: number;
 }
@@ -74,6 +76,7 @@ export function toView(r: TxnDoc): BankTransactionView {
     matchedInvoiceId: r.matchedInvoiceId ?? undefined,
     transferAccount: r.transferLabel ?? undefined,
     transferAccountId: r.transferAccountId ?? undefined,
+    ...(r.notTransferWith?.length ? { notTransferWith: r.notTransferWith } : {}),
     categoryId: r.glAccountId ?? undefined,
     taxCodeId: r.taxCodeId ?? undefined,
     vendorId: r.vendorId ?? undefined,
@@ -150,6 +153,34 @@ const str = (v: unknown, max = 200): string | null | undefined => {
   return t === "" ? null : t;
 };
 
+/** Per box of an AI-filled line at Post: kept as ScanTrix filled it, or changed by the person (24 Nov: how often the AI is right). */
+export type AiFillReport = Partial<Record<"gl" | "vendor" | "tax", "kept" | "changed" | "added" | "cleared">>;
+const FILL_OUTCOMES = new Set(["kept", "changed", "added", "cleared"]);
+
+/** Reads `aiFill` from a request body: only the known boxes and outcomes, else null. */
+export function readAiFill(body: Record<string, unknown>): AiFillReport | null {
+  const raw = body.aiFill;
+  if (!raw || typeof raw !== "object") return null;
+  const out: AiFillReport = {};
+  for (const box of ["gl", "vendor", "tax"] as const) {
+    const v = (raw as Record<string, unknown>)[box];
+    if (typeof v === "string" && FILL_OUTCOMES.has(v)) out[box] = v as AiFillReport[typeof box];
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** "Not this" on a suggested transfer: the two lines are never paired again. Both must belong to this company. */
+export async function refuseTransferPair(db: Db, args: { qbConnectionId: string; ids: [string, string]; userId: string }): Promise<boolean> {
+  const [a, b] = args.ids;
+  if (a === b || !args.ids.every((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))) return false;
+  const found = await db.txns.countDocuments({ _id: { $in: args.ids }, qbConnectionId: args.qbConnectionId, removedAt: null });
+  if (found !== 2) return false;
+  await db.txns.updateOne({ _id: a, qbConnectionId: args.qbConnectionId }, { $addToSet: { notTransferWith: b } });
+  await db.txns.updateOne({ _id: b, qbConnectionId: args.qbConnectionId }, { $addToSet: { notTransferWith: a } });
+  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: a, actor: args.userId, action: "bank.transfer_pair_refused", detail: { with: b } });
+  return true;
+}
+
 /** Reads a patch from a request body; unknown keys are ignored. Returns an error string when invalid. */
 export function readPatch(body: Record<string, unknown>): DecisionPatch | string {
   const patch: DecisionPatch = {};
@@ -157,7 +188,7 @@ export function readPatch(body: Record<string, unknown>): DecisionPatch | string
     if (!STATUSES.includes(body.status as TxnStatus)) return "Unknown status.";
     patch.status = body.status as TxnStatus;
   }
-  patch.matchedInvoiceId = str(body.matchedInvoiceId, 64);
+  patch.matchedInvoiceId = str(body.matchedInvoiceId, 100);
   patch.transferLabel = str(body.transferAccount);
   patch.transferAccountId = str(body.transferAccountId, 64);
   if (patch.transferAccountId && !/^[0-9a-f-]{36}$/i.test(patch.transferAccountId)) return "Unknown account.";
@@ -220,7 +251,7 @@ const STALE = "Someone changed this line a moment ago. It has been refreshed.";
 
 export async function decide(
   db: Db,
-  args: { qbConnectionId: string; id: string; userId: string; patch: DecisionPatch; expectedVersion?: number; action?: string },
+  args: { qbConnectionId: string; id: string; userId: string; patch: DecisionPatch; expectedVersion?: number; action?: string; aiFill?: AiFillReport | null },
 ): Promise<DecideResult> {
   const current = await getTransaction(db, args.qbConnectionId, args.id);
   if (!current) return { ok: false, status: 404, error: "That transaction isn't here any more." };
@@ -273,7 +304,7 @@ export async function decide(
   const suggestion = shown && (shown.glAccountId || shown.picks?.length)
     ? { step: shown.step ?? null, glAccountId: shown.glAccountId ?? null, confidence: shown.confidence ?? null, picks: (shown.picks ?? []).map((p) => ({ glAccountId: p.glAccountId, step: p.step })), model: shown.model ?? null, followed: Boolean(after.glAccountId && after.glAccountId === shown.glAccountId) }
     : null;
-  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after, ...(suggestion ? { suggestion } : {}) } });
+  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after, ...(suggestion ? { suggestion } : {}), ...(args.aiFill ? { aiFill: args.aiFill } : {}) } });
   // Smart Suggestions, step 2: a person picked a vendor for this payee, so later lines from it get that vendor.
   if (typeof set.vendorId === "string" && set.vendorId) {
     await linkPayeeToVendor(db, {

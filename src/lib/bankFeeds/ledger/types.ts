@@ -159,4 +159,25 @@ export interface LedgerAdapter {
   /** Of these bills (the provider's own ids), the ones with nothing left to pay. Unknown ids are left out. */
   paidBills(ctx: LedgerContext, billIds: string[]): Promise<string[]>;
   post(ctx: LedgerContext, posting: Posting, idempotencyKey: string): Promise<PostedEntry>;
+  /** Bills with something left to pay, dated in the last year: entered in QuickBooks/Xero by hand too, not only through ScanTrix. */
+  openBills?(ctx: LedgerContext): Promise<OpenBill[]>;
+}
+
+/** A bill in QuickBooks/Xero with money still owed on it (a match candidate). */
+export interface OpenBill {
+  billId: string;
+  vendorId: string;
+  vendorName: string;
+  number: string;
+  date: string;
+  /** What is left to pay. */
+  balance: number;
+  currency: string | null;
+}
+
+/** A match to a bill that exists only in QuickBooks/Xero is saved as "ledger:<billId>:<vendorId>". */
+export const ledgerBillRef = (b: Pick<OpenBill, "billId" | "vendorId">) => `ledger:${b.billId}:${b.vendorId}`;
+export function parseLedgerBillRef(ref: string): { billId: string; vendorId: string } | null {
+  const m = /^ledger:([^:]{1,40}):([^:]{1,40})$/.exec(ref);
+  return m ? { billId: m[1], vendorId: m[2] } : null;
 }

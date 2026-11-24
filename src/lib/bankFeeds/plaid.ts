@@ -73,6 +73,8 @@ export interface PlaidGateway {
   sandboxPublicToken(institutionId: string, overrideUsername?: string): Promise<string>;
   sandboxFireWebhook(accessToken: string, code: "SYNC_UPDATES_AVAILABLE" | "NEW_ACCOUNTS_AVAILABLE" | "ERROR" | "USER_PERMISSION_REVOKED" | "PENDING_DISCONNECT"): Promise<void>;
   sandboxResetLogin(accessToken: string): Promise<void>;
+  /** Points an existing bank login at this server's webhook (one connected before PLAID_WEBHOOK_URL was set gets no messages). */
+  updateWebhook?(accessToken: string, webhook: string): Promise<void>;
 }
 
 function toCallError(error: unknown): PlaidCallError {
@@ -224,6 +226,10 @@ class SdkGateway implements PlaidGateway {
   async sandboxResetLogin(accessToken: string) {
     this.assertSandbox();
     await call(() => this.api.sandboxItemResetLogin({ access_token: accessToken }));
+  }
+
+  async updateWebhook(accessToken: string, webhook: string) {
+    await call(() => this.api.itemWebhookUpdate({ access_token: accessToken, webhook }));
   }
 
   private assertSandbox() {

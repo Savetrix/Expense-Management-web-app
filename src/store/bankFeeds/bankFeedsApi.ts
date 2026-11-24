@@ -234,7 +234,10 @@ export const unlinkFoundEntry = createAsyncThunk<{ transaction: BankTransactionD
   },
 );
 
-export type BankTxnPatch = Partial<Pick<BankTransactionDto, "status" | "matchedInvoiceId" | "transferAccount" | "transferAccountId" | "categoryId" | "taxCodeId" | "vendorId" | "payee">>;
+export type BankTxnPatch = Partial<Pick<BankTransactionDto, "status" | "matchedInvoiceId" | "transferAccount" | "transferAccountId" | "categoryId" | "taxCodeId" | "vendorId" | "payee">> & {
+  /** Sent with a Post of an AI-filled line: per box, kept or changed (audit only, never stored on the line). */
+  aiFill?: Partial<Record<"gl" | "vendor" | "tax", string>>;
+};
 
 /** A key present with `undefined` means "clear it": JSON would drop it, so send null. */
 function patchBody(patch: BankTxnPatch): Record<string, unknown> {
@@ -399,8 +402,15 @@ export const fetchVendorMemory = createAsyncThunk<MemoryVote[], string, { state:
   },
 );
 
+export type FeatureKey = "aiPrefill" | "receiptWarning" | "autoMatch" | "transferSuggestions";
+export type FeaturesDto = Record<FeatureKey, boolean>;
+/** Before the settings load (or on an older server): everything on. */
+export const ALL_FEATURES_ON: FeaturesDto = { aiPrefill: true, receiptWarning: true, autoMatch: true, transferSuggestions: true };
+
 export interface SuggestionSettingsDto {
   autoClassification: AutoClassification;
+  /** Per-company switches for the 24 Nov features (absent on an older server: all on). */
+  features?: FeaturesDto;
   /** Owner or Admin. */
   canChange: boolean;
 }
@@ -416,11 +426,62 @@ export const fetchSuggestionSettings = createAsyncThunk<SuggestionSettingsDto, v
   },
 );
 
-export const saveSuggestionSettings = createAsyncThunk<SuggestionSettingsDto, AutoClassification, { state: RootState; rejectValue: BankRequestError }>(
+export const saveSuggestionSettings = createAsyncThunk<
+  SuggestionSettingsDto,
+  AutoClassification | { autoClassification?: AutoClassification; features?: Partial<FeaturesDto> },
+  { state: RootState; rejectValue: BankRequestError }
+>(
   "bankFeeds/saveSuggestionSettings",
-  async (autoClassification, { getState, rejectWithValue }) => {
+  async (change, { getState, rejectWithValue }) => {
     try {
-      return await bankFetch<SuggestionSettingsDto>(getState(), "/api/suggestion-settings", { method: "PUT", body: JSON.stringify({ autoClassification }) });
+      const body = typeof change === "string" ? { autoClassification: change } : change;
+      return await bankFetch<SuggestionSettingsDto>(getState(), "/api/suggestion-settings", { method: "PUT", body: JSON.stringify(body) });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** "Not this" on a suggested transfer pair: both lines stay to review and are never paired again. */
+export const refuseTransferPair = createAsyncThunk<{ ok: true }, [string, string], { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/refuseTransferPair",
+  async (ids, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch<{ ok: true }>(getState(), "/api/bank-transactions/not-a-transfer", { method: "POST", body: JSON.stringify({ ids }) });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export interface OpenBillDto {
+  billId: string;
+  vendorId: string;
+  vendorName: string;
+  number: string;
+  date: string;
+  balance: number;
+  currency: string | null;
+}
+
+/** Bills in QuickBooks/Xero with money still owed (also ones entered there by hand): match candidates. */
+export const fetchOpenBills = createAsyncThunk<OpenBillDto[], void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchOpenBills",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      return (await bankFetch<{ bills: OpenBillDto[] }>(getState(), "/api/bank-transactions/open-bills")).bills;
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** The bank page's safety net for new lines: syncs logins not synced for 15 minutes (sync.ts syncDueItems). */
+export const syncDueBanks = createAsyncThunk<{ checked: number; synced: number; added: number; webhooksSet: number }, void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/syncDue",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch(getState(), "/api/bank-accounts/sync-due", { method: "POST" });
     } catch (e) {
       return rejectWithValue(reject(e));
     }

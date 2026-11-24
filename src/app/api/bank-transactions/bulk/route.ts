@@ -7,7 +7,7 @@ import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeed
 import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
 import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
 
-import { decide, readPatch, type BankTransactionView } from "@/lib/bankFeeds/transactions";
+import { decide, readAiFill, readPatch, type BankTransactionView } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
         failed.push({ id, error: typeof patch === "string" ? patch : "Missing id." });
         continue;
       }
-      const result = await decide(ctx.db, { qbConnectionId: ctx.connection.id, id, userId: ctx.caller.userId, patch, action: "bulk_decision" });
+      const result = await decide(ctx.db, { qbConnectionId: ctx.connection.id, id, userId: ctx.caller.userId, patch, action: "bulk_decision", aiFill: readAiFill(item) });
       if (result.ok) updated.push(result.txn);
       else failed.push({ id, error: result.error });
     }

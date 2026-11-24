@@ -7,7 +7,7 @@
 // Every write carries requestid: QuickBooks answers a repeated requestid with
 // the original response instead of creating a second entry.
 import { ledgerFetch, round2 } from "./http";
-import { LedgerError, type HistoryLine, type LedgerAccount, type LedgerAdapter, type LedgerContext, type LedgerEntry, type LedgerRequest, type PostedEntry, type Posting } from "./types";
+import { LedgerError, type OpenBill, type HistoryLine, type LedgerAccount, type LedgerAdapter, type LedgerContext, type LedgerEntry, type LedgerRequest, type PostedEntry, type Posting } from "./types";
 
 const API = { sandbox: "https://sandbox-quickbooks.api.intuit.com", production: "https://quickbooks.api.intuit.com" };
 const APP = { sandbox: "https://app.sandbox.qbo.intuit.com/app", production: "https://app.qbo.intuit.com/app" };
@@ -238,6 +238,27 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function buildQbEntryQuery(entity: QbEntity, from: string, to: string, start = 1): LedgerRequest {
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) throw new Error("Dates must be YYYY-MM-DD.");
   return { method: "GET", path: "/query", query: { query: `select * from ${entity} where TxnDate >= '${from}' and TxnDate <= '${to}' STARTPOSITION ${start} MAXRESULTS ${ENTRY_PAGE}` } };
+}
+
+/** Pure: one page of bills dated since `since` (Balance is checked on the answer, so no unsupported filter is sent). */
+export function buildQbOpenBillsQuery(since: string, start = 1): LedgerRequest {
+  if (!ISO_DATE.test(since)) throw new Error("Dates must be YYYY-MM-DD.");
+  return { method: "GET", path: "/query", query: { query: `select * from Bill where TxnDate >= '${since}' STARTPOSITION ${start} MAXRESULTS ${ENTRY_PAGE}` } };
+}
+
+/** Pure: the bills in a query answer with something left to pay. */
+export function openBillsFromQbAnswer(data: Record<string, unknown>): OpenBill[] {
+  return (rowsOf(data, "Bill") as { Id?: string | number; VendorRef?: { value?: string | number; name?: string }; DocNumber?: string; TxnDate?: string; Balance?: number; CurrencyRef?: { value?: string } }[])
+    .filter((b) => b.Id != null && b.VendorRef?.value != null && typeof b.Balance === "number" && b.Balance > 0)
+    .map((b) => ({
+      billId: String(b.Id),
+      vendorId: String(b.VendorRef?.value),
+      vendorName: b.VendorRef?.name ?? "",
+      number: b.DocNumber ?? "",
+      date: b.TxnDate ?? "",
+      balance: b.Balance as number,
+      currency: b.CurrencyRef?.value ?? null,
+    }));
 }
 
 type QbRef = { value?: string | number; name?: string };
@@ -501,6 +522,17 @@ export const quickbooks: LedgerAdapter = {
     const out: LedgerEntry[] = [];
     for (const entity of QB_ENTRY_ENTITIES) {
       for (const data of await queryAll(ctx, entity, from, to)) out.push(...entriesFromQbAnswer(entity, data, APP[envOf(ctx)]));
+    }
+    return out;
+  },
+
+  async openBills(ctx) {
+    const since = new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
+    const out: OpenBill[] = [];
+    for (let page = 0; page < ENTRY_MAX_PAGES; page++) {
+      const data = await call(ctx, buildQbOpenBillsQuery(since, page * ENTRY_PAGE + 1));
+      out.push(...openBillsFromQbAnswer(data));
+      if (rowsOf(data, "Bill").length < ENTRY_PAGE) break;
     }
     return out;
   },

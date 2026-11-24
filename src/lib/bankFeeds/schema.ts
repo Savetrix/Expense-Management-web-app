@@ -46,6 +46,8 @@ export interface ItemDoc {
   /** One sync at a time per item; a webhook that lands mid-sync sets syncRequestedAt. */
   syncLeaseUntil: Date | null;
   syncRequestedAt: Date | null;
+  /** The webhook Plaid was last told to call for this login (sync.ts syncDueItems). */
+  webhookUrl?: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -124,6 +126,8 @@ export interface TxnDoc {
   matchedInvoiceId: string | null;
   transferAccountId: string | null;
   transferLabel: string | null;
+  /** Lines a person said "Not this" to as a suggested transfer pair: never paired again. */
+  notTransferWith?: string[];
   glAccountId: string | null;
   taxCodeId: string | null;
   vendorId: string | null;
@@ -251,6 +255,8 @@ export interface PayeeLinkDoc {
   linkedAt: Date;
 }
 
+export type FeatureKey = "aiPrefill" | "receiptWarning" | "autoMatch" | "transferSuggestions";
+
 export interface SuggestionSettingsDoc {
   _id: string;
   autoClassification: AutoClassification;
@@ -263,6 +269,8 @@ export interface SuggestionSettingsDoc {
   lastLiveAt?: Date;
   /** The last read of the company's books (history.ts). */
   historyImport?: HistoryImportStatus | null;
+  /** 24 Nov features, each on unless switched off for this company (settings.ts FEATURE_KEYS). */
+  features?: Partial<Record<FeatureKey, boolean>>;
   updatedBy: string;
   updatedAt: Date;
 }
@@ -409,6 +417,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.txns.createIndex({ plaidTransactionId: 1 }, { unique: true, partialFilterExpression: { plaidTransactionId: isString } }),
     db.txns.createIndex({ qbConnectionId: 1, csvDedupeKey: 1 }, { unique: true, partialFilterExpression: { csvDedupeKey: isString } }),
     db.txns.createIndex({ qbConnectionId: 1, status: 1, date: -1 }),
+    // The bank screen's list: one company's lines, newest first (24 Nov speed check).
+    db.txns.createIndex({ qbConnectionId: 1, removedAt: 1, date: -1 }),
     db.txns.createIndex({ qbConnectionId: 1, matchedInvoiceId: 1 }),
     db.txns.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
     db.txns.createIndex({ accountId: 1 }),

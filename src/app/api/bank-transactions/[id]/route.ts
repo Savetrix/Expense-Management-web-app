@@ -9,7 +9,7 @@ import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeed
 import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
 import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
 
-import { decide, readPatch } from "@/lib/bankFeeds/transactions";
+import { decide, readAiFill, readPatch } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -29,6 +29,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       userId: ctx.caller.userId,
       patch,
       expectedVersion: typeof body.version === "number" ? body.version : undefined,
+      aiFill: readAiFill(body),
       action: typeof body.action === "string" ? `bank.${body.action.replace(/[^a-z_]/g, "").slice(0, 40)}` : undefined,
     });
     if (!result.ok) return fail(result.status, result.error, result.current ? { current: result.current } : undefined);
