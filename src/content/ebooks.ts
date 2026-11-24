@@ -19,6 +19,7 @@
 //      the page for visitors who have that cookie.
 //   5. The /ebooks page stays out of search results (noindex) until at least
 //      one entry has a `file`.
+import { body as accountingIn2027Body } from "./ebooks-text/accounting-in-2027-guide";
 import { body as aiInvoiceProcessingBody } from "./ebooks-text/ai-invoice-processing-for-accountants";
 import { body as duplicateInvoicesBody } from "./ebooks-text/duplicate-invoices-guide";
 
@@ -41,6 +42,17 @@ export interface Ebook {
 }
 
 export const EBOOKS: readonly Ebook[] = [
+  {
+    slug: "accounting-in-2027-guide",
+    title: "Accounting in 2027: Apps to Connect and How to Use Claude",
+    description:
+      "Which apps belong in a connected accounting stack and how Claude works with QuickBooks Online, Xero and Excel: an eight-question integration checklist, prompt templates, a one-page AI policy and a 90-day rollout plan.",
+    meta: "Guide · 26 pages",
+    file: "accounting-in-2027-guide.pdf",
+    cover: "/ebooks/covers/accounting-in-2027-guide.svg",
+    body: accountingIn2027Body,
+    publishedLabel: "November 2026",
+  },
   {
     slug: "ai-invoice-processing-for-accountants",
     title: "AI Invoice Processing for Accountants",

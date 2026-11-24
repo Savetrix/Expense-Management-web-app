@@ -109,7 +109,7 @@ export function SuggestedMatches({ suggestions, lookups, providerName, sends, on
       header: <Paperclip size={13} strokeWidth={2.25} aria-label="Invoice or receipt" />,
       width: LINE_COLUMN_WIDTH.paperwork,
       render: (s) => (
-        <Link href={`/invoices/${s.invoice.id}`} title={`${s.invoice.vendor}${s.invoice.number ? ` #${s.invoice.number}` : ""} in Scantrix`} className="inline-flex text-accent hover:opacity-80">
+        <Link href={`/invoices/${s.invoice.id}`} title={`${s.invoice.vendor}${s.invoice.number ? ` #${s.invoice.number}` : ""} in ScanTrix`} className="inline-flex text-accent hover:opacity-80">
           <Paperclip size={16} strokeWidth={2.25} />
         </Link>
       ),

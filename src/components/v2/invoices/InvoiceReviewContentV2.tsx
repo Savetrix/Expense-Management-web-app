@@ -1311,7 +1311,7 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
       if (onExpenseClaim) {
         // Edited from the claims page — go straight back there.
         showToast("Receipt saved.", "success");
-        router.push(returnTo ?? "/expense-claims");
+        router.push(returnTo ?? "/reimbursements");
         return;
       }
       showToast("Draft saved.", "success");
@@ -1572,10 +1572,10 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {onExpenseClaim && (
             <div className="rounded-md border border-status-info-border bg-status-info-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-info-text">
-              <span className="font-semibold">Expense claim receipt.</span> Fix anything the scan got wrong — vendor, date, amounts, GL account —
+              <span className="font-semibold">Reimbursement receipt.</span> Fix anything the scan got wrong — vendor, date, amounts, GL account —
               then press Save. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved, never on its own.{" "}
-              <Link href={returnTo ?? "/expense-claims"} className="font-bold underline">
-                Back to expense claims
+              <Link href={returnTo ?? "/reimbursements"} className="font-bold underline">
+                Back to reimbursements
               </Link>
             </div>
           )}

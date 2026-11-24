@@ -6,7 +6,7 @@
 // those lists create are ordinary entries the API can read. So:
 //
 //   line in To review → entries on the same bank account (Connected accounts),
-//   same amount to the cent, dated within 3 days, not made by Scantrix:
+//   same amount to the cent, dated within 3 days, not made by ScanTrix:
 //     exactly one fits, and it fits no other line → linked by itself: the line
 //       moves to Matched as "Entered in QuickBooks"; nothing is posted
 //     more than one fits, or one entry fits two lines → the line stays in To
@@ -48,7 +48,7 @@ export interface FoundMatches {
 }
 
 /**
- * Pure. `taken`: entries already linked to a line — the ids of entries Scantrix
+ * Pure. `taken`: entries already linked to a line — the ids of entries ScanTrix
  * posted, and the keys of entries found before.
  */
 export function matchEntries(lines: LineToCheck[], entries: LedgerEntry[], taken: ReadonlySet<string>, windowDays = FOUND_WINDOW_DAYS): FoundMatches {
@@ -81,7 +81,7 @@ export function matchEntries(lines: LineToCheck[], entries: LedgerEntry[], taken
 
 const toFound = (e: LedgerEntry): FoundEntry => ({ key: e.key, entity: e.entity, id: e.id, label: e.label, name: e.name, date: e.date, amountCents: e.amountCents, url: e.url });
 
-/** Entries already linked to a line of this company: Scantrix's own (by id) and found ones (by key). */
+/** Entries already linked to a line of this company: ScanTrix's own (by id) and found ones (by key). */
 async function takenEntries(db: Db, qbConnectionId: string): Promise<Set<string>> {
   const rows = await db.txns.find({ qbConnectionId, "posting.externalId": { $ne: null } }, { projection: { posting: 1 } }).toArray();
   const taken = new Set<string>();
@@ -212,7 +212,7 @@ export async function linkFoundEntry(db: Db, args: { qbConnectionId: string; id:
     return { ok: false, status: 409, error: "This line was already decided. Refresh the page." };
   }
   const entry = (doc.ledgerCandidates ?? []).find((c) => c.key === args.key);
-  if (!entry) return { ok: false, status: 400, error: "Pick one of the entries Scantrix found for this line." };
+  if (!entry) return { ok: false, status: 400, error: "Pick one of the entries ScanTrix found for this line." };
   const taken = await takenEntries(db, args.qbConnectionId);
   if (taken.has(entry.key) || taken.has(entry.id)) return { ok: false, status: 409, error: "That entry is already linked to another bank line." };
   const updated = await linkLine(db, doc, entry, { provider: args.provider, userId: args.userId, auto: false });
@@ -225,7 +225,7 @@ export async function unlinkFoundEntry(db: Db, args: { qbConnectionId: string; i
   const doc = await getTransaction(db, args.qbConnectionId, args.id);
   if (!doc) return { ok: false, status: 404, error: "That transaction isn't here any more." };
   const found = doc.posting?.found;
-  if (!found) return { ok: false, status: 400, error: "Only a line Scantrix found already entered in the accounting software can be put back here." };
+  if (!found) return { ok: false, status: 400, error: "Only a line ScanTrix found already entered in the accounting software can be put back here." };
   const now = new Date();
   const updated = await db.txns.findOneAndUpdate(
     { _id: doc._id, qbConnectionId: args.qbConnectionId, version: doc.version, "posting.found.key": found.key },

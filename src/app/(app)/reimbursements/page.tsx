@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ExpenseClaimsContentV2 } from "@/components/v2/expenseClaims/ExpenseClaimsContentV2";
 
 export const metadata: Metadata = {
-  title: "Expense Claims — ScanTrix",
+  title: "Reimbursements — ScanTrix",
 };
 
 // Coming back from editing a receipt on the review screen: `newClaim` reopens

@@ -45,7 +45,7 @@ export function ExpenseClaimsContentV2({ reopenWizardWith = null, reopenClaimId 
   // Opened once — leaving the Claims tab forgets it, so coming back doesn't reopen it.
   const [claimToOpen, setClaimToOpen] = useState(reopenClaimId);
   useEffect(() => {
-    if (reopenWizardWith || reopenClaimId) router.replace("/expense-claims");
+    if (reopenWizardWith || reopenClaimId) router.replace("/reimbursements");
     // Only the URL this page was opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -71,11 +71,11 @@ export function ExpenseClaimsContentV2({ reopenWizardWith = null, reopenClaimId 
   if (!team.hasCompany) {
     return (
       <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
-        <PageHeader title="Expense Claims" subtitle="Reimburse employees for out-of-pocket receipts and business trips." />
+        <PageHeader title="Reimbursements" subtitle="Reimburse employees for out-of-pocket receipts and business trips." />
         <EmptyState
           icon={<Receipt size={28} strokeWidth={1.75} />}
           title="Pick a company"
-          description="Choose a company in the header to see its expense claims."
+          description="Choose a company in the header to see its reimbursements."
         />
       </div>
     );
@@ -84,13 +84,13 @@ export function ExpenseClaimsContentV2({ reopenWizardWith = null, reopenClaimId 
   return (
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
       <PageHeader
-        title="Expense Claims"
+        title="Reimbursements"
         subtitle="Reimburse employees for out-of-pocket receipts and business trips."
         action={
           tab === "claims" ? (
             <Button size="sm" onClick={() => setWizardOpen(true)} className="shrink-0">
               <Plus size={16} strokeWidth={2.5} />
-              New expense claim
+              New reimbursement
             </Button>
           ) : undefined
         }

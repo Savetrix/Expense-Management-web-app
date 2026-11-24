@@ -47,5 +47,5 @@ export const canEditSettings = (role: CompanyRole) => role === "owner" || role =
 export const errorMessage = (payload: unknown, fallback: string) =>
   (payload as ExpenseRequestError | undefined)?.message || fallback;
 
-/** A receipt's review screen, where its scanned details are fixed; Save there comes back to `back` (an /expense-claims URL). */
+/** A receipt's review screen, where its scanned details are fixed; Save there comes back to `back` (a /reimbursements URL). */
 export const receiptEditHref = (receiptId: string, back: string) => `/invoices/${receiptId}/review?returnTo=${encodeURIComponent(back)}`;

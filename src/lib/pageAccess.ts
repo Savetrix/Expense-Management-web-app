@@ -8,7 +8,7 @@ export const PAGE_ACCESS_OPTIONS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "invoices", label: "Invoices" },
   { key: "bank-transactions", label: "Bank Transactions" },
-  { key: "expense-claims", label: "Expense Claims" },
+  { key: "expense-claims", label: "Reimbursements" },
   { key: "team", label: "Team" },
   { key: "vendors", label: "Vendors" },
   { key: "gl-tax-codes", label: "GL Account & TaxCode" },
@@ -26,6 +26,8 @@ export const CONTRIBUTOR_DEFAULT_PAGES: PageKey[] = ["dashboard", "invoices", "e
 // Pages reached from a sidebar page rather than the sidebar itself: they
 // follow that page's access.
 const PAGE_ALIASES: Record<string, PageKey> = {
+  // The page is /reimbursements; its access key stays "expense-claims" to match the backend.
+  reimbursements: "expense-claims",
   quickbooks: "accounting-software",
   "google-drive": "accounting-software",
   onedrive: "accounting-software",

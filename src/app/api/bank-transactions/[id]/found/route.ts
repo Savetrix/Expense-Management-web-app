@@ -1,5 +1,5 @@
 // /api/bank-transactions/:id/found — a line already entered in QuickBooks/Xero.
-//   POST { key }  a person picks which of the entries Scantrix found is this line
+//   POST { key }  a person picks which of the entries ScanTrix found is this line
 //   DELETE        "Not this": the line goes back to To review (foundInLedger.ts)
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { linkFoundEntry, unlinkFoundEntry } from "@/lib/bankFeeds/foundInLedger";
