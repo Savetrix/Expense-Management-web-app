@@ -44,6 +44,7 @@ import { PaperworkTab } from "./PaperworkTab";
 import { TransactionModal } from "./TransactionModal";
 import { currencyMismatch, lineCurrency, lineLedgerId } from "./glList";
 import { billReadiness } from "./billPay";
+import { vendorNameKey } from "./lineCoding";
 import { confirmThenPost } from "./postWarning";
 import { findTransferPairs, pairPatches, type TransferPair } from "./transferPairs";
 import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
@@ -405,12 +406,21 @@ export function BankTransactionsContentV2() {
     } else showToast(result.payload?.message ?? "Couldn't save that.", "error");
   };
   // "Bill not in QuickBooks yet": post the bill as the invoice screen would, then pay it with the line (billPay.ts).
+  // A bill's vendor name that is exactly one of the company's vendors counts as confirmed (billPay.ts).
+  const vendorIdByName = useMemo(() => {
+    const byKey = new Map<string, string | null>();
+    for (const v of lookups.vendors) {
+      const k = vendorNameKey(v.displayName);
+      byKey.set(k, byKey.has(k) ? null : v._id);
+    }
+    return (name: string) => byKey.get(vendorNameKey(name)) ?? undefined;
+  }, [lookups.vendors]);
   const billWaiting = (invoiceId: string): string | null => {
-    const r = billReadiness(pendingInvoices.find((i) => i._id === invoiceId));
+    const r = billReadiness(pendingInvoices.find((i) => i._id === invoiceId), { vendorIdByName });
     return r.ok ? null : r.reason;
   };
   const postBillAndPay = async (s: StrongSuggestion) => {
-    const ready = billReadiness(pendingInvoices.find((i) => i._id === s.invoice.id));
+    const ready = billReadiness(pendingInvoices.find((i) => i._id === s.invoice.id), { vendorIdByName });
     if (!ready.ok) {
       showToast(`Bill waiting in ScanTrix: ${ready.reason} Open it from the paperclip to finish it.`, "info");
       return;

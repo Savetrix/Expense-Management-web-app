@@ -221,6 +221,12 @@ describe("Part 3: Match", () => {
     assert.deepEqual(billReadiness(inv({ vendor: { vendorDbId: "v1", resolutionStatus: "suggested" } })), { ok: false, reason: "Its vendor isn't confirmed yet." });
     assert.equal(billReadiness(inv({ quickbooks: { billId: "5" } as InvoiceRecord["quickbooks"] })).ok, false, "never posted twice");
     assert.equal(billReadiness(inv({ extractedData: { ...inv().extractedData, glAccountId: null } as InvoiceRecord["extractedData"] })).ok, false);
+    // A person created or picked the vendor on the invoice screen and saved: the record still says "suggested".
+    const saved = inv({ vendor: { vendorDbId: "v-old", resolutionStatus: "suggested" } });
+    const byName = (name: string) => (name.toLowerCase().replace(/[^a-z0-9]/g, "") === "pioneer" ? "v-pioneer" : undefined);
+    const r = billReadiness(saved, { vendorIdByName: byName });
+    assert.equal(r.ok && r.payload.vendorId, "v-pioneer");
+    assert.equal(billReadiness(saved, { vendorIdByName: () => undefined }).ok, false, "no company vendor of that name: still waiting");
   });
 });
 

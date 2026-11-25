@@ -28,14 +28,19 @@ export interface BillPostPayload {
 
 export type BillReadiness = { ok: true; payload: BillPostPayload } | { ok: false; reason: string };
 
-/** Whether the bill can be posted as it is saved, and the payload the invoice screen would send. */
-export function billReadiness(inv: InvoiceRecord | undefined): BillReadiness {
+/**
+ * Whether the bill can be posted as it is saved, and the payload the invoice screen would send.
+ * The vendor is confirmed when the scan matched it exactly, or when the bill's vendor name is
+ * exactly one of the company's vendors (`vendorIdByName`): the invoice screen keeps a vendor a
+ * person picked or created only in the browser, so a saved bill can still say "suggested".
+ */
+export function billReadiness(inv: InvoiceRecord | undefined, opts: { vendorIdByName?: (name: string) => string | undefined } = {}): BillReadiness {
   if (!inv) return { ok: false, reason: "The bill isn't loaded." };
   if (inv.quickbooks?.billId || inv.postedStatus === "auto" || inv.postedStatus === "manual") return { ok: false, reason: "The bill is already posted." };
   if (inv.rejectedAt) return { ok: false, reason: "The bill was rejected." };
   if (inv.expenseClaimId || inv.claimReceipt) return { ok: false, reason: "The bill is on a reimbursement claim." };
   const d = inv.extractedData;
-  const vendorId = inv.vendor?.resolutionStatus === "exact" ? inv.vendor.vendorDbId : undefined;
+  const vendorId = (inv.vendor?.resolutionStatus === "exact" ? inv.vendor.vendorDbId : undefined) || (d?.vendorName ? opts.vendorIdByName?.(d.vendorName) : undefined);
   if (!vendorId) return { ok: false, reason: "Its vendor isn't confirmed yet." };
   if (!d || !(typeof d.totalAmount === "number" && d.totalAmount > 0)) return { ok: false, reason: "Its total is missing." };
   if (!d.invoiceNumber?.trim()) return { ok: false, reason: "Its invoice number is missing." };
