@@ -27,7 +27,17 @@ export function Providers({ children }: PropsWithChildren) {
     // transition from firing at once on toggle. RootLayout already sets
     // suppressHydrationWarning on <html>, which is required here since
     // next-themes sets this class before hydration via an inline script.
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+    // scriptProps: the theme script only runs from the server's HTML. When this
+    // layout first mounts in the browser (a link from "/"), React 19 would warn
+    // "Encountered a script tag"; marked as data there, it doesn't (the script
+    // never runs in that case anyway). The script itself suppresses the hydration difference.
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+      scriptProps={typeof window === "undefined" ? undefined : { type: "application/json" }}
+    >
       <Provider store={store}>
         {/* Also what the server renders, so a page opened by URL shows a
             loader instead of a blank white screen until the app starts. */}
