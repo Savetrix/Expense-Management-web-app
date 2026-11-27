@@ -24,7 +24,8 @@ export async function setAutoClassification(db: Db, args: { qbConnectionId: stri
 
 /**
  * The 24 Nov features, each switchable per company without a code change (in
- * case one causes trouble in beta). Unset = on.
+ * case one causes trouble in beta). Unset = off (27 Nov): a company gets them
+ * only once they are switched on for it.
  *   aiPrefill           — the best suggestion shown in the boxes with an AI sign
  *   receiptWarning      — "Post it anyway?" when nothing is attached
  *   autoMatch           — suggested bill matches, open bills read from QuickBooks/Xero, "Post bill and pay"
@@ -35,7 +36,7 @@ export type Features = Record<FeatureKey, boolean>;
 
 export async function readFeatures(db: Db, qbConnectionId: string): Promise<Features> {
   const doc = await db.suggestionSettings.findOne({ _id: qbConnectionId }, { projection: { features: 1 } });
-  return Object.fromEntries(FEATURE_KEYS.map((k) => [k, doc?.features?.[k] !== false])) as Features;
+  return Object.fromEntries(FEATURE_KEYS.map((k) => [k, doc?.features?.[k] === true])) as Features;
 }
 
 /** Saves the switches given (unknown keys ignored); the others keep their value. */

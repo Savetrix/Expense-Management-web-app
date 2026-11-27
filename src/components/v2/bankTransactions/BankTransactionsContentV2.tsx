@@ -25,7 +25,7 @@ import {
   refuseTransferPair,
   syncDueBanks,
   type OpenBillDto,
-  ALL_FEATURES_ON,
+  ALL_FEATURES_OFF,
   type BankTxnPatch,
   type SuggestionSettingsDto,
 } from "@/store/bankFeeds/bankFeedsApi";
@@ -231,7 +231,7 @@ export function BankTransactionsContentV2() {
     };
   }, [dispatch, qbConnectionId]);
   const mode = settings?.autoClassification ?? "fill";
-  const features = settings?.features ?? ALL_FEATURES_ON;
+  const features = settings?.features ?? ALL_FEATURES_OFF;
   useEffect(() => {
     if (!qbConnectionId || !canPost || !features.autoMatch) {
       setLedgerBills([]);

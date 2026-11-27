@@ -389,12 +389,14 @@ describe("24 Nov, on the database", { skip: URL ? false : "BANK_TEST_MONGODB_URI
     assert.equal(asked, 0);
   });
 
-  it("feature switches: on by default, off per company, other companies untouched", async () => {
-    assert.deepEqual(await readFeatures(db, QB), { aiPrefill: true, receiptWarning: true, autoMatch: true, transferSuggestions: true });
-    await setFeatures(db, { qbConnectionId: QB, userId: "u1", features: { transferSuggestions: false, bogus: false } });
-    assert.equal((await readFeatures(db, QB)).transferSuggestions, false);
-    assert.equal((await readFeatures(db, QB)).aiPrefill, true);
-    assert.equal((await readFeatures(db, OTHER)).transferSuggestions, true);
+  it("feature switches: off by default, on per company, other companies untouched", async () => {
+    assert.deepEqual(await readFeatures(db, QB), { aiPrefill: false, receiptWarning: false, autoMatch: false, transferSuggestions: false });
+    await setFeatures(db, { qbConnectionId: QB, userId: "u1", features: { transferSuggestions: true, aiPrefill: true, bogus: true } });
+    assert.equal((await readFeatures(db, QB)).transferSuggestions, true);
+    assert.equal((await readFeatures(db, QB)).receiptWarning, false);
+    assert.equal((await readFeatures(db, OTHER)).transferSuggestions, false);
+    await setFeatures(db, { qbConnectionId: QB, userId: "u1", features: { aiPrefill: false } });
+    assert.equal((await readFeatures(db, QB)).aiPrefill, false);
   });
 
   it("speed: 2,000 lines list in under 2 seconds, and the screen's matching, pairing and pre-fill run in well under a second", async () => {

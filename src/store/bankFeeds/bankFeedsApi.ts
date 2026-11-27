@@ -404,12 +404,12 @@ export const fetchVendorMemory = createAsyncThunk<MemoryVote[], string, { state:
 
 export type FeatureKey = "aiPrefill" | "receiptWarning" | "autoMatch" | "transferSuggestions";
 export type FeaturesDto = Record<FeatureKey, boolean>;
-/** Before the settings load (or on an older server): everything on. */
-export const ALL_FEATURES_ON: FeaturesDto = { aiPrefill: true, receiptWarning: true, autoMatch: true, transferSuggestions: true };
+/** Before the settings load (or on an older server): everything off, as for a company that never switched them on. */
+export const ALL_FEATURES_OFF: FeaturesDto = { aiPrefill: false, receiptWarning: false, autoMatch: false, transferSuggestions: false };
 
 export interface SuggestionSettingsDto {
   autoClassification: AutoClassification;
-  /** Per-company switches for the 24 Nov features (absent on an older server: all on). */
+  /** Per-company switches for the 24 Nov features (absent on an older server: all off). */
   features?: FeaturesDto;
   /** Owner or Admin. */
   canChange: boolean;

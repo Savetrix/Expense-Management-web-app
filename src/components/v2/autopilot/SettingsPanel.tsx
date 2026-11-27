@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { showToast } from "@/lib/dialogManager";
-import { ALL_FEATURES_ON, fetchSuggestionSettings, saveSuggestionSettings, type AutoClassification, type FeatureKey, type SuggestionSettingsDto } from "@/store/bankFeeds/bankFeedsApi";
+import { ALL_FEATURES_OFF, fetchSuggestionSettings, saveSuggestionSettings, type AutoClassification, type FeatureKey, type SuggestionSettingsDto } from "@/store/bankFeeds/bankFeedsApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 // The company's Smart Suggestions settings (Autopilot > Settings):
@@ -77,7 +77,7 @@ export function SettingsPanel() {
     }
     setSettings(result.payload);
   };
-  const features = settings?.features ?? ALL_FEATURES_ON;
+  const features = settings?.features ?? ALL_FEATURES_OFF;
 
   return (
     <div className="flex flex-col gap-[var(--space-md)] p-[var(--space-md)]">
