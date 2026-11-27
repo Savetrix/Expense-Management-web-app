@@ -8,7 +8,7 @@
 // (Scantrix_API xero/auth.js DEFAULT_SCOPES); without them Xero answers 401
 // insufficient_scope and the company has to sign in to Xero again once.
 import { ledgerFetch, round2 } from "./http";
-import { LedgerError, type LedgerAccount, type LedgerAdapter, type LedgerContext, type LedgerEntry, type LedgerRequest, type PostedEntry, type Posting } from "./types";
+import { LedgerError, type LedgerAccount, type LedgerAdapter, type LedgerContext, type LedgerEntry, type LedgerRequest, type OpenBill, type PostedEntry, type Posting } from "./types";
 
 /** XERO_API_BASE replaces the host in tests against a stand-in; never set in production. */
 const apiBase = () => process.env.XERO_API_BASE?.trim() || "https://api.xero.com/api.xro/2.0";
@@ -79,7 +79,8 @@ export function buildXeroRequest(posting: Posting, idempotencyKey: string): { co
   }
 }
 
-function xeroError(status: number, headers: Headers, data: unknown): LedgerError {
+/** Xero's answer → a plain message and what the person can do (exported for tests). */
+export function xeroError(status: number, headers: Headers, data: unknown): LedgerError {
   const d = data as { Elements?: { ValidationErrors?: { Message?: string }[] }[]; Message?: string; Detail?: string; Title?: string } | null;
   const validation = [...new Set((d?.Elements ?? []).flatMap((e) => e.ValidationErrors ?? []).map((v) => v.Message).filter(Boolean))].join("; ");
   const detail = validation || d?.Message || d?.Detail || d?.Title || "";
@@ -87,6 +88,11 @@ function xeroError(status: number, headers: Headers, data: unknown): LedgerError
     const scope = /insufficient_scope/i.test(`${headers.get("www-authenticate") ?? ""} ${JSON.stringify(data ?? "")}`);
     if (scope) return new LedgerError("Xero hasn't allowed ScanTrix to post bank entries yet. Reconnect Xero once to allow it.", "definite", "scope");
     if (status === 401) return new LedgerError("Xero didn't accept the sign-in. Try again; if it keeps failing, reconnect Xero.", "definite", "reconnect");
+    // A 403 "AuthenticationUnsuccessful" means the connection to this organisation no longer works
+    // (seen on Xero's demo company, 22 Nov): say what to do, never Xero's code word.
+    if (/authenticationunsuccessful|authorizationunsuccessful|token/i.test(detail)) {
+      return new LedgerError("Xero no longer accepts the connection to this organisation. Reconnect Xero (Integrations).", "definite", "reconnect");
+    }
     return new LedgerError(detail || "Xero refused this for this organisation.", "definite", "permission");
   }
   if (status === 429) return new LedgerError("Xero is busy. Try again in a minute.", "definite", "rate_limit");
@@ -111,8 +117,10 @@ async function call(ctx: LedgerContext, req: LedgerRequest) {
   return res.data as Record<string, unknown>;
 }
 
-function kindOf(a: { Type?: string; BankAccountType?: string }): LedgerAccount["kind"] {
+function kindOf(a: { Type?: string; BankAccountType?: string; SystemAccount?: string }): LedgerAccount["kind"] {
   if (a.Type === "BANK") return a.BankAccountType === "CREDITCARD" ? "card" : "bank";
+  if (a.SystemAccount === "CREDITORS") return "payable";
+  if (a.SystemAccount === "DEBTORS") return "receivable";
   if (a.Type === "REVENUE" || a.Type === "SALES" || a.Type === "OTHERINCOME") return "income";
   if (a.Type === "EXPENSE" || a.Type === "DIRECTCOSTS" || a.Type === "OVERHEADS" || a.Type === "DEPRECIATN") return "expense";
   return "other";
@@ -133,6 +141,27 @@ export function buildXeroBillRequests(billIds: string[]): LedgerRequest[] {
   const out: LedgerRequest[] = [];
   for (let i = 0; i < ids.length; i += BILL_CHUNK) out.push({ method: "GET", path: "/Invoices", query: { IDs: ids.slice(i, i + BILL_CHUNK).join(",") } });
   return out;
+}
+
+/** Pure: one page (100) of approved bills still owed. */
+export function buildXeroOpenBillsRequest(page = 1): LedgerRequest {
+  return { method: "GET", path: "/Invoices", query: { where: 'Type=="ACCPAY" AND Status=="AUTHORISED"', page: String(page) } };
+}
+
+/** Pure: the bills in an answer with something left to pay. */
+export function openBillsFromXeroAnswer(data: Record<string, unknown>): OpenBill[] {
+  const rows = (data.Invoices ?? []) as { InvoiceID?: string; Type?: string; Status?: string; Contact?: { ContactID?: string; Name?: string }; InvoiceNumber?: string; DateString?: string; AmountDue?: number; CurrencyCode?: string }[];
+  return rows
+    .filter((b) => b.InvoiceID && b.Contact?.ContactID && (b.Type ?? "ACCPAY") === "ACCPAY" && b.Status === "AUTHORISED" && typeof b.AmountDue === "number" && b.AmountDue > 0)
+    .map((b) => ({
+      billId: b.InvoiceID as string,
+      vendorId: b.Contact?.ContactID as string,
+      vendorName: b.Contact?.Name ?? "",
+      number: b.InvoiceNumber ?? "",
+      date: (b.DateString ?? "").slice(0, 10),
+      balance: b.AmountDue as number,
+      currency: b.CurrencyCode ?? null,
+    }));
 }
 
 /** Pure: the bills in an answer that can't be paid any more: paid in full, voided or deleted. */
@@ -233,11 +262,27 @@ export function entriesFromXeroAnswer(collection: string, data: Record<string, u
 export const xero: LedgerAdapter = {
   async listAccounts(ctx) {
     const data = await call(ctx, { method: "GET", path: "/Accounts" });
-    const rows = (data.Accounts ?? []) as { AccountID: string; Name: string; Code?: string; Type?: string; BankAccountType?: string; Status?: string; CurrencyCode?: string }[];
+    const rows = (data.Accounts ?? []) as { AccountID: string; Name: string; Code?: string; Type?: string; BankAccountType?: string; SystemAccount?: string; Status?: string; CurrencyCode?: string; Description?: string }[];
     return rows
       .filter((a) => a.Status !== "ARCHIVED" && a.Status !== "DELETED")
-      .map((a) => ({ id: a.AccountID, name: a.Code ? `${a.Code} ${a.Name}` : a.Name, kind: kindOf(a), type: a.Type ?? "", currency: a.CurrencyCode ?? null }))
+      .map((a) => ({ id: a.AccountID, name: a.Code ? `${a.Code} ${a.Name}` : a.Name, kind: kindOf(a), type: a.Type ?? "", currency: a.CurrencyCode ?? null, subtype: a.SystemAccount ?? null, description: a.Description?.trim() || null }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async companyInfo(ctx) {
+    const data = await call(ctx, { method: "GET", path: "/Organisation" });
+    const org = ((data.Organisations ?? []) as { CountryCode?: string; BaseCurrency?: string }[])[0];
+    return { country: org?.CountryCode ?? null, homeCurrency: org?.BaseCurrency ?? null };
+  },
+
+  async openBills(ctx) {
+    const out: OpenBill[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const data = await call(ctx, buildXeroOpenBillsRequest(page));
+      out.push(...openBillsFromXeroAnswer(data));
+      if (((data.Invoices as unknown[] | undefined) ?? []).length < 100) break;
+    }
+    return out;
   },
 
   async paidBills(ctx, billIds) {

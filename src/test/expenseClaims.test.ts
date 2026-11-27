@@ -378,6 +378,7 @@ describe("contributor page access", () => {
     const { pageKeyOf, canOpenPage, ALL_PAGE_KEYS } = await import("../lib/pageAccess");
     assert.equal(pageKeyOf("/invoices/123/review"), "invoices");
     assert.equal(pageKeyOf("/expense-claims"), "expense-claims");
+    assert.equal(pageKeyOf("/reimbursements"), "expense-claims");
     assert.equal(pageKeyOf("/quickbooks"), "accounting-software");
     // The user's own plan is always open (Account page), not a company page.
     assert.equal(pageKeyOf("/plans"), null);

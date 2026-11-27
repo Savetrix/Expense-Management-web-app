@@ -1,0 +1,249 @@
+// Smart Suggestions, finishing step 2 (Saurabh, 11 Nov): the fill-in rule,
+// "Suggest only" vs "Fill in when sure", what a line shows, the "ScanTrix is
+// sure" section, and the auto-post lock.
+import assert from "node:assert/strict";
+import { after, before, beforeEach, describe, it } from "node:test";
+
+import { codingFor, isSureLine, surePatch } from "../components/v2/bankTransactions/lineCoding";
+import type { BankTransaction } from "../components/v2/bankTransactions/types";
+import { __closeBankDbForTests, type Db } from "../lib/bankFeeds/db";
+import { setAutoClassification } from "../lib/bankFeeds/settings";
+import { refreshSuggestions, type Suggestion } from "../lib/bankFeeds/suggest";
+import { decide, importCsv, listTransactions } from "../lib/bankFeeds/transactions";
+import { autoPostLock, autoPostUnlockDays, earliest } from "../lib/suggestions/autoPostLock";
+
+import { BANK_TEST_DATABASE_URL as URL, clearBankTestData, openTestDb, resetBankTestDatabase } from "./helpers/bankTestDb";
+import { decideAndPost, saveVendorTax } from "./helpers/posted";
+
+const suggestion = (over: Record<string, unknown> = {}) => ({
+  kind: "expense",
+  glAccountId: "gl-travel",
+  taxCodeId: "gst",
+  vendorId: "v-petro",
+  payee: "Petro Canada",
+  confidence: "high",
+  reason: "Coded by ScanTrix — 3 earlier posts went to Travel: Uber 12 Nov, 14 Nov, 18 Nov.",
+  checks: {},
+  autoCoded: true,
+  basis: { agreeing: 3, total: 3, lines: 3 },
+  ...over,
+});
+const line = (over: Partial<BankTransaction> = {}): BankTransaction => ({
+  id: "t1",
+  date: "2026-11-10",
+  description: "PETRO-CANADA 1234",
+  accountName: "RBC",
+  amount: -54.2,
+  status: "review",
+  source: "csv",
+  ...over,
+});
+
+describe("what a bank line shows", () => {
+  it("a line ScanTrix filled in shows its values, marked as ScanTrix's", () => {
+    const c = codingFor(line({ categoryId: "gl-travel", taxCodeId: "gst", vendorId: "v-petro", suggestion: suggestion() }));
+    assert.equal(c.source, "autopilot");
+    assert.equal(c.glAccountId, "gl-travel");
+    assert.equal(c.offered, null);
+  });
+
+  it("a suggestion ScanTrix didn't fill in stays out of the boxes, even when High ('Suggest only')", () => {
+    const c = codingFor(line({ suggestion: suggestion({ autoCoded: false }) }));
+    assert.equal(c.source, "none");
+    assert.equal(c.glAccountId, undefined, "the GL box is empty");
+    assert.equal(c.vendorId, undefined, "the vendor box is empty");
+    assert.deepEqual(c.offered, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+  });
+
+  it("a Medium suggestion is offered, never shown as filled", () => {
+    const c = codingFor(line({ suggestion: suggestion({ autoCoded: false, confidence: "medium" }) }));
+    assert.equal(c.glAccountId, undefined);
+    assert.equal(c.offered?.glAccountId, "gl-travel");
+  });
+
+  it("a person's own choice is kept as theirs", () => {
+    const c = codingFor(line({ categoryId: "gl-meals", suggestion: suggestion() }));
+    assert.equal(c.source, "user");
+    assert.equal(c.glAccountId, "gl-meals");
+  });
+});
+
+describe("the 'ScanTrix is sure' section", () => {
+  it("holds lines ScanTrix filled in, and High suggestions under 'Suggest only'", () => {
+    assert.equal(isSureLine(line({ categoryId: "gl-travel", taxCodeId: "gst", vendorId: "v-petro", suggestion: suggestion() })), true);
+    assert.equal(isSureLine(line({ suggestion: suggestion({ autoCoded: false }) })), true);
+  });
+
+  it("leaves out Medium suggestions, lines a person changed, and lines already decided", () => {
+    assert.equal(isSureLine(line({ suggestion: suggestion({ autoCoded: false, confidence: "medium" }) })), false);
+    assert.equal(isSureLine(line({ categoryId: "gl-meals", suggestion: suggestion() })), false);
+    assert.equal(isSureLine(line({ status: "ready", categoryId: "gl-travel", suggestion: suggestion() })), false);
+    assert.equal(isSureLine(line({ suggestion: suggestion({ kind: "transfer", glAccountId: undefined }) })), false);
+  });
+
+  it("one click posts the vendor, GL and tax the row shows", () => {
+    assert.deepEqual(surePatch(line({ suggestion: suggestion({ autoCoded: false }) })), {
+      status: "ready",
+      vendorId: "v-petro",
+      categoryId: "gl-travel",
+      taxCodeId: "gst",
+      payee: "Petro Canada",
+    });
+    assert.equal(surePatch(line({ suggestion: suggestion({ autoCoded: false, confidence: "low" }) })), null);
+  });
+});
+
+describe("the auto-post lock", () => {
+  const NOW = Date.parse("2026-11-13T12:00:00Z");
+  const ago = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
+
+  it("is locked with nothing coded yet, and until 15 days after the first coded item", () => {
+    assert.equal(autoPostLock(null, 15, NOW).locked, true);
+    const young = autoPostLock(ago(10), 15, NOW);
+    assert.equal(young.locked, true);
+    assert.equal(young.days, 10);
+    assert.match(young.note ?? "", /5 days to go/);
+    assert.equal(autoPostLock(ago(15), 15, NOW).locked, false);
+    assert.equal(autoPostLock(ago(15), 15, NOW).note, null);
+  });
+
+  it("reads the number of days from the setting, 15 when unset or wrong", () => {
+    assert.equal(autoPostUnlockDays(undefined), 15);
+    assert.equal(autoPostUnlockDays("30"), 30);
+    assert.equal(autoPostUnlockDays("soon"), 15);
+    assert.equal(autoPostLock(ago(20), 30, NOW).locked, true);
+  });
+
+  it("counts from the earliest of posted bills and coded bank lines", () => {
+    assert.equal(earliest(null, ago(3), ago(20), undefined), ago(20));
+    assert.equal(earliest(null, undefined), null);
+  });
+});
+
+describe("filling in, on real lines", { skip: URL ? false : "BANK_TEST_MONGODB_URI not set" }, () => {
+  let db: Db;
+  before(async () => {
+    await resetBankTestDatabase(URL as string);
+    await __closeBankDbForTests();
+    db = await openTestDb(URL as string);
+  });
+  after(async () => {
+    await __closeBankDbForTests();
+  });
+  beforeEach(async () => {
+    await clearBankTestData(db);
+  });
+
+  const QB = "qb-fill";
+  const today = new Date().toISOString().slice(0, 10);
+  const lines = async (n: number, qb = QB) => {
+    await importCsv(db, { qbConnectionId: qb, userId: "u1", accountLabel: "RBC", rows: Array.from({ length: n }, (_, i) => ({ date: today, description: `PETRO-CANADA 1234 ${i}`, amount: -(50 + i) })) });
+    await saveVendorTax(db, qb, { "v-petro": "gst", "v-shell": "gst", "v-db": "gst", "v-sbux": "gst", "v-notax": null });
+    return listTransactions(db, qb);
+  };
+  /** A person's choice, posted to QuickBooks: only posted lines teach (18 Nov). */
+  const code = async (id: string, patch: Parameters<typeof decide>[1]["patch"], qb = QB) => decideAndPost(db, { qbConnectionId: qb, id, userId: "u1", patch });
+  /** A person's choice that was never posted. */
+  const choose = async (id: string, patch: Parameters<typeof decide>[1]["patch"]) => assert.ok((await decide(db, { qbConnectionId: QB, id, userId: "u1", patch })).ok);
+  const read = async (id: string) => (await listTransactions(db, QB)).find((l) => l.id === id);
+
+  it("fills a line after 3 posted lines with the same GL, with the vendor they had and its saved tax code", async () => {
+    const all = await lines(4);
+    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "hst" });
+    await refreshSuggestions(db, QB);
+    const next = await read(all[3].id);
+    assert.equal(next?.categoryId, "gl-travel");
+    assert.equal(next?.taxCodeId, "gst", "the vendor's saved tax code, not the lines' hst");
+    assert.equal(next?.vendorId, "v-petro");
+    assert.equal((next?.suggestion as Suggestion).autoCoded, true);
+  });
+
+  it("never fills a line whose vendor has no saved tax code, whatever tax the past lines had", async () => {
+    const all = await lines(4);
+    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-notax", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await refreshSuggestions(db, QB);
+    const next = await read(all[3].id);
+    assert.equal(next?.categoryId, undefined, "stays in To code");
+    const s = next?.suggestion as Suggestion;
+    assert.notEqual(s.confidence, "high");
+    assert.equal(s.glAccountId, "gl-travel", "the account is still suggested");
+    assert.ok(!s.taxCodeId, "tax left blank");
+  });
+
+  it("doesn't fill when the 3 past lines name different vendors", async () => {
+    const all = await lines(4);
+    await code(all[0].id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await code(all[1].id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await code(all[2].id, { vendorId: "v-shell", payee: "Shell", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await refreshSuggestions(db, QB);
+    const next = await read(all[3].id);
+    assert.equal(next?.categoryId, undefined);
+    assert.match((next?.suggestion as Suggestion).reason, /different vendors/);
+  });
+
+  it("names the vendor in the reason only when every past line named it", async () => {
+    const all = await lines(4);
+    await code(all[0].id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" });
+    await code(all[1].id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" });
+    await code(all[2].id, { glAccountId: "gl-travel" });
+    await refreshSuggestions(db, QB);
+    const s = (await read(all[3].id))?.suggestion as Suggestion;
+    assert.doesNotMatch(s.picks?.[0].subject ?? "", /Dinesh/, "only 2 of the 3 lines named him");
+    const other = await lines(4, "qb-named");
+    for (const l of other.slice(0, 3)) await code(l.id, { vendorId: "v-db", payee: "Dinesh Bhatt", glAccountId: "gl-travel" }, "qb-named");
+    await refreshSuggestions(db, "qb-named");
+    assert.equal(((await listTransactions(db, "qb-named")).find((l) => l.id === other[3].id)?.suggestion as Suggestion).picks?.[0].subject, "Dinesh Bhatt");
+  });
+
+  it("one past decision only suggests: it never spreads to every similar line (Starbucks)", async () => {
+    await importCsv(db, {
+      qbConnectionId: QB,
+      userId: "u1",
+      accountLabel: "RBC",
+      rows: Array.from({ length: 5 }, (_, i) => ({ date: today, description: `STARBUCKS STORE 1234 SEATTLE ${i}`, amount: -(5 + i) })),
+    });
+    const all = await listTransactions(db, QB);
+    await code(all[0].id, { vendorId: "v-sbux", payee: "Starbucks", glAccountId: "gl-meals", taxCodeId: "gst" });
+    const out = await refreshSuggestions(db, QB);
+    assert.equal(out.autoCoded, 0);
+    for (const l of all.slice(1)) {
+      const after_ = await read(l.id);
+      assert.equal(after_?.categoryId, undefined, "nothing filled in");
+      assert.notEqual((after_?.suggestion as Suggestion).confidence, "high");
+      assert.equal((after_?.suggestion as Suggestion).picks?.[0].glAccountId, "gl-meals", "but suggested in the dropdown");
+    }
+  });
+
+  it("Suggest only fills nothing, however many past lines agree", async () => {
+    await setAutoClassification(db, { qbConnectionId: QB, userId: "admin", mode: "suggest" });
+    const all = await lines(7);
+    for (const l of all.slice(0, 6)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" });
+    const out = await refreshSuggestions(db, QB);
+    assert.equal(out.autoCoded, 0);
+    const next = await read(all[6].id);
+    assert.equal(next?.categoryId, undefined);
+    assert.equal((next?.suggestion as Suggestion).confidence, "high", "still High, so it shows in the 'sure' section");
+  });
+
+  it("switching to Suggest only clears what ScanTrix filled, never what a person chose", async () => {
+    const all = await lines(5);
+    for (const l of all.slice(0, 3)) await code(l.id, { vendorId: "v-petro", payee: "Petro Canada", glAccountId: "gl-travel" });
+    await refreshSuggestions(db, QB);
+    assert.equal((await read(all[3].id))?.categoryId, "gl-travel", "filled by ScanTrix");
+    await choose(all[4].id, { glAccountId: "gl-meals" });
+
+    await setAutoClassification(db, { qbConnectionId: QB, userId: "admin", mode: "suggest" });
+    assert.equal((await read(all[3].id))?.categoryId, undefined, "ScanTrix's fill is taken back");
+    assert.equal((await read(all[4].id))?.categoryId, "gl-meals", "the person's choice stays");
+    assert.equal((await read(all[0].id))?.categoryId, "gl-travel");
+  });
+
+  it("Off shows nothing at all", async () => {
+    const all = await lines(4);
+    for (const l of all.slice(0, 3)) await code(l.id, { payee: "Petro Canada", glAccountId: "gl-travel", taxCodeId: "gst" });
+    await setAutoClassification(db, { qbConnectionId: QB, userId: "admin", mode: "off" });
+    const next = await read(all[3].id);
+    assert.equal(next?.categoryId, undefined);
+    assert.equal(next?.suggestion, undefined);
+  });
+});

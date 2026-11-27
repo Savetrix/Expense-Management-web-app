@@ -15,8 +15,10 @@
 // before the first read or write.
 import { MongoClient, MongoError, type Collection, type Db as MongoDatabase } from "mongodb";
 
-import type { AccountDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, TxnDoc, WebhookLogDoc } from "./schema";
+import type { AccountDoc, AiPickDoc, EventDoc, InsightDoc, ItemDoc, LedgerMappingDoc, HistoryDoc, PayeeLinkDoc, VectorDoc, SuggestionSettingsDoc, TxnDoc, WebhookLogDoc } from "./schema";
 import { ensureIndexes } from "./schema";
+import type { CompanyListsDoc } from "./companyLists";
+import type { PaperworkRequestDoc } from "./paperwork";
 
 export interface Db {
   database: MongoDatabase;
@@ -27,6 +29,13 @@ export interface Db {
   webhooks: Collection<WebhookLogDoc>;
   insights: Collection<InsightDoc>;
   ledgerMappings: Collection<LedgerMappingDoc>;
+  suggestionSettings: Collection<SuggestionSettingsDoc>;
+  payeeLinks: Collection<PayeeLinkDoc>;
+  history: Collection<HistoryDoc>;
+  vectors: Collection<VectorDoc>;
+  companyLists: Collection<CompanyListsDoc>;
+  paperwork: Collection<PaperworkRequestDoc>;
+  aiPicks: Collection<AiPickDoc>;
 }
 
 /** Thrown when the database can't be reached; routes map it to 503. */
@@ -75,6 +84,13 @@ export function openDb(uri: string, dbName: string): Db {
     webhooks: database.collection<WebhookLogDoc>("bank_webhook_log"),
     insights: database.collection<InsightDoc>("invoice_insights"),
     ledgerMappings: database.collection<LedgerMappingDoc>("bank_ledger_mappings"),
+    suggestionSettings: database.collection<SuggestionSettingsDoc>("suggestion_settings"),
+    payeeLinks: database.collection<PayeeLinkDoc>("suggestion_payee_links"),
+    history: database.collection<HistoryDoc>("suggestion_history"),
+    vectors: database.collection<VectorDoc>("suggestion_vectors"),
+    companyLists: database.collection<CompanyListsDoc>("company_lists"),
+    paperwork: database.collection<PaperworkRequestDoc>("paperwork_requests"),
+    aiPicks: database.collection<AiPickDoc>("suggestion_ai_picks"),
   };
 }
 

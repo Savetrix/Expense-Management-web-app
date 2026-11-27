@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowLeftRight, ExternalLink, EyeOff, Landmark, Paperclip, Send, Sparkles, Undo2 } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, CheckCircle2, ExternalLink, EyeOff, FileQuestion, Landmark, Paperclip, Plus, Send, Sparkles, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -15,21 +15,32 @@ import { AddVendorModalV2 } from "@/components/v2/vendors/AddVendorModalV2";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { taxCodeId, taxCodeLabel } from "@/lib/quickbooks/taxCode";
 
-import { codingFor, isSuggestedField, type Lookups } from "./coding";
+import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
+
+import { codingFor, isSuggestedField, isSureLine, picksFor, surePatch, type Lookups } from "./coding";
+import { aiFillReport, prefillFor, shownCoding, vendorNameKey, type Prefill } from "./lineCoding";
+import type { TransferPair } from "./transferPairs";
+import type { AutoClassification } from "@/lib/suggestions/match";
+import type { FeaturesDto } from "@/store/bankFeeds/bankFeedsApi";
 import { formatAmount } from "./format";
-import { findStrongSuggestions, type StrongSuggestion } from "./matching";
+import { findStrongSuggestions, isLedgerBill, type StrongSuggestion } from "./matching";
 import { LINE_COLUMN_WIDTH, SuggestedMatches } from "./SuggestedMatches";
 import { STATUS_LABEL } from "./TransactionModal";
-import type { LedgerAccountDto } from "@/store/bankFeeds/bankFeedsApi";
+import type { LedgerAccountDto, NamedAccountDto } from "@/store/bankFeeds/bankFeedsApi";
+import { suggestedVendorName } from "@/lib/suggestions/similar";
 
-import type { BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
+import { bankLineGlChoices, lineCurrency, lineLedgerId, newVendorPatch, vendorFormDefaults } from "./glList";
+import { openAttachment } from "./paperworkClient";
+import { RequestPaperworkModal } from "./RequestPaperworkModal";
+import { useAppSelector } from "@/store/hooks";
+
+import { dateBounds, inDates, inTab, localToday, PERIOD_LABEL, TAB_LABEL, tabOf, type DatePeriod, type ListTab } from "./listView";
+import type { BankAccount, BankTransaction, BankTxnStatus, InvoiceCandidate } from "./types";
 
 // The bank lines, coded on the row: vendor, GL account and tax code are
 // dropdowns in the line itself (pick one or add one), pre-filled when the payee
 // was seen before, and Post / Match / Transfer / Exclude sit at the end of the
 // line. The detail dialog (click the description) holds everything else.
-
-type StatusFilter = BankTxnStatus | "all";
 
 interface TransactionsTabProps {
   txns: BankTransaction[];
@@ -37,8 +48,8 @@ interface TransactionsTabProps {
   onImportFile: () => void;
   /** Absent for roles that can't connect a bank. */
   onConnect?: () => void;
-  /** Opens the detail dialog; `focus` = which part to show first. */
-  onOpen: (id: string, focus?: "match" | "transfer") => void;
+  /** Opens the detail dialog; `focus` = which part to show first ("payBill": Accounts Payable was picked, so pick the bill it pays). */
+  onOpen: (id: string, focus?: "match" | "transfer" | "payBill") => void;
   onUpdate: (id: string, patch: Partial<BankTransaction>) => void;
   invoices: InvoiceCandidate[];
   /** Bills that can't be matched any more (see closedBills). */
@@ -48,7 +59,7 @@ interface TransactionsTabProps {
   onPost: (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => void;
   /** Accepts suggested matches; the parent also sends them when it can. */
   onAcceptMatches: (picked: StrongSuggestion[]) => void;
-  /** "Not this" on a line Scantrix found already entered in QuickBooks/Xero. */
+  /** "Not this" on a line ScanTrix found already entered in QuickBooks/Xero. */
   onUnlinkFound?: (id: string) => void;
   lookups: Lookups;
   /** First load from the server still running. */
@@ -58,6 +69,40 @@ interface TransactionsTabProps {
   /** Sends decided lines to QuickBooks/Xero. Absent for roles that can't post. */
   onSend?: (ids: string[]) => void;
   sendingIds: Set<string>;
+  /** Connected bank accounts and imported-file names, with what they map to: which account (and currency) a line belongs to. */
+  bankAccounts: BankAccount[];
+  named: NamedAccountDto[];
+  /** The company's home currency, the last fallback for a line's currency. */
+  homeCurrency: string | null;
+  /** Reads the chart of accounts again (an account someone expects is missing). */
+  onRefreshAccounts?: () => void;
+  /** A paperwork request was sent (the page refreshes its count). */
+  onPaperworkRequested?: () => void;
+  /** The company's Auto-classification setting and its 24 Nov feature switches. */
+  mode: AutoClassification;
+  features: FeaturesDto;
+  /** Suggested transfers (transferPairs.ts), already filtered by the switch. */
+  pairs: TransferPair[];
+  onPostPair: (pair: TransferPair) => void;
+  onRefusePair: (pair: TransferPair) => void;
+  /** "Bill not in QuickBooks yet": post the ScanTrix bill, then pay it with this line. */
+  onPostBillAndPay?: (s: StrongSuggestion) => void;
+  /** Why a ScanTrix bill can't be posted yet ("Bill waiting in ScanTrix"), or null when it can. */
+  billWaiting?: (invoiceId: string) => string | null;
+}
+
+/** The small sign on a box ScanTrix filled in; hover shows why. */
+function AiSign({ reason }: { reason: string }) {
+  return (
+    <span
+      title={reason}
+      aria-label={`Filled in by ScanTrix: ${reason}`}
+      className="absolute -right-1 -top-2 z-10 inline-flex items-center gap-0.5 rounded-full bg-accent px-1 text-[10px] font-bold leading-4 text-white"
+    >
+      <Sparkles size={9} strokeWidth={2.5} />
+      AI
+    </span>
+  );
 }
 
 /** Decided lines that go to QuickBooks/Xero. */
@@ -79,12 +124,13 @@ const DATE_CLASS =
 const ROW_BTN =
   "inline-flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-[var(--space-sm)] text-caption font-semibold text-content-primary hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-50";
 
-/** The coding a Post would save: what the row shows, suggested or chosen. */
-function postPatch(t: BankTransaction, lookups: Lookups): Partial<BankTransaction> | null {
-  const c = codingFor(t);
+/** The coding a Post would save: what the row shows, chosen or AI-filled (with what the person kept or changed, for the audit trail). */
+function postPatch(t: BankTransaction, lookups: Lookups, prefill: Prefill | null = null): Partial<BankTransaction> | null {
+  const c = shownCoding(t, prefill);
   if (!c.glAccountId) return null;
   const vendorName = c.vendorId ? lookups.vendorById.get(c.vendorId)?.displayName : undefined;
-  return { status: "ready", vendorId: c.vendorId, categoryId: c.glAccountId, taxCodeId: c.taxCodeId, payee: c.payee ?? vendorName ?? t.payee };
+  const aiFill = aiFillReport(prefill, c);
+  return { status: "ready", vendorId: c.vendorId, categoryId: c.glAccountId, taxCodeId: c.taxCodeId, payee: c.payee ?? vendorName ?? t.payee, ...(aiFill ? { aiFill } : {}) };
 }
 
 export function TransactionsTab({
@@ -105,32 +151,63 @@ export function TransactionsTab({
   ledger,
   onSend,
   sendingIds,
+  bankAccounts,
+  named,
+  homeCurrency,
+  onRefreshAccounts,
+  onPaperworkRequested,
+  mode,
+  features,
+  pairs,
+  onPostPair,
+  onRefusePair,
+  onPostBillAndPay,
+  billWaiting,
 }: TransactionsTabProps) {
+  const [pickingVendor, setPickingVendor] = useState<Set<string>>(new Set());
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [status, setStatus] = useState<StatusFilter>("review");
+  const [view, setView] = useState<ListTab>("review");
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("");
+  // QuickBooks-style periods, or Custom from–to dates; applies to every tab.
+  const [period, setPeriod] = useState<DatePeriod>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState<{ txnId: string; kind: "vendor" | "gl"; name: string } | null>(null);
+  const [requesting, setRequesting] = useState<BankTransaction[] | null>(null);
+  const qbConnectionId = useAppSelector((st) => st.quickBooks.qbConnectionId);
 
   const vendorOptions = useMemo(() => lookups.vendors.map((v) => ({ id: v._id, label: v.displayName })), [lookups.vendors]);
-  const glOptions = useMemo(() => lookups.glAccounts.map((a) => ({ id: a.qbAccountId, label: a.name })), [lookups.glAccounts]);
-  // Money coming in is coded to an income account; the backend's GL list only
-  // has accounts a bill can post to, so income comes from the chart itself.
-  const incomeOptions = useMemo(() => ledger.accounts.filter((a) => a.kind === "income").map((a) => ({ id: a.id, label: a.name })), [ledger.accounts]);
+  // The other side of the line's entry: the full chart of accounts without
+  // Bank-type accounts or the line's own account (glList.ts).
   const ledgerNameById = useMemo(() => new Map(ledger.accounts.map((a) => [a.id, a.name])), [ledger.accounts]);
-  const glOptionsFor = (t: BankTransaction) => (t.amount > 0 && incomeOptions.length > 0 ? [...incomeOptions, ...glOptions.filter((o) => !ledgerNameById.has(o.id) || !incomeOptions.some((i) => i.id === o.id))] : glOptions);
+  const glChoicesFor = (t: BankTransaction) => bankLineGlChoices({ chart: ledger.accounts, backendGl: lookups.glAccounts, lineLedgerId: lineLedgerId(t, bankAccounts, named), moneyIn: t.amount > 0 });
+  const glOptionsFor = (t: BankTransaction) => glChoicesFor(t).map(({ id, label }) => ({ id, label }));
+  /** Picking a GL account; Accounts Payable means the line pays a bill, so the bill is picked instead (a bill payment, no new expense). */
+  const setGl = (t: BankTransaction, id: string) => {
+    const choice = id ? glChoicesFor(t).find((c) => c.id === id) : undefined;
+    if (choice?.kind === "payable") {
+      if (t.amount > 0) showToast("Money coming in can't pay a bill. Pick an income account.", "error");
+      else onOpen(t.id, "payBill");
+      return;
+    }
+    onUpdate(t.id, { categoryId: id || undefined });
+  };
+  const refreshAction = onRefreshAccounts ? { label: "Missing an account? Refresh the list", onClick: onRefreshAccounts } : undefined;
   const glName = (id: string | undefined) => (id ? (lookups.glById.get(id)?.name ?? ledgerNameById.get(id)) : undefined);
   const blocked = ledgerBlock(ledger.reason, ledger.error, providerName);
   const taxOptions = useMemo(() => lookups.taxCodes.map((t) => ({ id: taxCodeId(t), label: taxCodeLabel(t) })), [lookups.taxCodes]);
   const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
 
+  const bounds = dateBounds(period, { from, to }, localToday());
+  // Counts follow the date filter, so each tab's number is what it shows.
   const counts = useMemo(() => {
-    const by = (s: BankTxnStatus) => txns.filter((t) => t.status === s).length;
-    return { total: txns.length, review: by("review"), ready: by("ready"), matched: by("matched"), excluded: by("excluded"), transfer: by("transfer") };
-  }, [txns]);
+    const dated = txns.filter((t) => inDates(t.date, bounds));
+    const by = (tab: ListTab) => dated.filter((t) => tabOf(t) === tab).length;
+    return { all: dated.length, review: by("review"), posted: by("posted"), matched: by("matched"), transfers: by("transfers") };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, bounds?.from, bounds?.to]);
   const suggestions = useMemo(
     () => findStrongSuggestions(txns, invoices, closedBills).filter((s) => !dismissed.has(s.txn.id)),
     [txns, invoices, closedBills, dismissed],
@@ -140,12 +217,38 @@ export function TransactionsTab({
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return txns
-      .filter((t) => status === "all" || t.status === status)
+      .filter((t) => inTab(t, view))
       .filter((t) => !account || t.accountName === account)
-      .filter((t) => (!from || t.date >= from) && (!to || t.date <= to))
+      .filter((t) => inDates(t.date, bounds))
       .filter((t) => !q || `${t.description} ${t.accountName} ${t.payee ?? ""} ${t.merchantName ?? ""}`.toLowerCase().includes(q))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [txns, status, account, from, to, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txns, view, account, bounds?.from, bounds?.to, search]);
+  // "ScanTrix is sure": lines to review it filled in, or would ("Suggest only"),
+  // shown in their own section on top and not again below. A line in the
+  // suggested bill matches stays there instead.
+  const sureLines = useMemo(() => {
+    if (view !== "review") return [];
+    const matching = new Set(suggestions.map((s) => s.txn.id));
+    return rows.filter((t) => isSureLine(t, mode) && !matching.has(t.id));
+  }, [rows, view, suggestions, mode]);
+  // The best suggestion shown in the boxes of untouched lines, with an AI sign (24 Nov). A line in a suggested transfer isn't filled.
+  const vendorIdByName = useMemo(() => new Map(lookups.vendors.map((v) => [vendorNameKey(v.displayName), v._id])), [lookups.vendors]);
+  const prefills = useMemo(() => {
+    const paired = new Set(pairs.flatMap((p) => [p.out.id, p.in.id]));
+    const ctx = {
+      mode,
+      enabled: features.aiPrefill,
+      vendorTax: (id: string) => lookups.vendorById.get(id)?.taxCodeId,
+      vendorIdByName: (name: string) => vendorIdByName.get(vendorNameKey(name)),
+      reasonFor: (t: BankTransaction, gl: string) => picksFor(t, lookups, (id) => lookups.glById.get(id)?.name ?? ledgerNameById.get(id)).find((p) => p.pick.glAccountId === gl)?.reason,
+    };
+    return new Map(rows.filter((t) => !paired.has(t.id)).map((t) => [t.id, prefillFor(t, ctx)]));
+  }, [rows, pairs, mode, features.aiPrefill, lookups, vendorIdByName, ledgerNameById]);
+  const prefillOf = (t: BankTransaction) => prefills.get(t.id) ?? null;
+  const sureIds = useMemo(() => new Set(sureLines.map((t) => t.id)), [sureLines]);
+  // One list: the lines ScanTrix picked first, lightly highlighted, then the rest (Saurabh, 13 Nov).
+  const listRows = useMemo(() => (sureIds.size === 0 ? rows : [...sureLines, ...rows.filter((t) => !sureIds.has(t.id))]), [rows, sureIds, sureLines]);
 
   if (txns.length === 0 && loading) {
     return (
@@ -197,24 +300,22 @@ export function TransactionsTab({
 
   const selectedIds = Array.from(selected).filter((id) => rows.some((r) => r.id === id));
   const selectedRows = rows.filter((r) => selectedIds.includes(r.id));
-  const postable = selectedRows.filter((r) => r.status === "review").map((r) => ({ r, patch: postPatch(r, lookups) }));
+  // A line whose boxes ScanTrix filled in is posted with its own Post button only (24 Nov), never in a batch.
+  const aiFilledSelected = selectedRows.filter((r) => r.status === "review" && shownCoding(r, prefillOf(r)).ai.size > 0);
+  const postable = selectedRows.filter((r) => r.status === "review" && !aiFilledSelected.includes(r)).map((r) => ({ r, patch: postPatch(r, lookups) }));
   const sendableSelected = selectedRows.filter(isUnsent);
+  // Lines with no receipt and no bill behind them (paperwork requests).
+  const needsPaperwork = selectedRows.filter((r) => !r.attachments?.length && !r.matchedInvoiceId);
   const unsentInTab = rows.filter(isUnsent);
   const postSelected = async () => {
     const ready = postable.filter((p) => p.patch);
     const missing = postable.length - ready.length;
+    if (aiFilledSelected.length > 0) showToast(`${aiFilledSelected.length} line${aiFilledSelected.length === 1 ? "" : "s"} with AI-filled boxes skipped: check each one and use its own Post button.`, "info");
     if (ready.length === 0) {
-      showToast("Pick a GL account on the selected lines first.", "warning");
+      if (aiFilledSelected.length === 0) showToast("Pick a GL account on the selected lines first.", "warning");
       return;
     }
-    if (sendsNow && ready.length > 1) {
-      const ok = await confirmDialog({
-        title: `Post ${ready.length} lines to ${providerName}?`,
-        message: `Each line is sent to ${providerName} with the vendor, GL account and tax code it shows. A sent line can only be changed in ${providerName}.`,
-        confirmLabel: `Post ${ready.length}`,
-      });
-      if (!ok) return;
-    }
+    // One popup for the batch (with the receipt count) comes from the page (postWarning.ts).
     onPost(ready.map((p) => ({ txn: p.r, patch: p.patch as Partial<BankTransaction> })));
     if (missing > 0) showToast(`${missing} line${missing === 1 ? "" : "s"} skipped: no GL account yet.`, "info");
     setSelected(new Set());
@@ -240,7 +341,8 @@ export function TransactionsTab({
   };
 
   const editable = (t: BankTransaction) => t.status === "review";
-  const fieldTone = (t: BankTransaction, field: "vendorId" | "categoryId" | "taxCodeId") => (isSuggestedField(t, field) ? "suggested" : "default");
+  // Dashed outline: ScanTrix filled it in and no person has confirmed it yet.
+  const fieldTone = (t: BankTransaction) => (isSuggestedField(t) ? "suggested" : "default");
 
   const columns: DataTableColumn<BankTransaction>[] = [
     { key: "date", header: "Date", width: LINE_COLUMN_WIDTH.date, render: (t) => <span className="whitespace-nowrap">{t.date}</span> },
@@ -252,6 +354,12 @@ export function TransactionsTab({
         <button type="button" onClick={() => onOpen(t.id)} className="block w-full min-w-0 text-left" title="Open details">
           <span className="block truncate font-semibold text-content-primary hover:underline">{t.description || "—"}</span>
           <span className="block truncate text-content-secondary">{t.accountName || "—"}</span>
+          {t.postingStatus === "failed" && (
+            <span className="flex items-start gap-0.5 font-semibold text-status-danger-text" title={t.posting?.error ?? undefined}>
+              <AlertTriangle size={12} strokeWidth={2.25} className="mt-0.5 shrink-0" />
+              <span className="line-clamp-2">Not sent to {providerName}: {t.posting?.error ?? "try again."}</span>
+            </span>
+          )}
           {t.status === "review" && (t.ledgerCandidates?.length ?? 0) > 0 && (
             <span className="flex items-center gap-0.5 truncate font-semibold text-status-warning-text" title={`An entry with the same amount is already in ${providerName}. Open the line to check it.`}>
               <AlertTriangle size={12} strokeWidth={2.25} className="shrink-0" />
@@ -273,23 +381,67 @@ export function TransactionsTab({
       header: "Vendor",
       width: LINE_COLUMN_WIDTH.vendor,
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          const v = sureValues(t);
+          const name = (v.vendorId && lookups.vendorById.get(v.vendorId)?.displayName) || v.payee;
+          return name ? <span className="block truncate font-semibold">{name}</span> : <span className="block truncate text-content-muted">No vendor</span>;
+        }
         const c = codingFor(t);
         if (!editable(t)) return <span className="block truncate text-content-secondary">{(c.vendorId && lookups.vendorById.get(c.vendorId)?.displayName) || t.payee || "—"}</span>;
-        return (
+        const pre = prefillOf(t);
+        const shown = shownCoding(t, pre);
+        // No vendor yet: "+ Add" right in the box, one click opens the form with the clean name (24 Nov).
+        if (pre?.newVendorName && !shown.vendorId && !c.payee && !pickingVendor.has(t.id)) {
+          return (
+            <div className="relative flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAdding({ txnId: t.id, kind: "vendor", name: pre.newVendorName as string })}
+                className="inline-flex h-8 min-w-0 flex-1 items-center gap-1 truncate rounded-md border border-dashed border-accent bg-surface px-[var(--space-sm)] text-caption font-semibold text-accent hover:bg-surface-alt"
+                title={`Add "${pre.newVendorName}" as a vendor`}
+              >
+                <Plus size={13} strokeWidth={2.5} className="shrink-0" />
+                <span className="truncate">Add &lsquo;{pre.newVendorName}&rsquo;</span>
+              </button>
+              <button type="button" className="text-caption text-content-secondary hover:underline" onClick={() => setPickingVendor((prev) => new Set(prev).add(t.id))} title="Pick an existing vendor instead">
+                Pick
+              </button>
+              <AiSign reason={pre.reason} />
+            </div>
+          );
+        }
+        const vendorAi = shown.ai.has("vendorId");
+        const box = (
           <CreatableCombobox
             floating
             options={vendorOptions}
             noun="vendor"
             ariaLabel={`Vendor for ${t.description}`}
-            value={c.vendorId ?? ""}
+            value={shown.vendorId ?? ""}
             valueLabel={!c.vendorId ? c.payee : undefined}
-            tone={fieldTone(t, "vendorId")}
+            picks={
+              !c.vendorId && c.offered?.vendorId
+                ? [{ id: c.offered.vendorId, reason: c.suggestion?.linkedVendor ? "Picked for this payee before" : "From earlier lines for this payee" }]
+                : undefined
+            }
+            tone={vendorAi ? "suggested" : fieldTone(t)}
             title={c.reason ?? undefined}
             placeholder="Vendor"
             clearLabel="No vendor"
             onSelect={(id) => setVendor(t, id)}
-            onAddNew={(name) => setAdding({ txnId: t.id, kind: "vendor", name: name || t.merchantName || "" })}
+            // One vendor box, like the invoice screen: a name that isn't a vendor
+            // yet is added from here, with ScanTrix's clean name offered first.
+            suggestedNew={newVendorName(t)}
+            onAddNew={(name) => setAdding({ txnId: t.id, kind: "vendor", name: name || newVendorName(t) })}
           />
+        );
+        return vendorAi && pre ? (
+          <div className="relative">
+            {box}
+            <AiSign reason={pre.reason} />
+          </div>
+        ) : (
+          box
         );
       },
     },
@@ -298,31 +450,56 @@ export function TransactionsTab({
       header: "GL account",
       width: LINE_COLUMN_WIDTH.gl,
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          const v = sureValues(t);
+          const why = picksFor(t, lookups, glName).find((p) => p.pick.glAccountId === v.glAccountId)?.reason ?? codingFor(t).reason?.replace(/^Coded by ScanTrix — /, "") ?? "";
+          return (
+            <>
+              <span className="block truncate font-semibold">{glName(v.glAccountId) || "—"}</span>
+              <span className="line-clamp-2 text-content-secondary" title={why}>
+                {why}
+              </span>
+            </>
+          );
+        }
         const c = codingFor(t);
         if (!editable(t)) {
           const matched = t.matchedInvoiceId ? invoiceById.get(t.matchedInvoiceId) : undefined;
           return (
             <span className="block truncate text-content-secondary">
               {t.posting?.found
-                ? `Entered in ${providerName}: ${t.posting.found.label}${t.posting.found.name ? ` · ${t.posting.found.name}` : ""}`
+                ? `Found in ${providerName}: ${t.posting.found.label}${t.posting.found.name ? ` · ${t.posting.found.name}` : ""}`
                 : t.status === "matched" ? `Bill: ${matched ? `${matched.vendor}${matched.number ? ` #${matched.number}` : ""}` : "matched"}` : t.status === "transfer" ? `Transfer · ${t.transferAccount ?? ""}` : glName(c.glAccountId) || "—"}
             </span>
           );
         }
-        return (
+        const pre = prefillOf(t);
+        const shown = shownCoding(t, pre);
+        const glAi = shown.ai.has("glAccountId");
+        const glBox = (
           <CreatableCombobox
             floating
             options={glOptionsFor(t)}
             noun="GL account"
             ariaLabel={`GL account for ${t.description}`}
-            value={c.glAccountId ?? ""}
-            tone={fieldTone(t, "categoryId")}
+            value={shown.glAccountId ?? ""}
+            tone={glAi ? "suggested" : fieldTone(t)}
             title={c.reason ?? undefined}
             placeholder="GL account"
             clearLabel="No GL account"
-            onSelect={(id) => onUpdate(t.id, { categoryId: id || undefined })}
+            picks={picksFor(t, lookups, glName).map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} ai={p.pick.step === "ai"} /> }))}
+            onSelect={(id) => setGl(t, id)}
             onAddNew={(name) => setAdding({ txnId: t.id, kind: "gl", name })}
+            footerAction={refreshAction}
           />
+        );
+        return glAi && pre ? (
+          <div className="relative">
+            {glBox}
+            <AiSign reason={pre.reason} />
+          </div>
+        ) : (
+          glBox
         );
       },
     },
@@ -331,22 +508,37 @@ export function TransactionsTab({
       header: "Tax",
       width: LINE_COLUMN_WIDTH.tax,
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          const tax = sureValues(t).taxCodeId ? lookups.taxById.get(sureValues(t).taxCodeId as string) : undefined;
+          return tax ? <span className="block truncate font-semibold">{taxCodeLabel(tax)}</span> : <span className="block truncate text-content-muted">No tax</span>;
+        }
         const c = codingFor(t);
         const label = c.taxCodeId ? lookups.taxById.get(c.taxCodeId) : undefined;
         if (!editable(t)) return <span className="block truncate text-content-secondary">{label ? taxCodeLabel(label) : "—"}</span>;
         if (taxOptions.length === 0) return <span className="text-content-muted">—</span>;
-        return (
+        const pre = prefillOf(t);
+        const shown = shownCoding(t, pre);
+        const taxAi = shown.ai.has("taxCodeId");
+        const taxBox = (
           <CreatableCombobox
             floating
             options={taxOptions}
             noun="tax code"
             ariaLabel={`Tax code for ${t.description}`}
-            value={c.taxCodeId ?? ""}
-            tone={fieldTone(t, "taxCodeId")}
+            value={shown.taxCodeId ?? ""}
+            tone={taxAi ? "suggested" : fieldTone(t)}
             placeholder="Tax"
             clearLabel="No tax code"
             onSelect={(id) => onUpdate(t.id, { taxCodeId: id || undefined })}
           />
+        );
+        return taxAi && pre ? (
+          <div className="relative">
+            {taxBox}
+            <AiSign reason={pre.taxSource === "vendor" ? "The vendor's saved tax code." : "The tax code your similar posted items agree on."} />
+          </div>
+        ) : (
+          taxBox
         );
       },
     },
@@ -355,6 +547,14 @@ export function TransactionsTab({
       header: <Paperclip size={13} strokeWidth={2.25} aria-label="Invoice or receipt" />,
       width: LINE_COLUMN_WIDTH.paperwork,
       render: (t) => {
+        if (t.matchedInvoiceId && isLedgerBill(t.matchedInvoiceId)) {
+          const inv = invoiceById.get(t.matchedInvoiceId);
+          return (
+            <span title={inv ? `${inv.vendor}${inv.number ? ` #${inv.number}` : ""}: a bill in ${providerName}` : `A bill in ${providerName}`} className="inline-flex text-accent">
+              <Paperclip size={16} strokeWidth={2.25} />
+            </span>
+          );
+        }
         if (t.matchedInvoiceId) {
           const inv = invoiceById.get(t.matchedInvoiceId);
           return (
@@ -363,9 +563,25 @@ export function TransactionsTab({
             </Link>
           );
         }
-        // "Ask" for missing paperwork returns with the Paperwork Requests page,
-        // which isn't on this branch yet (paperworkHref in matching.ts).
-        return null;
+        if (t.attachments?.length) {
+          const [first] = t.attachments;
+          return (
+            <button
+              type="button"
+              onClick={() => qbConnectionId && openAttachment(qbConnectionId, t.id, first.id).catch((e: Error) => showToast(e.message, "error"))}
+              title={`Receipt: ${t.attachments.map((a) => a.name).join(", ")}`}
+              className="inline-flex text-accent hover:opacity-80"
+            >
+              <Paperclip size={16} strokeWidth={2.25} />
+            </button>
+          );
+        }
+        // No bill and no receipt: shown faintly, so missing paperwork stands out.
+        return (
+          <span title="No receipt or bill yet. Select the line and use Request paperwork." className="inline-flex text-content-muted opacity-40">
+            <Paperclip size={16} strokeWidth={2.25} aria-label="No receipt" />
+          </span>
+        );
       },
     },
     {
@@ -374,11 +590,23 @@ export function TransactionsTab({
       width: LINE_COLUMN_WIDTH.actions,
       align: "right",
       render: (t) => {
+        if (sureIds.has(t.id)) {
+          return (
+            <span className="inline-flex items-center gap-[var(--space-xs)]">
+              <Button size="sm" onClick={() => void postSure([t])} title={sendsNow ? `Post to ${providerName} with the vendor, GL and tax shown` : "Save as ready to post, with the vendor, GL and tax shown"}>
+                Post
+              </Button>
+              <button type="button" className={ROW_BTN} onClick={() => onOpen(t.id)} title="Change the vendor, GL account or tax first">
+                Change
+              </button>
+            </span>
+          );
+        }
         if (t.postingStatus === "posted") {
           // In the books: locked here; a change is made in QuickBooks/Xero itself.
           const label = `In ${providerName}`;
           if (t.posting?.found) {
-            // Entered straight into QuickBooks/Xero; Scantrix only linked it, so it can be put back.
+            // Entered straight into QuickBooks/Xero; ScanTrix only linked it, so it can be put back.
             return (
               <span className="inline-flex items-center gap-[var(--space-xs)]">
                 {t.posting.url ? (
@@ -435,7 +663,7 @@ export function TransactionsTab({
             </span>
           );
         }
-        const patch = postPatch(t, lookups);
+        const patch = postPatch(t, lookups, prefillOf(t));
         return (
           <span className="inline-flex items-center gap-[var(--space-xs)]">
             <Button size="sm" disabled={!patch} title={patch ? `Post to ${providerName}` : "Pick a GL account first"} onClick={() => patch && onPost([{ txn: t, patch }])}>
@@ -456,30 +684,51 @@ export function TransactionsTab({
     },
   ];
 
-  const anySuggested = rows.some((t) => t.status === "review" && (isSuggestedField(t, "categoryId") || isSuggestedField(t, "vendorId")));
+  /** What ScanTrix would code a sure line to: its own fill, or the High suggestion ("Suggest only"). */
+  const sureValues = (t: BankTransaction) => {
+    const c = codingFor(t);
+    return c.source === "autopilot" ? c : { ...c, ...(c.offered ?? {}) };
+  };
+  const postSure = async (lines: BankTransaction[]) => {
+    const items = lines.flatMap((t) => {
+      const patch = surePatch(t, mode);
+      return patch ? [{ txn: t, patch }] : [];
+    });
+    // The page asks once (count, and lines with no receipt) before posting.
+    if (items.length > 0) onPost(items);
+  };
 
   // The line a vendor or GL account is being added from, as it is shown now.
   const addingTxn = adding ? txns.find((x) => x.id === adding.txnId) : undefined;
   const addingCoding = addingTxn ? codingFor(addingTxn) : null;
+  // The vendor form, opened from a line: clean name, the suggested GL, no tax; the currency is left for the person to pick.
+  const vendorDefaults =
+    adding?.kind === "vendor" && addingTxn
+      ? vendorFormDefaults({
+          typed: adding.name,
+          suggestedName: newVendorName(addingTxn),
+          // A Low or AI pick never becomes the new vendor's default GL.
+          glAccountId: addingCoding?.glAccountId ?? (addingCoding?.suggestion && addingCoding.suggestion.confidence !== "low" ? addingCoding.offered?.glAccountId : undefined),
+          currency: lineCurrency(addingTxn, { bankAccounts, named, chart: ledger.accounts, homeCurrency }),
+        })
+      : null;
+  /** A clean vendor name for a payee ScanTrix doesn't know ("Tim Hortons", not "TIM HORTONS #1234 TORONTO"). */
+  function newVendorName(t: BankTransaction): string {
+    const c = codingFor(t);
+    return c.suggestion?.payee || suggestedVendorName(t.merchantName, t.description);
+  }
 
   return (
     <div>
       <div className="flex flex-col gap-[var(--space-sm)] border-b border-border bg-page p-[var(--space-md)]">
         <p className="text-caption text-content-secondary">
-          {counts.total} total · {counts.review} to review · {counts.ready} ready to post · {counts.matched} matched · {counts.transfer} transfer · {counts.excluded} excluded
+          {counts.all} total · {counts.review} to review · {counts.posted} posted · {counts.matched} matched · {counts.transfers} transfers or excluded
         </p>
         <div className="flex flex-col gap-[var(--space-sm)] lg:flex-row lg:flex-wrap lg:items-center">
           <Tabs
-            items={[
-              { value: "review", label: "To review", count: counts.review },
-              { value: "ready", label: "Ready to post", count: counts.ready },
-              { value: "matched", label: "Matched", count: counts.matched },
-              { value: "transfer", label: "Transfers", count: counts.transfer },
-              { value: "excluded", label: "Excluded", count: counts.excluded },
-              { value: "all", label: "All", count: counts.total },
-            ]}
-            value={status}
-            onChange={(v) => setStatus(v as StatusFilter)}
+            items={(["review", "posted", "matched", "transfers", "all"] as const).map((v) => ({ value: v, label: TAB_LABEL[v], count: counts[v] }))}
+            value={view}
+            onChange={(v) => setView(v as ListTab)}
           />
           <SearchInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search transactions…" widthClassName="w-full lg:w-72" />
           <SelectDropdown uiSize="sm" aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
@@ -490,21 +739,31 @@ export function TransactionsTab({
               </option>
             ))}
           </SelectDropdown>
-          <div className="flex items-center gap-[var(--space-xs)]">
-            <input type="date" aria-label="From date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={DATE_CLASS} />
-            <span className="text-caption text-content-secondary">to</span>
-            <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={DATE_CLASS} />
-          </div>
+          <SelectDropdown uiSize="sm" aria-label="Dates" value={period} onChange={(e) => setPeriod(e.target.value as DatePeriod)}>
+            {(Object.keys(PERIOD_LABEL) as DatePeriod[]).map((p) => (
+              <option key={p} value={p}>
+                {PERIOD_LABEL[p]}
+              </option>
+            ))}
+          </SelectDropdown>
+          {period === "custom" && (
+            <div className="flex items-center gap-[var(--space-xs)]">
+              <input type="date" aria-label="From date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={DATE_CLASS} />
+              <span className="text-caption text-content-secondary">to</span>
+              <input type="date" aria-label="To date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={DATE_CLASS} />
+            </div>
+          )}
+          {bounds && period !== "custom" && <span className="text-caption text-content-secondary">{bounds.from} to {bounds.to}</span>}
         </div>
-        {status === "review" && (
+        {view === "review" && (
           <RoleInfoBanner>
             {sendsNow
-              ? `Post sends a line to ${providerName} straight away, with its vendor, GL account and tax code.`
-              : `Post saves a line as ready, with its vendor, GL account and tax code. Then send it to ${providerName} from Ready to post.`}
+              ? `Post sends a line to ${providerName} straight away, with its vendor, GL account and tax code. It then moves to Posted.`
+              : `Post saves a line as ready, with its vendor, GL account and tax code. It stays here until it is sent to ${providerName}.`}
           </RoleInfoBanner>
         )}
-        {SENDABLE.includes(status as BankTxnStatus) && blocked && <RoleInfoBanner>{blocked}</RoleInfoBanner>}
-        {SENDABLE.includes(status as BankTxnStatus) && !blocked && onSend && unsentInTab.length > 0 && (
+        {view !== "posted" && view !== "all" && blocked && <RoleInfoBanner>{blocked}</RoleInfoBanner>}
+        {view !== "posted" && view !== "all" && !blocked && onSend && unsentInTab.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
             <p className="text-caption text-content-secondary">
               {unsentInTab.length} {unsentInTab.length === 1 ? "line isn't" : "lines aren't"} in {providerName} yet. Each line is sent once; a sent line can only be changed in {providerName}.
@@ -514,12 +773,6 @@ export function TransactionsTab({
               Send {unsentInTab.length} to {providerName}
             </Button>
           </div>
-        )}
-        {status === "review" && anySuggested && (
-          <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-secondary">
-            <Sparkles size={13} strokeWidth={2.25} className="text-accent" />
-            Fields with a dashed outline are filled in from earlier lines for the same payee. Post confirms them, or change any of them first.
-          </p>
         )}
       </div>
 
@@ -552,13 +805,19 @@ export function TransactionsTab({
           >
             Exclude selected
           </Button>
+          {needsPaperwork.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setRequesting(needsPaperwork)} title="Ask a team member for the receipts of the selected lines that have none">
+              <FileQuestion size={14} strokeWidth={2.25} />
+              Request paperwork{needsPaperwork.length < selectedRows.length ? ` (${needsPaperwork.length})` : ""}
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>
             Clear
           </Button>
         </div>
       )}
 
-      {status === "review" && (
+      {view === "review" && (
         <SuggestedMatches
           suggestions={suggestions}
           lookups={lookups}
@@ -567,7 +826,52 @@ export function TransactionsTab({
           onAccept={(s) => onAcceptMatches([s])}
           onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
           onAcceptAll={acceptAll}
+          onPostBillAndPay={features.autoMatch ? onPostBillAndPay : undefined}
+          billWaiting={billWaiting}
         />
+      )}
+
+      {view === "review" && pairs.length > 0 && (
+        <section className="border-b border-border bg-surface-alt" aria-label="Suggested transfers">
+          <p className="flex items-center gap-[var(--space-xs)] px-[var(--space-md)] pt-[var(--space-sm)] text-caption font-semibold text-content-primary">
+            <ArrowLeftRight size={14} strokeWidth={2.25} />
+            Suggested transfers ({pairs.length}): the same amount left one of your accounts and arrived in another within 3 days.
+          </p>
+          <ul className="divide-y divide-border">
+            {pairs.map((p) => (
+              <li key={`${p.out.id}:${p.in.id}`} className="flex flex-wrap items-center justify-between gap-[var(--space-sm)] px-[var(--space-md)] py-[var(--space-sm)]">
+                <span className="min-w-0 text-body-sm text-content-primary">
+                  <span className="font-semibold">
+                    Transfer: {p.out.accountName} → {p.in.accountName}, {formatAmount(Math.abs(p.out.amount)).replace(/^-/, "")}
+                  </span>
+                  <span className="block text-caption text-content-secondary">
+                    Out {p.out.date} · {p.out.description || "—"} · In {p.in.date} · {p.in.description || "—"}
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-[var(--space-xs)]">
+                  <Button size="sm" disabled={sendingIds.has(p.out.id)} onClick={() => onPostPair(p)} title={sendsNow ? `One transfer in ${providerName}; both lines move to Transfers` : "Mark both lines as a transfer"}>
+                    Post
+                  </Button>
+                  <button type="button" className={ROW_BTN} onClick={() => onRefusePair(p)} title="Not a transfer: keep both lines to review and never pair them again">
+                    Not this
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {sureLines.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)] border-b border-border bg-status-success-bg/40 px-[var(--space-md)] py-[var(--space-xs)]">
+          <p className="flex items-center gap-[var(--space-xs)] text-caption text-content-primary">
+            <CheckCircle2 size={14} strokeWidth={2.25} className="text-status-success-text" />
+            ScanTrix picked {sureLines.length} line{sureLines.length === 1 ? "" : "s"} (highlighted, at the top): 3 past lines on the same vendor, GL and tax. Check, then post.
+          </p>
+          <Button size="sm" onClick={() => void postSure(sureLines)}>
+            Post all {sureLines.length}
+          </Button>
+        </div>
       )}
 
       {rows.length === 0 ? (
@@ -575,7 +879,8 @@ export function TransactionsTab({
       ) : (
         <DataTable
           columns={columns}
-          rows={rows}
+          rows={listRows}
+          getRowClassName={(t) => (sureIds.has(t.id) ? "bg-status-success-bg/40" : "")}
           getRowKey={(t) => t.id}
           bordered={false}
           maxHeightClassName="max-h-[640px]"
@@ -584,21 +889,26 @@ export function TransactionsTab({
         />
       )}
 
+      {requesting && (
+        <RequestPaperworkModal
+          lines={requesting}
+          onClose={() => setRequesting(null)}
+          onSent={() => {
+            setSelected(new Set());
+            onPaperworkRequested?.();
+          }}
+        />
+      )}
       <AddVendorModalV2
         open={adding?.kind === "vendor"}
         onClose={() => setAdding(null)}
-        initialName={adding?.kind === "vendor" ? adding.name : ""}
-        initialGlAccountId={adding?.kind === "vendor" ? (addingCoding?.glAccountId ?? "") : ""}
-        initialTaxCodeId={adding?.kind === "vendor" ? (addingCoding?.taxCodeId ?? "") : ""}
+        initialName={vendorDefaults?.name ?? ""}
+        initialGlAccountId={vendorDefaults?.glAccountId ?? ""}
+        initialTaxCodeId={vendorDefaults?.taxCodeId ?? ""}
+        initialCurrency={vendorDefaults?.currency}
         onCreated={(vendor) => {
           if (!adding) return;
-          const shown = addingCoding;
-          onUpdate(adding.txnId, {
-            vendorId: vendor._id,
-            payee: vendor.displayName,
-            ...(vendor.glAccountId && !shown?.glAccountId ? { categoryId: vendor.glAccountId } : {}),
-            ...(vendor.taxCodeId && !shown?.taxCodeId ? { taxCodeId: vendor.taxCodeId } : {}),
-          });
+          onUpdate(adding.txnId, newVendorPatch(vendor, addingCoding ?? {}));
         }}
       />
       <AddGlAccountModalV2

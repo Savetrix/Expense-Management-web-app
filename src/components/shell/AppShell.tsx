@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Banknote,
+  Bot,
   Car,
   Check,
   ChevronDown,
@@ -58,13 +59,14 @@ interface NavItem {
 }
 
 // The link to the claims page counts claims waiting on your approval.
-const CLAIMS_HREF = "/expense-claims";
+const CLAIMS_HREF = "/reimbursements";
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/bank-transactions", label: "Bank Transactions", icon: Banknote },
-  { href: CLAIMS_HREF, label: "Expense Claims", icon: Car },
+  { href: "/autopilot", label: "Autopilot", icon: Bot },
+  { href: CLAIMS_HREF, label: "Reimbursements", icon: Car },
   { href: "/month-end", label: "Month-End Adjustments", icon: Repeat },
   { href: "/team", label: "Team", icon: Users },
   { href: "/vendors", label: "Vendors", icon: Store },

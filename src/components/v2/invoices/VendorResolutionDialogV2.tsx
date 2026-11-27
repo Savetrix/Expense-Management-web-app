@@ -204,6 +204,9 @@ export function VendorResolutionDialogV2({
                 onChange={(e) => setCurrency(e.target.value)}
                 className="mt-[var(--space-xs)] w-full"
               >
+                <option value="" disabled>
+                  Select currency
+                </option>
                 {CURRENCY_OPTIONS.map((code) => (
                   <option key={code} value={code}>
                     {code}

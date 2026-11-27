@@ -64,6 +64,14 @@ describe("findStrongSuggestions", () => {
     const out = findStrongSuggestions([txn({ description: "STAPLES 0042" })], [inv(), inv({ id: "i2", vendor: "Staples" })]);
     assert.deepEqual(out.map((s) => s.invoice.id), ["i2"]);
   });
+  it("offers nothing when the same vendor has two open bills of the same amount: a person picks (Saurabh, 20 Nov)", () => {
+    const two = [inv({ id: "i-old", date: "2025-03-05" }), inv({ id: "i-new", date: "2025-03-08" })];
+    assert.equal(findStrongSuggestions([txn()], two).length, 0);
+    // Once one of them is matched or paid, the other is offered again.
+    assert.deepEqual(findStrongSuggestions([txn()], two, new Set(["i-old"])).map((s) => s.invoice.id), ["i-new"]);
+    // An older twin outside the 7 days doesn't tie.
+    assert.deepEqual(findStrongSuggestions([txn()], [inv({ id: "i-old", date: "2025-02-20" }), inv({ id: "i-new" })]).map((s) => s.invoice.id), ["i-new"]);
+  });
   it("never offers a bill to money coming in", () => {
     assert.equal(findStrongSuggestions([txn({ amount: 120.5 })], [inv()]).length, 0);
   });

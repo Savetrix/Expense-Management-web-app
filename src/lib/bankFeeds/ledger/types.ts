@@ -21,10 +21,27 @@ export interface LedgerContext {
 export interface LedgerAccount {
   id: string;
   name: string;
-  /** bank / card: money is paid from or into it. income / expense: a line's category. */
-  kind: "bank" | "card" | "income" | "expense" | "other";
+  /**
+   * bank / card: money is paid from or into it. income / expense: a line's
+   * category. payable / receivable: Accounts Payable / Receivable, which a
+   * bank line reaches only through a bill payment (or a customer payment).
+   */
+  kind: "bank" | "card" | "income" | "expense" | "payable" | "receivable" | "other";
   type: string;
   currency: string | null;
+  /** QuickBooks sub-accounts: the parent account's id. */
+  parentId?: string | null;
+  /** QuickBooks AccountSubType ("GlobalTaxPayable"), Xero SystemAccount ("GST"): tells tax accounts apart. */
+  subtype?: string | null;
+  /** The account's own description, when the company wrote one (step 4 reads it). */
+  description?: string | null;
+}
+
+/** What the company itself says about where it is (tax rules depend on it). */
+export interface LedgerCompanyInfo {
+  /** "US", "CA", "GB"… */
+  country: string | null;
+  homeCurrency: string | null;
 }
 
 interface PostingBase {
@@ -101,11 +118,66 @@ export interface LedgerEntry {
   url: string | null;
 }
 
+/**
+ * One coded line of an entry already in the books, for learning how the company
+ * codes (Smart Suggestions, history): a bill or expense line with its vendor,
+ * account and tax code, a deposit line, or a bill payment.
+ */
+export interface HistoryLine {
+  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment" | "CreditCardPayment";
+  /** The provider's id of the entry. */
+  id: string;
+  /** The line's position in the entry (0 for an entry with one line). */
+  line: number;
+  /** "YYYY-MM-DD". */
+  date: string;
+  /** The line's amount in cents, positive. */
+  amountCents: number;
+  /** Who was paid or who paid: the provider's vendor (or customer) id and name. */
+  vendorId: string | null;
+  vendorName: string | null;
+  /** The GL account the line was coded to (null for a bill payment). */
+  accountId: string | null;
+  taxCodeId: string | null;
+  /** The bank or card account the money moved in (expenses, deposits, bill payments). */
+  bankAccountId: string | null;
+  /** Money back onto a card (a refund) rather than money out. */
+  credit: boolean;
+  /** The line's own words (its description, else the entry's memo), for finding similar items. */
+  description: string | null;
+  /** The biggest line of its entry: the one that speaks for the entry when counting. */
+  dominant: boolean;
+}
+
 export interface LedgerAdapter {
   listAccounts(ctx: LedgerContext): Promise<LedgerAccount[]>;
+  companyInfo?(ctx: LedgerContext): Promise<LedgerCompanyInfo>;
   /** Entries dated from..to ("YYYY-MM-DD", inclusive) that moved money in a bank or card account. */
   entriesBetween(ctx: LedgerContext, from: string, to: string): Promise<LedgerEntry[]>;
+  /** The coded lines of bills, expenses, deposits and bill payments dated from..to. Absent where the provider's terms don't allow it. */
+  historyBetween?(ctx: LedgerContext, from: string, to: string): Promise<HistoryLine[]>;
   /** Of these bills (the provider's own ids), the ones with nothing left to pay. Unknown ids are left out. */
   paidBills(ctx: LedgerContext, billIds: string[]): Promise<string[]>;
   post(ctx: LedgerContext, posting: Posting, idempotencyKey: string): Promise<PostedEntry>;
+  /** Bills with something left to pay, dated in the last year: entered in QuickBooks/Xero by hand too, not only through ScanTrix. */
+  openBills?(ctx: LedgerContext): Promise<OpenBill[]>;
+}
+
+/** A bill in QuickBooks/Xero with money still owed on it (a match candidate). */
+export interface OpenBill {
+  billId: string;
+  vendorId: string;
+  vendorName: string;
+  number: string;
+  date: string;
+  /** What is left to pay. */
+  balance: number;
+  currency: string | null;
+}
+
+/** A match to a bill that exists only in QuickBooks/Xero is saved as "ledger:<billId>:<vendorId>". */
+export const ledgerBillRef = (b: Pick<OpenBill, "billId" | "vendorId">) => `ledger:${b.billId}:${b.vendorId}`;
+export function parseLedgerBillRef(ref: string): { billId: string; vendorId: string } | null {
+  const m = /^ledger:([^:]{1,40}):([^:]{1,40})$/.exec(ref);
+  return m ? { billId: m[1], vendorId: m[2] } : null;
 }

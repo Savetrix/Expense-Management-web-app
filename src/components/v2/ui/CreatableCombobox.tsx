@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, ChevronDown, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Plus, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface ComboboxOption {
@@ -39,6 +39,38 @@ interface CreatableComboboxProps {
   tone?: "default" | "suggested";
   /** Tooltip on the input (e.g. why a value was suggested). */
   title?: string;
+  /**
+   * ScanTrix's suggestions (at most 3), listed first under "Suggested" with
+   * their reason and confidence label. Only ids that are in `options` show.
+   * Hidden while typing.
+   */
+  picks?: ComboboxPick[];
+  /**
+   * A name to offer on the add row before anything is typed ("Add "Tim
+   * Hortons" as new vendor"): ScanTrix's suggested name for a new payee.
+   * Ignored when an option already has that name.
+   */
+  suggestedNew?: string;
+  /** A last row under the list, e.g. "Refresh the account list" when an expected account is missing. */
+  footerAction?: { label: string; onClick: () => void };
+}
+
+export interface ComboboxPick {
+  id: string;
+  reason: string;
+  /** The confidence label (ConfidenceLabel). */
+  badge?: ReactNode;
+}
+
+/**
+ * The add row's words: what was typed, else ScanTrix's suggested name for a
+ * new entry (when nothing is picked and no option has that name yet).
+ */
+export function addRow(a: { typed: string; value: string; suggestedNew?: string; options: readonly ComboboxOption[]; noun: string }): { offerName: string; label: string } {
+  const suggested = a.suggestedNew?.trim() ?? "";
+  const offerName = !a.typed && !a.value && suggested && !a.options.some((o) => o.label?.trim().toLowerCase() === suggested.toLowerCase()) ? suggested : "";
+  const label = a.typed ? `Add "${a.typed}" as new ${a.noun}` : offerName ? `Add "${offerName}" as new ${a.noun}` : `Add new ${a.noun}`;
+  return { offerName, label };
 }
 
 // Type-to-filter picker (vendors, GL accounts). Replaces a native <select>
@@ -61,6 +93,9 @@ export function CreatableCombobox({
   floating = false,
   tone = "default",
   title,
+  picks,
+  suggestedNew,
+  footerAction,
 }: CreatableComboboxProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -79,12 +114,23 @@ export function CreatableCombobox({
   );
   const exactMatch = options.some((o) => o.label?.trim().toLowerCase() === lower);
 
+  // Suggested rows come first, while nothing is typed.
+  const pickRows = useMemo(() => {
+    if (trimmed || !picks?.length) return [];
+    const byId = new Map(options.map((o) => [o.id, o]));
+    return picks.flatMap((p) => {
+      const option = byId.get(p.id);
+      return option ? [{ ...p, label: option.label }] : [];
+    });
+  }, [picks, options, trimmed]);
+
   // Row 0 is always the add-new action; vendor rows follow.
   const showAddRow = !!onAddNew && (!trimmed || !exactMatch);
   const showClearRow = !!clearLabel && !!value && !trimmed;
-  const leadCount = (showAddRow ? 1 : 0) + (showClearRow ? 1 : 0);
+  const leadCount = (showAddRow ? 1 : 0) + (showClearRow ? 1 : 0) + pickRows.length;
   const clearIndex = showAddRow ? 1 : 0;
-  const addLabel = trimmed ? `Add "${trimmed}" as new ${noun}` : `Add new ${noun}`;
+  const pickStart = (showAddRow ? 1 : 0) + (showClearRow ? 1 : 0);
+  const { offerName, label: addLabel } = addRow({ typed: trimmed, value, suggestedNew, options, noun });
   const rowCount = leadCount + matches.length;
 
   useEffect(() => {
@@ -135,7 +181,7 @@ export function CreatableCombobox({
 
   const pick = (index: number) => {
     if (showAddRow && index === 0) {
-      const name = trimmed;
+      const name = trimmed || offerName;
       close();
       onAddNew?.(name);
       return;
@@ -143,6 +189,11 @@ export function CreatableCombobox({
     if (showClearRow && index === clearIndex) {
       close();
       onSelect("");
+      return;
+    }
+    if (index >= pickStart && index < pickStart + pickRows.length) {
+      close();
+      onSelect(pickRows[index - pickStart].id);
       return;
     }
     const option = matches[index - leadCount];
@@ -246,6 +297,34 @@ export function CreatableCombobox({
               {clearLabel}
             </li>
           )}
+          {pickRows.length > 0 && (
+            <li role="presentation" className="flex items-center gap-[var(--space-xs)] px-[var(--space-sm)] pt-[var(--space-xs)] text-[11px] font-bold uppercase tracking-wider text-content-muted">
+              <Sparkles size={11} strokeWidth={2.25} className="text-accent" />
+              Suggested
+            </li>
+          )}
+          {pickRows.map((p, i) => {
+            const index = pickStart + i;
+            return (
+              <li
+                key={`pick-${p.id}`}
+                role="option"
+                aria-selected={p.id === value}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(index)}
+                onMouseEnter={() => setActive(index)}
+                className={`cursor-pointer px-[var(--space-sm)] py-[var(--space-xs)] text-caption text-content-primary ${active === index ? "bg-surface-alt" : ""} ${
+                  i === pickRows.length - 1 ? "border-b border-border" : ""
+                }`}
+              >
+                <span className="flex items-center justify-between gap-[var(--space-xs)]">
+                  <span className={`truncate ${p.id === value ? "font-bold" : "font-semibold"}`}>{p.label}</span>
+                  {p.badge}
+                </span>
+                <span className="block truncate text-[11px] text-content-secondary">{p.reason}</span>
+              </li>
+            );
+          })}
           {matches.map((option, i) => {
             const index = i + leadCount;
             const isSelected = option.id === value;
@@ -266,9 +345,23 @@ export function CreatableCombobox({
               </li>
             );
           })}
-          {matches.length === 0 && trimmed && (
+          {matches.length === 0 && trimmed && !showAddRow && (
             <li className="px-[var(--space-sm)] py-[var(--space-xs)] text-[11px] text-content-secondary">
               No {noun}s match &ldquo;{trimmed}&rdquo;.
+            </li>
+          )}
+          {footerAction && (
+            <li
+              role="option"
+              aria-selected={false}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                close();
+                footerAction.onClick();
+              }}
+              className="cursor-pointer border-t border-border px-[var(--space-sm)] py-[var(--space-xs)] text-[11px] font-semibold text-accent hover:bg-surface-alt"
+            >
+              {footerAction.label}
             </li>
           )}
         </ul>,

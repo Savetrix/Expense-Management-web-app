@@ -30,6 +30,13 @@ export interface PostingServices {
   bill(invoiceId: string): Promise<{ billId: string; vendorId: string } | null>;
   /** A fresh access token after QuickBooks/Xero refused the current one. */
   renewLedger?(): Promise<LedgerContext>;
+  /**
+   * True when every expense or deposit line needs a tax code: QuickBooks
+   * outside the US refuses a line without one ("Make sure all your
+   * transactions have a GST/HST rate before you save"). Xero falls back to the
+   * account's default tax rate, so it doesn't.
+   */
+  taxRequired?(): Promise<boolean>;
 }
 
 export interface PostOutcome {
@@ -65,6 +72,15 @@ async function buildPosting(db: Db, svc: PostingServices, chart: Map<string, Led
     throw new LineRefused(`"${bank.name}" isn't a bank or card account in ${name} any more. Map "${txn.accountLabel}" again.`);
   }
   const bankAccount = { id: bank.id, isCard: bankAcct.kind === "card" };
+  // A line from a connected bank carries its real currency. Booked to an account
+  // in another currency, the amount would be taken as that currency (a 500 USD
+  // card line mapped to a CAD card on the sandbox, 22 Nov). Imported files take
+  // the mapped account's currency, so this only applies to bank-feed lines.
+  const lineCurrency = txn.plaidTransactionId ? txn.currency?.toUpperCase() : null;
+  const accountCurrency = bankAcct.currency?.toUpperCase();
+  if (lineCurrency && accountCurrency && lineCurrency !== accountCurrency) {
+    throw new LineRefused(`This line is in ${lineCurrency}, but "${bankAcct.name}" in ${name} is in ${accountCurrency}. Map "${txn.accountLabel}" to a ${lineCurrency} account in ${name} (Connected accounts).`);
+  }
 
   if (txn.status === "transfer") {
     const other = await ledgerAccountFor(db, txn.qbConnectionId, { accountId: txn.transferAccountId, label: txn.transferLabel });
@@ -85,6 +101,7 @@ async function buildPosting(db: Db, svc: PostingServices, chart: Map<string, Led
 
   // ready
   if (!txn.glAccountId) throw new LineRefused("Pick a GL account first.");
+  if (!txn.taxCodeId && (await svc.taxRequired?.())) throw new LineRefused(`Pick a tax code. ${name} needs one on every line for a company outside the US.`);
   let vendorId: string | null = null;
   if (txn.vendorId) {
     vendorId = (await svc.vendorIds()).get(txn.vendorId) ?? null;

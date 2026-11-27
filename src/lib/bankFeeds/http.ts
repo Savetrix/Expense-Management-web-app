@@ -4,6 +4,7 @@
 // 409 (state), 503 (store, Plaid or config unavailable), 500 (unknown).
 import { readBankConfig, readStoreConfig, type BankFeedsConfig } from "./config";
 import { isStoreError, readyDb, type Db } from "./db";
+import { noteConnections } from "./history";
 import { authorizeBank, type BankAbility, type Caller, type CallerConnection } from "./door";
 import { PlaidCallError } from "./plaid";
 
@@ -40,6 +41,8 @@ export async function bankContext(
 
   try {
     const db = await readyDb(outcome.config.mongoUri, outcome.config.mongoDbName);
+    // History read from a company that disconnected is deleted (Intuit 8.2(f)).
+    await noteConnections(db, door.caller.connections, door.connection.id).catch((e) => console.error("[bank] history cleanup", e instanceof Error ? e.message : e));
     return { config: outcome.config, db, caller: door.caller, connection: door.connection };
   } catch (error) {
     return errorResponse("open", error);

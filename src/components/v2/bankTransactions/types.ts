@@ -21,6 +21,8 @@ export interface BankTransaction {
   version?: number;
   accountId?: string | null;
   transferAccountId?: string;
+  /** Lines a person said "Not this" to as a suggested transfer pair. */
+  notTransferWith?: string[];
   taxCodeId?: string;
   vendorId?: string;
   /** Plaid's cleaned-up merchant name, when it knows one. */
@@ -34,6 +36,10 @@ export interface BankTransaction {
   posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: LedgerFoundEntry & { auto: boolean } };
   /** Entries already in QuickBooks/Xero that could be this line; a person picks. */
   ledgerCandidates?: LedgerFoundEntry[];
+  /** Sent with a Post of an AI-filled line (lineCoding.ts aiFillReport); never stored on the line. */
+  aiFill?: Partial<Record<"gl" | "vendor" | "tax", string>>;
+  /** Receipts uploaded for the line (paperwork requests). */
+  attachments?: { id: string; name: string; mimeType: string; size: number; uploadedAt: string }[];
 }
 
 /** An entry already in QuickBooks/Xero (an expense, deposit, transfer or payment). */

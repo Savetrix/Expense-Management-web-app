@@ -12,7 +12,7 @@ import { SkeletonListRows } from "@/components/ui/Skeleton";
 import { Spinner } from "@/components/ui/Spinner";
 import { confirmDialog, showToast } from "@/lib/dialogManager";
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
-import { defaultVendorCurrency, hasVendorErrors, validateVendorForm, type VendorFieldErrors } from "@/lib/vendorForm";
+import { hasVendorErrors, NO_CURRENCY, validateVendorForm, type VendorFieldErrors } from "@/lib/vendorForm";
 import { taxCodeId as getTaxCodeId, taxCodeLabel as formatTaxCodeLabel } from "@/lib/quickbooks/taxCode";
 import { useRefreshThrottle } from "@/lib/useRefreshThrottle";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -28,7 +28,7 @@ import {
   syncQuickBooksVendors,
   updateQuickBooksVendor,
 } from "@/store/quickBooks/quickBooksApi";
-import { selectActiveHomeCurrency, selectConnectedAccounts, type Vendor } from "@/store/quickBooks/quickBooksSlice";
+import { selectConnectedAccounts, type Vendor } from "@/store/quickBooks/quickBooksSlice";
 import { VendorCleanupSuggestions } from "@/components/vendors/VendorCleanupSuggestions";
 import { VendorDetailV2 } from "@/components/v2/vendors/VendorDetailV2";
 import { CompactListRow, Modal, PageHeader, RoleInfoBanner, SearchInput, SelectDropdown, Tabs } from "@/components/v2/ui";
@@ -48,7 +48,7 @@ interface VendorFormState {
 
 const EMPTY_FORM: VendorFormState = {
   displayName: "",
-  currency: CURRENCY_OPTIONS[0],
+  currency: NO_CURRENCY,
   glAccountId: "",
   taxCodeId: "",
   email: "",
@@ -110,7 +110,6 @@ export function VendorsContentV2() {
   // Field problems sit next to their field; formError is what the server said.
   const [fieldErrors, setFieldErrors] = useState<VendorFieldErrors>({});
   const [formError, setFormError] = useState("");
-  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
   const [saving, setSaving] = useState(false);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -206,7 +205,8 @@ export function VendorsContentV2() {
 
   const openCreateSheet = () => {
     setEditingVendor(null);
-    setForm({ ...EMPTY_FORM, currency: defaultVendorCurrency(homeCurrency, CURRENCY_OPTIONS) });
+    // Currency starts empty and must be picked (Saurabh, 20 Nov).
+    setForm({ ...EMPTY_FORM });
     setFieldErrors({});
     setFormError("");
     setSheetVisible(true);
@@ -258,7 +258,7 @@ export function VendorsContentV2() {
     // Editing: an email already on the vendor (e.g. synced from the accounting
     // software in a shape our check doesn't like) never blocks saving other fields.
     const emailChanged = !editingVendor || form.email.trim() !== (editingVendor.email || "").trim();
-    const errors = validateVendorForm({ name: form.displayName, glAccountId: form.glAccountId, email: emailChanged ? form.email : "", requireGlAccount: !editingVendor });
+    const errors = validateVendorForm({ name: form.displayName, currency: editingVendor ? undefined : form.currency, glAccountId: form.glAccountId, email: emailChanged ? form.email : "", requireGlAccount: !editingVendor });
     setFieldErrors(errors);
     if (hasVendorErrors(errors)) return;
 
@@ -671,11 +671,22 @@ export function VendorsContentV2() {
 
           <div>
             <SelectDropdown
-              label="Currency"
+              label={editingVendor ? "Currency" : "Currency *"}
               value={form.currency}
-              onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+              onChange={(e) => {
+                const currency = e.target.value;
+                setForm((f) => ({ ...f, currency }));
+                if (fieldErrors.currency && currency) setFieldErrors((prev) => ({ ...prev, currency: undefined }));
+              }}
               disabled={saving || !!editingVendor}
+              aria-invalid={!!fieldErrors.currency}
+              error={fieldErrors.currency}
             >
+              {!editingVendor && (
+                <option value={NO_CURRENCY} disabled>
+                  Select currency
+                </option>
+              )}
               {CURRENCY_OPTIONS.map((code) => (
                 <option key={code} value={code}>
                   {code}

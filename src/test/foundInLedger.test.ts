@@ -150,14 +150,14 @@ describe("lines already entered in the accounting software", { skip: URL ? false
     assert.equal(calls.length, 0, "QuickBooks isn't asked at all");
   });
 
-  it("never links a line to an entry Scantrix itself posted for another line", async () => {
+  it("never links a line to an entry ScanTrix itself posted for another line", async () => {
     const [a, b] = await seed([
       { date: "2026-11-04", description: "UBER A", amount: -54.2 },
       { date: "2026-11-04", description: "UBER B", amount: -54.2 },
     ]);
     await mapChequing();
     const { adapter } = fakeLedger(() => [entry({ id: "500" })]);
-    // Line A is posted from Scantrix: QuickBooks gives it entry 500.
+    // Line A is posted from ScanTrix: QuickBooks gives it entry 500.
     const sent = a.description === "UBER A" ? a : b;
     const r = await decide(db, { qbConnectionId: QB, id: sent.id, userId: "u1", patch: { status: "ready", glAccountId: "7" } });
     assert.ok(r.ok);
@@ -185,7 +185,7 @@ describe("lines already entered in the accounting software", { skip: URL ? false
     assert.equal(waiting?.version, petro.version, "candidates don't change the line's version");
 
     const refused = await linkFoundEntry(db, { qbConnectionId: QB, id: petro.id, key: "Purchase:999", userId: "u1", provider: "quickbooks" });
-    assert.equal(refused.ok, false, "only an entry Scantrix found can be picked");
+    assert.equal(refused.ok, false, "only an entry ScanTrix found can be picked");
 
     const picked = await linkFoundEntry(db, { qbConnectionId: QB, id: petro.id, key: "Purchase:302", userId: "u1", provider: "quickbooks" });
     assert.ok(picked.ok);
@@ -212,7 +212,7 @@ describe("lines already entered in the accounting software", { skip: URL ? false
     assert.equal((await byDescription("PETRO-CANADA 1234"))?.status, "review");
   });
 
-  it("a found line can't be changed like a posted one, and 'Not this' is refused on a line Scantrix posted itself", async () => {
+  it("a found line can't be changed like a posted one, and 'Not this' is refused on a line ScanTrix posted itself", async () => {
     const [petro] = await seed([{ date: "2026-11-04", description: "PETRO-CANADA 1234", amount: -54.2 }]);
     await mapChequing();
     const { adapter } = fakeLedger(() => [entry({ id: "301" })]);

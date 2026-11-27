@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { PageHeader, RoleInfoBanner } from "@/components/v2/ui";
 import { PreferenceRow } from "./PreferenceRow";
 import { usePreferencesSettings } from "./usePreferencesSettings";
+import { useAutoPostLock } from "./useAutoPostLock";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
 import { useRouter } from "next/navigation";
 
@@ -29,6 +30,7 @@ export function PreferencesContentV2() {
     toggleAutoPost,
     toggleAttachInvoiceCopy,
   } = usePreferencesSettings();
+  const autoPostLockState = useAutoPostLock();
 
   if (checkingStatus) {
     return (
@@ -89,6 +91,7 @@ export function PreferencesContentV2() {
           saving={savingAutoPost}
           disabled={!canManage}
           onToggle={toggleAutoPost}
+          lockNote={autoPostLockState.note}
         />
         <PreferenceRow
           icon={<Paperclip size={18} strokeWidth={2} />}

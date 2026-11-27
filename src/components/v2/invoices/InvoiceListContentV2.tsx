@@ -73,44 +73,10 @@ function invoiceTimestamp(invoice: InvoiceRecord): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-// Per currency — amounts in different currencies can't be added together.
-// Largest first; invoices with no currency read go under "".
-function sumTotals(list: InvoiceRecord[]): [string, number][] {
-  const byCurrency = new Map<string, number>();
-  for (const invoice of list) {
-    const currency = (invoice.extractedData?.currency || "").trim().toUpperCase();
-    byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + (invoice.extractedData?.totalAmount || 0));
-  }
-  // A scan with no currency and no amount (failed, still processing) isn't a total.
-  if (byCurrency.get("") === 0 && byCurrency.size > 1) byCurrency.delete("");
-  return [...byCurrency.entries()].sort((a, b) => b[1] - a[1]);
-}
-
 // Always two decimals — rounding to whole units hid the cents, so a tile read
 // 52 for invoices adding up to 51.95.
 function formatAmount(total: number): string {
   return total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-const withCurrency = ([currency, amount]: [string, number]) => `${currency ? `${currency} ` : ""}${formatAmount(amount)}`;
-
-// A stat tile's amount: one line per currency (two at most, then "+N more",
-// with every total in the tooltip).
-function CurrencyTotals({ totals, className }: { totals: [string, number][]; className: string }) {
-  if (totals.length <= 1) {
-    return <p className={`text-h3 font-bold tracking-tight ${className}`}>{withCurrency(totals[0] ?? ["", 0])}</p>;
-  }
-  const shown = totals.slice(0, 2);
-  return (
-    <div className={className} title={totals.map(withCurrency).join("\n")}>
-      {shown.map((t) => (
-        <p key={t[0]} className="truncate text-body font-bold tracking-tight">
-          {withCurrency(t)}
-        </p>
-      ))}
-      {totals.length > shown.length && <p className="text-tiny font-semibold">+{totals.length - shown.length} more currencies</p>}
-    </div>
-  );
 }
 
 export function InvoiceListContentV2() {
@@ -241,16 +207,6 @@ export function InvoiceListContentV2() {
     failed: failedInvoices.length,
   };
 
-  const totals = useMemo(
-    () => ({
-      total: sumTotals(combinedInvoices),
-      auto: sumTotals(autoPostedInvoices),
-      manual: sumTotals(manualPostedInvoices),
-      failed: sumTotals(failedInvoices),
-    }),
-    [combinedInvoices, autoPostedInvoices, manualPostedInvoices, failedInvoices],
-  );
-
   const meta = STATUS_META[statusFilter];
 
   const columns: DataTableColumn<InvoiceRecord>[] = [
@@ -269,7 +225,7 @@ export function InvoiceListContentV2() {
         const fromEmail = emailSourced.has(invoice._id);
         const claimTag = (invoice.expenseClaimId || invoice.claimReceipt) && (
           <span className="inline-flex w-fit shrink-0 items-center rounded-pill bg-status-info-bg px-[var(--space-xs)] py-[1px] text-tiny font-bold text-status-info-text">
-            Expense claim
+            Reimbursement
           </span>
         );
         // Right after the invoice number when there is one; on its own line otherwise.
@@ -362,7 +318,7 @@ export function InvoiceListContentV2() {
           a single column below lg. */}
       <div className="grid grid-cols-1 gap-[var(--space-md)] sm:gap-[var(--space-lg)] lg:grid-cols-6 lg:items-start">
         <div className="flex min-w-0 flex-col gap-[var(--space-md)] lg:col-span-4">
-          {/* Stat tiles — real per-status dollar totals, doubling as status
+          {/* Stat tiles — per-status invoice counts, doubling as status
               shortcuts (click to filter), matching the reference design's
               dark "Total" hero tile + 3 status-tinted tiles. */}
           <div className="grid grid-cols-2 gap-[var(--space-sm)] sm:grid-cols-4">
@@ -373,11 +329,9 @@ export function InvoiceListContentV2() {
             >
               <p className="text-tiny font-bold uppercase tracking-wider text-nav-muted">Total</p>
               <div className="my-[2px]">
-                <CurrencyTotals totals={totals.total} className="text-white" />
+                <p className="text-h3 font-bold tracking-tight text-white">{combinedInvoices.length}</p>
               </div>
-              <p className="text-tiny text-nav-muted">
-                {combinedInvoices.length} invoice{combinedInvoices.length === 1 ? "" : "s"}
-              </p>
+              <p className="text-tiny text-nav-muted">invoice{combinedInvoices.length === 1 ? "" : "s"}</p>
             </button>
             {TAB_ORDER.map((t) => {
               const tileTheme = INVOICE_STATUS_THEME[t];
@@ -398,11 +352,11 @@ export function InvoiceListContentV2() {
                     {tileTheme.label}
                   </p>
                   <div className="my-[2px]">
-                    <CurrencyTotals totals={totals[t]} className={tileTheme.accentTextClass} />
+                    <p className={`text-h3 font-bold tracking-tight ${tileTheme.accentTextClass}`}>
+                      {tabCounts[t]}
+                    </p>
                   </div>
-                  <p className={`text-tiny ${tileTheme.accentTextClass}`}>
-                    {tabCounts[t]} invoice{tabCounts[t] === 1 ? "" : "s"}
-                  </p>
+                  <p className={`text-tiny ${tileTheme.accentTextClass}`}>invoice{tabCounts[t] === 1 ? "" : "s"}</p>
                 </button>
               );
             })}

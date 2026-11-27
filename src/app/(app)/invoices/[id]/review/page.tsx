@@ -18,6 +18,6 @@ export default async function InvoiceReviewV2Page({
   // Only back to the expense claims page (what links here) — a looser "starts
   // with /" check lets "/\evil.com" or a tab/newline trick send the user to
   // another site.
-  const back = typeof returnTo === "string" && /^\/expense-claims(\?[A-Za-z0-9=,&_-]*)?$/.test(returnTo) ? returnTo : undefined;
+  const back = typeof returnTo === "string" && /^\/reimbursements(\?[A-Za-z0-9=,&_-]*)?$/.test(returnTo) ? returnTo : undefined;
   return <InvoiceReviewContentV2 invoiceId={id} returnTo={back} />;
 }

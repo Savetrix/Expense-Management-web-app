@@ -9,6 +9,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 import { authFetch } from "../../lib/authFetch";
 // Type-only: the slice imports this file and store/index imports the slice.
 import type { RootState } from "..";
+import type { MemoryVote } from "@/lib/suggestions/picks";
 
 export interface BankAccountDto {
   id: string;
@@ -221,7 +222,7 @@ export const linkFoundEntry = createAsyncThunk<{ transaction: BankTransactionDto
   },
 );
 
-/** "Not this": a line Scantrix found in QuickBooks/Xero goes back to To review. */
+/** "Not this": a line ScanTrix found in QuickBooks/Xero goes back to To review. */
 export const unlinkFoundEntry = createAsyncThunk<{ transaction: BankTransactionDto }, string, { state: RootState; rejectValue: BankRequestError }>(
   "bankFeeds/unlinkFoundEntry",
   async (id, { getState, rejectWithValue }) => {
@@ -233,7 +234,10 @@ export const unlinkFoundEntry = createAsyncThunk<{ transaction: BankTransactionD
   },
 );
 
-export type BankTxnPatch = Partial<Pick<BankTransactionDto, "status" | "matchedInvoiceId" | "transferAccount" | "transferAccountId" | "categoryId" | "taxCodeId" | "vendorId" | "payee">>;
+export type BankTxnPatch = Partial<Pick<BankTransactionDto, "status" | "matchedInvoiceId" | "transferAccount" | "transferAccountId" | "categoryId" | "taxCodeId" | "vendorId" | "payee">> & {
+  /** Sent with a Post of an AI-filled line: per box, kept or changed (audit only, never stored on the line). */
+  aiFill?: Partial<Record<"gl" | "vendor" | "tax", string>>;
+};
 
 /** A key present with `undefined` means "clear it": JSON would drop it, so send null. */
 function patchBody(patch: BankTxnPatch): Record<string, unknown> {
@@ -322,17 +326,20 @@ export const importBankCsv = createAsyncThunk<
 export interface LedgerAccountDto {
   id: string;
   name: string;
-  kind: "bank" | "card" | "income" | "expense" | "other";
+  kind: "bank" | "card" | "income" | "expense" | "payable" | "receivable" | "other";
   type: string;
   currency: string | null;
+  /** QuickBooks sub-accounts: the parent account's id. */
+  parentId?: string | null;
 }
 
-export const fetchLedgerAccounts = createAsyncThunk<{ accounts: LedgerAccountDto[]; qbConnectionId: string }, void, { state: RootState; rejectValue: BankRequestError }>(
+/** The chart of accounts (kept a day on the server); `refresh` reads it again now. */
+export const fetchLedgerAccounts = createAsyncThunk<{ accounts: LedgerAccountDto[]; qbConnectionId: string }, { refresh?: boolean } | void, { state: RootState; rejectValue: BankRequestError }>(
   "bankFeeds/ledgerAccounts",
-  async (_, { getState, rejectWithValue }) => {
+  async (arg, { getState, rejectWithValue }) => {
     try {
       const state = getState();
-      const body = await bankFetch<{ accounts: LedgerAccountDto[] }>(state, "/api/ledger/accounts");
+      const body = await bankFetch<{ accounts: LedgerAccountDto[] }>(state, arg && arg.refresh ? "/api/ledger/accounts?refresh=1" : "/api/ledger/accounts");
       return { accounts: body.accounts, qbConnectionId: state.quickBooks.qbConnectionId as string };
     } catch (e) {
       return rejectWithValue(reject(e));
@@ -372,6 +379,109 @@ export const postBankTransactions = createAsyncThunk<{ results: PostResultDto[] 
         if (body.results.some((r) => r.code && ["reconnect", "scope", "permission", "not_configured"].includes(r.code))) break;
       }
       return { results };
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+// ---------------------------------------------------------------- smart suggestions
+
+export type AutoClassification = "off" | "suggest" | "fill";
+
+/** Smart Suggestions, step 2: what people coded this vendor's bank lines to (company memory). */
+export const fetchVendorMemory = createAsyncThunk<MemoryVote[], string, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchVendorMemory",
+  async (vendorId, { getState, rejectWithValue }) => {
+    try {
+      const body = await bankFetch<{ votes: MemoryVote[] }>(getState(), `/api/suggestions/vendor-memory?vendorId=${encodeURIComponent(vendorId)}`);
+      return Array.isArray(body.votes) ? body.votes : [];
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export type FeatureKey = "aiPrefill" | "receiptWarning" | "autoMatch" | "transferSuggestions";
+export type FeaturesDto = Record<FeatureKey, boolean>;
+/** Before the settings load (or on an older server): everything on. */
+export const ALL_FEATURES_ON: FeaturesDto = { aiPrefill: true, receiptWarning: true, autoMatch: true, transferSuggestions: true };
+
+export interface SuggestionSettingsDto {
+  autoClassification: AutoClassification;
+  /** Per-company switches for the 24 Nov features (absent on an older server: all on). */
+  features?: FeaturesDto;
+  /** Owner or Admin. */
+  canChange: boolean;
+}
+
+export const fetchSuggestionSettings = createAsyncThunk<SuggestionSettingsDto, void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchSuggestionSettings",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch<SuggestionSettingsDto>(getState(), "/api/suggestion-settings");
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export const saveSuggestionSettings = createAsyncThunk<
+  SuggestionSettingsDto,
+  AutoClassification | { autoClassification?: AutoClassification; features?: Partial<FeaturesDto> },
+  { state: RootState; rejectValue: BankRequestError }
+>(
+  "bankFeeds/saveSuggestionSettings",
+  async (change, { getState, rejectWithValue }) => {
+    try {
+      const body = typeof change === "string" ? { autoClassification: change } : change;
+      return await bankFetch<SuggestionSettingsDto>(getState(), "/api/suggestion-settings", { method: "PUT", body: JSON.stringify(body) });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** "Not this" on a suggested transfer pair: both lines stay to review and are never paired again. */
+export const refuseTransferPair = createAsyncThunk<{ ok: true }, [string, string], { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/refuseTransferPair",
+  async (ids, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch<{ ok: true }>(getState(), "/api/bank-transactions/not-a-transfer", { method: "POST", body: JSON.stringify({ ids }) });
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+export interface OpenBillDto {
+  billId: string;
+  vendorId: string;
+  vendorName: string;
+  number: string;
+  date: string;
+  balance: number;
+  currency: string | null;
+}
+
+/** Bills in QuickBooks/Xero with money still owed (also ones entered there by hand): match candidates. */
+export const fetchOpenBills = createAsyncThunk<OpenBillDto[], void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/fetchOpenBills",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      return (await bankFetch<{ bills: OpenBillDto[] }>(getState(), "/api/bank-transactions/open-bills")).bills;
+    } catch (e) {
+      return rejectWithValue(reject(e));
+    }
+  },
+);
+
+/** The bank page's safety net for new lines: syncs logins not synced for 15 minutes (sync.ts syncDueItems). */
+export const syncDueBanks = createAsyncThunk<{ checked: number; synced: number; added: number; webhooksSet: number }, void, { state: RootState; rejectValue: BankRequestError }>(
+  "bankFeeds/syncDue",
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      return await bankFetch(getState(), "/api/bank-accounts/sync-due", { method: "POST" });
     } catch (e) {
       return rejectWithValue(reject(e));
     }

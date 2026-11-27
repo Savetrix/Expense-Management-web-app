@@ -28,6 +28,8 @@ import type { CSSProperties } from "react";
 import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
+import { useInvoiceSuggestions } from "@/components/v2/invoices/useInvoiceSuggestions";
+import { ConfidenceLabel } from "@/components/v2/suggestions/ConfidenceLabel";
 import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { InlineEditField, SelectDropdown, CreatableCombobox } from "@/components/v2/ui";
@@ -1022,6 +1024,20 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
     [glAccounts, invoice.glAccountId],
   );
 
+  // Smart Suggestions: the top 3 GL accounts for this vendor (or, for a new
+  // vendor, from similar past items, then the AI's picks when those are weak).
+  const suggestions = useInvoiceSuggestions({
+    invoiceId,
+    vendorId: selectedVendor?._id || invoiceObject?.vendor?.vendorDbId || "",
+    vendorName: invoice.vendor || "",
+    lines: lineItems.map((l) => l.description ?? ""),
+    amount: scannedTotal || null,
+    currency: invoiceObject?.extractedData?.currency ?? null,
+    glAccounts,
+  });
+  // A new vendor's one-click creation brings the suggested GL and tax as its defaults.
+  const vendorSuggestion = suggestions.picks.find((p) => p.pick.step === "similar")?.pick;
+
   const resolvedTaxCodeName = useMemo(() => {
     const match = taxCodes.find((code) => getTaxCodeId(code) === invoice.taxCodeId);
     return match ? getTaxCodeLabel(match) : "";
@@ -1110,6 +1126,7 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
     const account = glAccounts.find((acc) => acc.qbAccountId === qbAccountId);
     if (account) applyGlAccount(account);
   };
+
 
   const validateQuickBooksFields = (): Record<string, string> => {
     const errors: Record<string, string> = {};
@@ -1319,7 +1336,7 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
       if (onExpenseClaim) {
         // Edited from the claims page — go straight back there.
         showToast("Receipt saved.", "success");
-        router.push(returnTo ?? "/expense-claims");
+        router.push(returnTo ?? "/reimbursements");
         return;
       }
       showToast("Draft saved.", "success");
@@ -1580,10 +1597,10 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
         <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-md)]">
           {onExpenseClaim && (
             <div className="rounded-md border border-status-info-border bg-status-info-bg px-[var(--space-md)] py-[var(--space-sm)] text-body-sm text-status-info-text">
-              <span className="font-semibold">Expense claim receipt.</span> Fix anything the scan got wrong — vendor, date, amounts, GL account —
+              <span className="font-semibold">Reimbursement receipt.</span> Fix anything the scan got wrong — vendor, date, amounts, GL account —
               then press Save. It&apos;s posted with its claim, as one bill payable to the employee, when the claim is approved, never on its own.{" "}
-              <Link href={returnTo ?? "/expense-claims"} className="font-bold underline">
-                Back to expense claims
+              <Link href={returnTo ?? "/reimbursements"} className="font-bold underline">
+                Back to reimbursements
               </Link>
             </div>
           )}
@@ -1659,6 +1676,18 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
                           }}
                           className="max-w-[18rem]"
                         />
+                        {!linkedVendorExists && invoice.vendor?.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddVendorName(invoice.vendor.trim());
+                              setAddVendorOpen(true);
+                            }}
+                            className="mt-[var(--space-xs)] block text-right text-caption font-semibold text-accent hover:underline"
+                          >
+                            + Create “{invoice.vendor.trim()}”
+                          </button>
+                        )}
                       </div>
                       {vendorIsStale && (
                         <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
@@ -1762,7 +1791,14 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
                       : resolvedGlAccountName ||
                         (!glAccountsError && glAccounts.length === 0 ? "No GL accounts configured" : "Select GL Account")
                   }
-                  onSelect={handleGlAccountSelect}
+                  onSelect={(id) => {
+                    if (!id) return;
+                    handleGlAccountSelect(id);
+                    // Only the vendor's own default brings a tax code (its saved one); learned picks carry none (18 Nov).
+                    const tax = suggestions.picks.find((p) => p.pick.glAccountId === id)?.pick.taxCodeId;
+                    if (tax && !invoice.taxCodeId) handleTaxCodeSelect(tax);
+                  }}
+                  picks={suggestions.picks.map((p) => ({ id: p.pick.glAccountId, reason: p.reason, badge: <ConfidenceLabel level={p.pick.confidence} ai={p.pick.step === "ai"} /> }))}
                   onAddNew={(name) => {
                     setAddGlName(name);
                     setAddGlOpen(true);
@@ -1773,6 +1809,11 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
               {fieldErrors.glAccountId && (
                 <p className="mt-[var(--space-xs)] text-right text-caption font-semibold text-status-danger-text">
                   {fieldErrors.glAccountId}
+                </p>
+              )}
+              {glAccountsMixedAcrossLines && (
+                <p className="mt-[var(--space-xs)] text-right text-caption font-medium text-status-warning-text">
+                  Multiple GL codes selected across line items, extra charges and discounts — picking one here replaces all of them.
                 </p>
               )}
               {glAccountsErrorDisplay && (
@@ -2563,6 +2604,8 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
         open={addVendorOpen}
         onClose={() => setAddVendorOpen(false)}
         initialName={addVendorName}
+        initialGlAccountId={vendorSuggestion?.glAccountId ?? ""}
+        initialTaxCodeId={vendorSuggestion?.taxCodeId ?? ""}
         onCreated={(vendor) => {
           updateField("vendor", vendor.displayName);
           dispatch(setSelectedVendor({ forInvoiceId: invoiceId, ...vendor }));

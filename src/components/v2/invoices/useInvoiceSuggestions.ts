@@ -1,0 +1,116 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+import { billVotes, invoicePicks, sameVendorName, type PastBill } from "@/lib/suggestions/invoicePicks";
+import { pickReason, type MemoryVote, type SuggestionPick } from "@/lib/suggestions/picks";
+import { fetchSimilarPicks } from "@/components/v2/suggestions/historyClient";
+import { fetchSuggestionSettings, fetchVendorMemory, type AutoClassification } from "@/store/bankFeeds/bankFeedsApi";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import type { InvoiceRecord } from "@/store/invoice/invoiceSlice";
+import type { GLAccount } from "@/store/quickBooks/quickBooksSlice";
+
+// Smart Suggestions on the invoice review screen: the company's
+// Auto-classification setting, and the top 3 GL accounts for the account
+// dropdown (lib/suggestions/invoicePicks.ts).
+// With Auto-classification Off, or without bank feeds on the server, there
+// are no picks; the vendor default the API fills in stays as it is.
+
+function pastBill(inv: InvoiceRecord): PastBill {
+  const d = inv.extractedData;
+  return {
+    id: inv._id,
+    vendorId: inv.vendor?.vendorDbId ?? null,
+    vendorName: d?.vendorName ?? "",
+    number: d?.invoiceNumber ?? "",
+    date: (d?.invoiceDate ?? "").slice(0, 10),
+    total: typeof d?.totalAmount === "number" ? d.totalAmount : null,
+    glAccountId: d?.glAccountId ?? null,
+    taxCodeId: d?.taxCodeId ?? null,
+    decidedAt: inv.quickbooks?.postedAt ?? inv.updatedAt ?? inv.createdAt ?? new Date(0).toISOString(),
+  };
+}
+
+export interface InvoiceSuggestions {
+  mode: AutoClassification;
+  picks: { pick: SuggestionPick; name: string; reason: string }[];
+}
+
+export function useInvoiceSuggestions(args: { invoiceId: string; vendorId: string; vendorName: string; lines?: string[]; amount?: number | null; currency?: string | null; glAccounts: GLAccount[] }): InvoiceSuggestions {
+  const { invoiceId, vendorId, vendorName, glAccounts } = args;
+  const linesKey = (args.lines ?? []).filter(Boolean).slice(0, 5).join("\n");
+  const dispatch = useAppDispatch();
+  const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
+  const vendors = useAppSelector((s) => s.quickBooks.vendors);
+  // Bills a person posted: postedStatus "manual". Auto-posted ones were never a person's choice.
+  const posted = useAppSelector((s) => s.invoice.manualPostedInvoices);
+  const [mode, setMode] = useState<AutoClassification>("off");
+  const [bankVotes, setBankVotes] = useState<{ vendorId: string; votes: MemoryVote[] }>({ vendorId: "", votes: [] });
+
+  useEffect(() => {
+    if (!qbConnectionId) return;
+    let cancelled = false;
+    void dispatch(fetchSuggestionSettings()).then((s) => {
+      if (!cancelled) setMode(fetchSuggestionSettings.fulfilled.match(s) ? s.payload.autoClassification : "off");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId]);
+
+  const vendor = useMemo(
+    () => (vendorId ? vendors.find((v) => v._id === vendorId) : undefined) ?? vendors.find((v) => sameVendorName(v.displayName, vendorName)),
+    [vendors, vendorId, vendorName],
+  );
+  const memoryVendorId = vendor?._id ?? vendorId;
+
+  useEffect(() => {
+    if (!qbConnectionId || !memoryVendorId || mode === "off") return;
+    let cancelled = false;
+    void dispatch(fetchVendorMemory(memoryVendorId)).then((r) => {
+      if (!cancelled) setBankVotes({ vendorId: memoryVendorId, votes: fetchVendorMemory.fulfilled.match(r) ? r.payload : [] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId, memoryVendorId, mode]);
+
+  // Steps 3 and 4: a vendor ScanTrix doesn't know yet gets the accounts similar
+  // past items from any vendor went to, then the AI's picks when those are weak
+  // (server: /api/suggestions/similar; the AI's answer is kept per invoice).
+  const [similar, setSimilar] = useState<{ key: string; picks: SuggestionPick[] }>({ key: "", picks: [] });
+  const similarKey = `${vendorName.trim()}|${linesKey}`;
+  const newVendor = !vendor && Boolean(vendorName.trim());
+  useEffect(() => {
+    if (!qbConnectionId || mode === "off" || !newVendor || similar.key === similarKey) return;
+    let cancelled = false;
+    void fetchSimilarPicks(qbConnectionId, { vendorName: vendorName.trim(), lines: linesKey ? linesKey.split("\n") : [], invoiceId, amount: args.amount ?? null, currency: args.currency ?? null }).then((p) => {
+      if (!cancelled) setSimilar({ key: similarKey, picks: p });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qbConnectionId, mode, newVendor, similarKey, similar.key, vendorName, linesKey, invoiceId]);
+
+  const picks = useMemo(() => {
+    if (mode === "off" || !vendorName.trim()) return [];
+    const votes = [
+      ...billVotes(posted.map(pastBill), { id: memoryVendorId || null, name: vendorName }, invoiceId),
+      ...(bankVotes.vendorId === memoryVendorId ? bankVotes.votes : []),
+    ];
+    const fromMemory = invoicePicks({
+      vendorName: vendor?.displayName ?? vendorName,
+      vendorDefault: vendor ? { glAccountId: vendor.glAccountId ?? null, taxCodeId: vendor.taxCodeId ?? null } : null,
+      votes,
+    });
+    const found = fromMemory.length === 0 && newVendor && similar.key === similarKey ? similar.picks : fromMemory;
+    // Only accounts this screen can post to; a deleted one drops out and the rest move up.
+    return found.flatMap((pick) => {
+      const account = glAccounts.find((a) => a.qbAccountId === pick.glAccountId && !a.isDeleted);
+      return account ? [{ pick, name: account.name, reason: pickReason(pick, account.name) }] : [];
+    });
+  }, [mode, vendorName, vendor, posted, memoryVendorId, invoiceId, bankVotes, glAccounts, newVendor, similar, similarKey]);
+
+  return { mode, picks };
+}

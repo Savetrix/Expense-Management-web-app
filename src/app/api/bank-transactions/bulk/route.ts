@@ -5,7 +5,9 @@ import { after } from "next/server";
 
 import { bankContext, errorResponse, fail, json, readJson } from "@/lib/bankFeeds/http";
 import { payeeKeyOf, refreshSuggestions } from "@/lib/bankFeeds/suggest";
-import { decide, readPatch, type BankTransactionView } from "@/lib/bankFeeds/transactions";
+import { embedNewDecision } from "@/lib/bankFeeds/similarSync";
+
+import { decide, readAiFill, readPatch, type BankTransactionView } from "@/lib/bankFeeds/transactions";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,7 +31,7 @@ export async function POST(request: Request) {
         failed.push({ id, error: typeof patch === "string" ? patch : "Missing id." });
         continue;
       }
-      const result = await decide(ctx.db, { qbConnectionId: ctx.connection.id, id, userId: ctx.caller.userId, patch, action: "bulk_decision" });
+      const result = await decide(ctx.db, { qbConnectionId: ctx.connection.id, id, userId: ctx.caller.userId, patch, action: "bulk_decision", aiFill: readAiFill(item) });
       if (result.ok) updated.push(result.txn);
       else failed.push({ id, error: result.error });
     }
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
           if (key) keys.add(key);
         }
         if (keys.size > 0) await refreshSuggestions(ctx.db, ctx.connection.id, [...keys]).catch((e) => console.error("[bank] suggestions", e?.message));
+        await embedNewDecision(ctx.db, ctx.connection.id).catch((e) => console.error("[bank] similar", e?.message));
       });
     }
     return json({ updated, failed });

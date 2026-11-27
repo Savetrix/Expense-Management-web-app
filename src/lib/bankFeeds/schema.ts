@@ -11,7 +11,10 @@
 // POSITIVE amount, so sync inverts it once, on the way in (plaidMap.ts).
 // Dates of bank lines are calendar dates kept as "YYYY-MM-DD" strings, never
 // Date objects, so no time zone can move them a day.
+import type { AutoClassification } from "@/lib/suggestions/match";
+
 import type { Db } from "./db";
+
 
 export type ItemStatus = "active" | "login_required" | "pending_expiration" | "pending_disconnect" | "revoked" | "error";
 /**
@@ -43,6 +46,8 @@ export interface ItemDoc {
   /** One sync at a time per item; a webhook that lands mid-sync sets syncRequestedAt. */
   syncLeaseUntil: Date | null;
   syncRequestedAt: Date | null;
+  /** The webhook Plaid was last told to call for this login (sync.ts syncDueItems). */
+  webhookUrl?: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -71,6 +76,19 @@ export interface AccountDoc {
   removedAt: Date | null;
 }
 
+/** A file attached to a bank line (paperwork.ts). */
+export interface AttachmentRef {
+  /** GridFS file id. */
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: Date;
+  /** The paperwork request it answered, if any. */
+  requestId: string | null;
+}
+
 export interface TxnDoc {
   _id: string;
   qbConnectionId: string;
@@ -96,6 +114,10 @@ export interface TxnDoc {
   categoryPrimary: string | null;
   categoryDetailed: string | null;
   categoryConfidence: string | null;
+  /** Step 3, lines without a category (imported files): the kind of business, worked out once (shopKind.ts). null = it couldn't tell; missing = not asked yet. */
+  shopKind?: string | null;
+  /** Receipts uploaded for this line (paperwork requests); the files are in GridFS bucket bank_attachments. */
+  attachments?: AttachmentRef[];
   paymentChannel: string | null;
   checkNumber: string | null;
 
@@ -104,6 +126,8 @@ export interface TxnDoc {
   matchedInvoiceId: string | null;
   transferAccountId: string | null;
   transferLabel: string | null;
+  /** Lines a person said "Not this" to as a suggested transfer pair: never paired again. */
+  notTransferWith?: string[];
   glAccountId: string | null;
   taxCodeId: string | null;
   vendorId: string | null;
@@ -115,6 +139,8 @@ export interface TxnDoc {
   payeeKey: string | null;
   /** What ScanTrix suggested, and why (suggest.ts). */
   suggestion: unknown;
+  /** Step 4: the AI's answer for this line (bankFeeds/aiPick.ts), kept until the allowed accounts or the closest past items change. */
+  aiPick?: AiPickRecord | null;
   /** Posting to QuickBooks/Xero: null | processing | posted | failed. */
   postingStatus: "processing" | "posted" | "failed" | null;
   posting: PostingRecord | null;
@@ -189,8 +215,8 @@ export interface PostingRecord {
   postedAt: Date | null;
   postedBy: string;
   /**
-   * Set when Scantrix didn't make this entry: someone entered the line straight
-   * into QuickBooks/Xero and Scantrix found it there (foundInLedger.ts).
+   * Set when ScanTrix didn't make this entry: someone entered the line straight
+   * into QuickBooks/Xero and ScanTrix found it there (foundInLedger.ts).
    */
   found?: (FoundEntry & { auto: boolean }) | null;
 }
@@ -206,6 +232,159 @@ export interface FoundEntry {
   date: string;
   amountCents: number;
   url: string | null;
+}
+
+/**
+ * A company's Smart Suggestions settings. _id = qbConnectionId.
+ * Auto-classification: off (no suggestions), suggest (shown, never filled in)
+ * or fill (only sure suggestions are filled in; the default).
+ */
+/**
+ * Smart Suggestions, step 2: a payee a person linked to a vendor by picking
+ * that vendor on one of its lines. _id = `${qbConnectionId}:${payeeKey}`.
+ */
+export interface PayeeLinkDoc {
+  _id: string;
+  qbConnectionId: string;
+  payeeKey: string;
+  /** The vendor's id in ScanTrix (the same id bank lines store). */
+  vendorId: string;
+  /** The payee as the person wrote it on that line. */
+  payee: string | null;
+  linkedBy: string;
+  linkedAt: Date;
+}
+
+export type FeatureKey = "aiPrefill" | "receiptWarning" | "autoMatch" | "transferSuggestions";
+
+export interface SuggestionSettingsDoc {
+  _id: string;
+  autoClassification: AutoClassification;
+  /**
+   * "Learn from QuickBooks history", as an Owner or Admin set it. Unset: on for
+   * sandbox (test) companies, off for real ones (history.ts).
+   */
+  learnFromHistory?: boolean;
+  /** The last time a person used this company while its accounting connection was live (history.ts deletes on disconnect). */
+  lastLiveAt?: Date;
+  /** The last read of the company's books (history.ts). */
+  historyImport?: HistoryImportStatus | null;
+  /** 24 Nov features, each on unless switched off for this company (settings.ts FEATURE_KEYS). */
+  features?: Partial<Record<FeatureKey, boolean>>;
+  updatedBy: string;
+  updatedAt: Date;
+}
+
+export interface HistoryImportStatus {
+  at: Date;
+  provider: string;
+  /** "done", or why nothing was read: "real_company" (not switched on for real companies yet), "provider_terms", "error". */
+  outcome: "done" | "real_company" | "provider_terms" | "error";
+  from: string | null;
+  to: string | null;
+  /** Coded lines saved, and the entries they came from. */
+  lines: number;
+  entries: number;
+  /** Entries left out because ScanTrix posted them itself. */
+  skippedScantrix: number;
+  error?: string | null;
+}
+
+/**
+ * A meaning vector for Smart Suggestions, step 3 (similar.ts). A "memory" item
+ * votes with its coding: a bank line a person coded, a line from the books
+ * (history), or a bill a person posted. A "query" item is a bank line to
+ * review, compared against the memory when its payee is new. Never shared
+ * across companies. _id = `${qbConnectionId}:${kind}:${ref}`.
+ */
+/**
+ * Smart Suggestions, step 4: one answer from the AI for an item (a bank line,
+ * or a bill on the invoice screen). Asked again only when the accounts it may
+ * pick from change (chartHash) or the closest past items change (basis: a
+ * person posted a similar line), or after a failed call once retryAfter passes.
+ */
+export interface AiPickRecord {
+  status: "ok" | "none" | "failed";
+  /** "openai:gpt-5.4-mini". */
+  model: string;
+  at: Date;
+  out: boolean;
+  chartHash: string;
+  /** Vector ids of the closest past items it was given. */
+  basis: string[];
+  /** Those past items, for "How ScanTrix decided" (dates shown only for items posted in ScanTrix). */
+  past: { label: string; glAccountId: string; date: string; source: "bank" | "invoice" | "quickbooks" | "xero" }[];
+  picks: { glAccountId: string; reason: string }[];
+  /** After a timeout or an error: not asked again before this. */
+  retryAfter: Date | null;
+  /** Reused from another item with the same payee and direction asked within the day. */
+  sharedFrom?: string | null;
+  usage?: { input: number; output: number } | null;
+}
+
+/** Step 4 on the invoice screen: _id = `${qbConnectionId}:invoice:${invoiceId}` (bank lines keep theirs on the line). */
+export interface AiPickDoc extends AiPickRecord {
+  _id: string;
+  qbConnectionId: string;
+  kind: "invoice";
+  ref: string;
+  /** The vendor's name key (history.ts nameKey), to reuse an answer for the same vendor within the day. */
+  vendorKey: string | null;
+}
+
+export interface VectorDoc {
+  _id: string;
+  qbConnectionId: string;
+  kind: "bank" | "history" | "invoice";
+  role: "memory" | "query";
+  /** The item's own id: bank line id, history row id, or invoice id. */
+  ref: string;
+  /** The text that was turned into the vector (card numbers cut to the last 4). */
+  text: string;
+  textHash: string;
+  /** Which model made the vector (embeddings.ts); another model's vector is made again. */
+  model: string;
+  vector: number[];
+  /** Money out (true) or in. */
+  out: boolean;
+  glAccountId: string | null;
+  taxCodeId: string | null;
+  label: string;
+  date: string;
+  amountCents: number | null;
+  decidedAt: string;
+  source: "bank" | "invoice" | "quickbooks" | "xero";
+  embeddedAt: Date;
+}
+
+/**
+ * One coded line from the company's own books in QuickBooks/Xero (Smart
+ * Suggestions, history): counted like a past decision a person made. Removed
+ * when the setting is switched off. _id = `${qbConnectionId}:${entity}:${entryId}:${line}`.
+ */
+export interface HistoryDoc {
+  _id: string;
+  qbConnectionId: string;
+  source: "quickbooks" | "xero";
+  entity: "Bill" | "Purchase" | "Deposit" | "BillPayment" | "CreditCardPayment";
+  entryId: string;
+  line: number;
+  date: string;
+  amountCents: number;
+  /** The vendor (or customer) in QuickBooks/Xero, and the ScanTrix vendor it is, when known. */
+  vendorExternalId: string | null;
+  vendorId: string | null;
+  vendorName: string | null;
+  /** The vendor's name, cleaned for matching bank payees (history.ts nameKey). */
+  nameKey: string | null;
+  glAccountId: string | null;
+  taxCodeId: string | null;
+  bankAccountId: string | null;
+  credit: boolean;
+  dominant: boolean;
+  /** The line's own words in the books, for step 3 (similar items). */
+  description: string | null;
+  importedAt: Date;
 }
 
 /** What ScanTrix noticed on an invoice. _id = `${qbConnectionId}:${invoiceId}`. */
@@ -238,12 +417,22 @@ export async function ensureIndexes(db: Db): Promise<void> {
     db.txns.createIndex({ plaidTransactionId: 1 }, { unique: true, partialFilterExpression: { plaidTransactionId: isString } }),
     db.txns.createIndex({ qbConnectionId: 1, csvDedupeKey: 1 }, { unique: true, partialFilterExpression: { csvDedupeKey: isString } }),
     db.txns.createIndex({ qbConnectionId: 1, status: 1, date: -1 }),
+    // The bank screen's list: one company's lines, newest first (24 Nov speed check).
+    db.txns.createIndex({ qbConnectionId: 1, removedAt: 1, date: -1 }),
     db.txns.createIndex({ qbConnectionId: 1, matchedInvoiceId: 1 }),
     db.txns.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
     db.txns.createIndex({ accountId: 1 }),
     db.events.createIndex({ qbConnectionId: 1, at: -1 }),
+    db.aiPicks.createIndex({ qbConnectionId: 1, vendorKey: 1, at: -1 }),
     db.events.createIndex({ transactionId: 1 }),
     db.webhooks.createIndex({ receivedAt: -1 }),
     db.ledgerMappings.createIndex({ qbConnectionId: 1 }),
+    db.payeeLinks.createIndex({ qbConnectionId: 1, payeeKey: 1 }),
+    db.history.createIndex({ qbConnectionId: 1, nameKey: 1 }),
+    db.history.createIndex({ qbConnectionId: 1, vendorId: 1 }),
+    db.vectors.createIndex({ qbConnectionId: 1, role: 1 }),
+    db.paperwork.createIndex({ qbConnectionId: 1, createdAt: -1 }),
+    db.paperwork.createIndex({ qbConnectionId: 1, "assignee.userId": 1 }),
+    db.txns.createIndex({ qbConnectionId: 1, vendorId: 1, decidedAt: -1 }),
   ]);
 }

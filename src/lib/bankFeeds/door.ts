@@ -20,16 +20,19 @@ import { SAVETRIX_API_BASE_URL } from "./config";
 export type BankRole = "owner" | "admin" | "accountant" | "contributor" | "unknown";
 
 /** What each role may do, mirroring the backend's ROLE_PERMISSIONS (Scantrix_API src/constants/permissions.js). */
-export type BankAbility = "view" | "code" | "post" | "connect";
+/** "paperwork": see the paperwork requests addressed to you and upload their receipts (every role, contributors included). */
+export type BankAbility = "view" | "code" | "post" | "connect" | "configure" | "paperwork";
 
 const ABILITIES: Record<BankRole, BankAbility[]> = {
-  // CONNECT_QBO, REVIEW_EDIT_GL, APPROVE_POST_QBO, VIEW_ALL_SCANS
-  owner: ["view", "code", "post", "connect"],
-  admin: ["view", "code", "post", "connect"],
+  // CONNECT_QBO, REVIEW_EDIT_GL, APPROVE_POST_QBO, VIEW_ALL_SCANS. "configure" =
+  // company settings such as Smart Suggestions' Auto-classification (PRD: Owner or Admin).
+  owner: ["view", "code", "post", "connect", "configure", "paperwork"],
+  admin: ["view", "code", "post", "connect", "configure", "paperwork"],
   // REVIEW_EDIT_GL, APPROVE_POST_QBO, VIEW_ALL_SCANS — but not CONNECT_QBO
-  accountant: ["view", "code", "post"],
-  // Upload only: bank data is not theirs to see.
-  contributor: [],
+  accountant: ["view", "code", "post", "paperwork"],
+  // Upload only: bank data is not theirs to see, except the lines someone
+  // asked them for receipts for (paperwork.ts checks it's their request).
+  contributor: ["paperwork"],
   unknown: [],
 };
 
@@ -219,7 +222,16 @@ export async function authorizeBank(
     return { ok: false, status: 403, error: "You don't have access to this company." };
   }
   if (!can(connection.role, ability)) {
-    const verb = ability === "connect" ? "connect or disconnect banks" : ability === "post" ? "post to the accounting software" : ability === "code" ? "code bank transactions" : "see bank transactions";
+    const verb =
+      ability === "connect"
+        ? "connect or disconnect banks"
+        : ability === "post"
+          ? "post to the accounting software"
+          : ability === "code"
+            ? "code bank transactions"
+            : ability === "configure"
+              ? "change this company's settings"
+              : "see bank transactions";
     return { ok: false, status: 403, error: `Your role in ${connection.name} can't ${verb}.` };
   }
   if (options.requireLiveConnection && connection.status === "reconnect_required") {

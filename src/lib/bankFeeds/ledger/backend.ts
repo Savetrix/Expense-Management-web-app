@@ -58,7 +58,7 @@ export async function getLedgerContext(userToken: string, qbConnectionId: string
   };
 }
 
-async function getList<T>(userToken: string, qbConnectionId: string, path: string, pick: (data: Record<string, unknown>) => T[] | undefined): Promise<T[]> {
+export async function getList<T>(userToken: string, qbConnectionId: string, path: string, pick: (data: Record<string, unknown>) => T[] | undefined): Promise<T[]> {
   let res: Response;
   try {
     res = await fetch(`${SAVETRIX_API_BASE_URL}${path}`, { headers: headers(userToken, qbConnectionId), signal: AbortSignal.timeout(20_000), cache: "no-store" });
@@ -98,4 +98,65 @@ export async function postedBill(userToken: string, qbConnectionId: string, invo
   }
   const q = result.invoice.quickbooks;
   return q?.billId && q?.vendorId ? { billId: q.billId, vendorId: q.vendorId } : null;
+}
+
+/** A bill in the backend's invoice list, reduced to what history and step 3 need. */
+export interface ScantrixInvoice {
+  id: string;
+  billId: string | null;
+  /** Posted by a person ("manual"), not auto-posted. */
+  byPerson: boolean;
+  vendorName: string;
+  lines: string[];
+  glAccountId: string | null;
+  taxCodeId: string | null;
+  date: string;
+  amountCents: number | null;
+  decidedAt: string;
+}
+
+/** The company's invoices from the backend (all pages), as the signed-in user. */
+export async function scantrixInvoices(userToken: string, qbConnectionId: string): Promise<ScantrixInvoice[]> {
+  const out: ScantrixInvoice[] = [];
+  for (let page = 1, pages = 1; page <= pages && page <= 200; page++) {
+    let res: Response;
+    try {
+      res = await fetch(`${SAVETRIX_API_BASE_URL}/invoices?page=${page}&limit=100`, { headers: headers(userToken, qbConnectionId), signal: AbortSignal.timeout(20_000), cache: "no-store" });
+    } catch {
+      throw new LedgerError("ScanTrix couldn't load its own bills just now. Try again.", "definite", "unavailable");
+    }
+    if (!res.ok) throw new LedgerError(`ScanTrix couldn't load its own bills (${res.status}). Try again.`, "definite", "unavailable");
+    type Raw = {
+      _id?: string;
+      postedStatus?: string;
+      updatedAt?: string;
+      createdAt?: string;
+      quickbooks?: { billId?: string | null; postedAt?: string | null };
+      extractedData?: { vendorName?: string; invoiceDate?: string | null; totalAmount?: number; glAccountId?: string | null; taxCodeId?: string | null; lineItems?: { description?: string | null }[] };
+    };
+    const body = (await res.json().catch(() => null)) as { data?: { invoices?: Raw[]; pagination?: { totalPages?: number } } } | null;
+    for (const inv of body?.data?.invoices ?? []) {
+      if (!inv._id) continue;
+      const d = inv.extractedData ?? {};
+      out.push({
+        id: inv._id,
+        billId: inv.quickbooks?.billId ? String(inv.quickbooks.billId) : null,
+        byPerson: inv.postedStatus === "manual",
+        vendorName: d.vendorName ?? "",
+        lines: (d.lineItems ?? []).map((l) => l.description ?? "").filter(Boolean),
+        glAccountId: d.glAccountId ?? null,
+        taxCodeId: d.taxCodeId ?? null,
+        date: (d.invoiceDate ?? inv.createdAt ?? "").slice(0, 10),
+        amountCents: typeof d.totalAmount === "number" ? Math.round(Math.abs(d.totalAmount) * 100) : null,
+        decidedAt: inv.quickbooks?.postedAt ?? inv.updatedAt ?? inv.createdAt ?? new Date(0).toISOString(),
+      });
+    }
+    pages = Math.max(1, Number(body?.data?.pagination?.totalPages) || 1);
+  }
+  return out;
+}
+
+/** The QuickBooks/Xero ids of the bills ScanTrix posted (history leaves these out). */
+export async function scantrixBillIds(userToken: string, qbConnectionId: string): Promise<Set<string>> {
+  return new Set((await scantrixInvoices(userToken, qbConnectionId)).map((i) => i.billId).filter((id): id is string => Boolean(id)));
 }

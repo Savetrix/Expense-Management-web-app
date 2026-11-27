@@ -12,6 +12,7 @@ import type { Filter } from "mongodb";
 import type { Db } from "./db";
 import type { FoundEntry, TxnDoc, TxnStatus } from "./schema";
 import { logEvent } from "./store";
+import { linkPayeeToVendor, payeeKey } from "./suggest";
 
 export type { TxnStatus } from "./schema";
 const STATUSES: TxnStatus[] = ["review", "ready", "matched", "excluded", "transfer"];
@@ -42,6 +43,10 @@ export interface BankTransactionView {
   posting?: { kind: string; externalId: string | null; url: string | null; error: string | null; postedAt: string | null; viaTransactionId: string | null; found?: FoundEntryView & { auto: boolean } };
   /** Entries already in QuickBooks/Xero that could be this line; a person picks (foundInLedger.ts). */
   ledgerCandidates?: FoundEntryView[];
+  /** Receipts uploaded for the line (paperwork requests). */
+  attachments?: { id: string; name: string; mimeType: string; size: number; uploadedAt: string }[];
+  /** Lines a person said "Not this" to as a suggested transfer pair. */
+  notTransferWith?: string[];
   decidedAt?: string;
   version: number;
 }
@@ -71,6 +76,7 @@ export function toView(r: TxnDoc): BankTransactionView {
     matchedInvoiceId: r.matchedInvoiceId ?? undefined,
     transferAccount: r.transferLabel ?? undefined,
     transferAccountId: r.transferAccountId ?? undefined,
+    ...(r.notTransferWith?.length ? { notTransferWith: r.notTransferWith } : {}),
     categoryId: r.glAccountId ?? undefined,
     taxCodeId: r.taxCodeId ?? undefined,
     vendorId: r.vendorId ?? undefined,
@@ -91,6 +97,7 @@ export function toView(r: TxnDoc): BankTransactionView {
         }
       : undefined,
     ...(r.ledgerCandidates?.length ? { ledgerCandidates: r.ledgerCandidates.map(foundView) } : {}),
+    ...(r.attachments?.length ? { attachments: r.attachments.map((a) => ({ id: a.id, name: a.name, mimeType: a.mimeType, size: a.size, uploadedAt: new Date(a.uploadedAt).toISOString() })) } : {}),
     decidedAt: r.decidedAt ? r.decidedAt.toISOString() : undefined,
     version: r.version,
   };
@@ -146,6 +153,34 @@ const str = (v: unknown, max = 200): string | null | undefined => {
   return t === "" ? null : t;
 };
 
+/** Per box of an AI-filled line at Post: kept as ScanTrix filled it, or changed by the person (24 Nov: how often the AI is right). */
+export type AiFillReport = Partial<Record<"gl" | "vendor" | "tax", "kept" | "changed" | "added" | "cleared">>;
+const FILL_OUTCOMES = new Set(["kept", "changed", "added", "cleared"]);
+
+/** Reads `aiFill` from a request body: only the known boxes and outcomes, else null. */
+export function readAiFill(body: Record<string, unknown>): AiFillReport | null {
+  const raw = body.aiFill;
+  if (!raw || typeof raw !== "object") return null;
+  const out: AiFillReport = {};
+  for (const box of ["gl", "vendor", "tax"] as const) {
+    const v = (raw as Record<string, unknown>)[box];
+    if (typeof v === "string" && FILL_OUTCOMES.has(v)) out[box] = v as AiFillReport[typeof box];
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** "Not this" on a suggested transfer: the two lines are never paired again. Both must belong to this company. */
+export async function refuseTransferPair(db: Db, args: { qbConnectionId: string; ids: [string, string]; userId: string }): Promise<boolean> {
+  const [a, b] = args.ids;
+  if (a === b || !args.ids.every((id) => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))) return false;
+  const found = await db.txns.countDocuments({ _id: { $in: args.ids }, qbConnectionId: args.qbConnectionId, removedAt: null });
+  if (found !== 2) return false;
+  await db.txns.updateOne({ _id: a, qbConnectionId: args.qbConnectionId }, { $addToSet: { notTransferWith: b } });
+  await db.txns.updateOne({ _id: b, qbConnectionId: args.qbConnectionId }, { $addToSet: { notTransferWith: a } });
+  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: a, actor: args.userId, action: "bank.transfer_pair_refused", detail: { with: b } });
+  return true;
+}
+
 /** Reads a patch from a request body; unknown keys are ignored. Returns an error string when invalid. */
 export function readPatch(body: Record<string, unknown>): DecisionPatch | string {
   const patch: DecisionPatch = {};
@@ -153,7 +188,7 @@ export function readPatch(body: Record<string, unknown>): DecisionPatch | string
     if (!STATUSES.includes(body.status as TxnStatus)) return "Unknown status.";
     patch.status = body.status as TxnStatus;
   }
-  patch.matchedInvoiceId = str(body.matchedInvoiceId, 64);
+  patch.matchedInvoiceId = str(body.matchedInvoiceId, 100);
   patch.transferLabel = str(body.transferAccount);
   patch.transferAccountId = str(body.transferAccountId, 64);
   if (patch.transferAccountId && !/^[0-9a-f-]{36}$/i.test(patch.transferAccountId)) return "Unknown account.";
@@ -198,13 +233,25 @@ export function normalise(current: TxnDoc, patch: DecisionPatch): { next: Decisi
   return { next };
 }
 
+/**
+ * Who decided the line. A line put back in To review with nothing coded
+ * (Restore from Excluded, Undo of a match or transfer) is undecided again, so
+ * suggestions score it again; a person clearing boxes on a line already in To
+ * review stays a person's choice, so ScanTrix never fills it back in.
+ */
+function decidedFields(current: TxnDoc, set: Partial<TxnDoc>, userId: string): Pick<TxnDoc, "decidedBy" | "decidedAt" | "updatedAt"> {
+  const final = { ...current, ...set };
+  const backToReview = current.status !== "review" && final.status === "review" && !final.glAccountId && !final.vendorId && !final.taxCodeId;
+  return backToReview ? { decidedBy: null, decidedAt: null, updatedAt: new Date() } : { decidedBy: userId, decidedAt: new Date(), updatedAt: new Date() };
+}
+
 export type DecideResult = { ok: true; txn: BankTransactionView } | { ok: false; status: 404 | 409 | 400; error: string; current?: BankTransactionView };
 
 const STALE = "Someone changed this line a moment ago. It has been refreshed.";
 
 export async function decide(
   db: Db,
-  args: { qbConnectionId: string; id: string; userId: string; patch: DecisionPatch; expectedVersion?: number; action?: string },
+  args: { qbConnectionId: string; id: string; userId: string; patch: DecisionPatch; expectedVersion?: number; action?: string; aiFill?: AiFillReport | null },
 ): Promise<DecideResult> {
   const current = await getTransaction(db, args.qbConnectionId, args.id);
   if (!current) return { ok: false, status: 404, error: "That transaction isn't here any more." };
@@ -245,14 +292,29 @@ export async function decide(
   if (Object.keys(set).length === 0) return { ok: true, txn: toView(current) };
   const updated = await db.txns.findOneAndUpdate(
     { _id: args.id, qbConnectionId: args.qbConnectionId, version: current.version },
-    { $set: { ...set, decidedBy: args.userId, decidedAt: new Date(), updatedAt: new Date() }, $inc: { version: 1 } },
+    { $set: { ...set, ...decidedFields(current, set, args.userId) }, $inc: { version: 1 } },
     { returnDocument: "after" },
   );
   if (!updated) {
     const fresh = await getTransaction(db, args.qbConnectionId, args.id);
     return { ok: false, status: 409, error: STALE, current: fresh ? toView(fresh) : undefined };
   }
-  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after } });
+  // What ScanTrix was suggesting when the person decided (any step, the AI's model for step 4), for the audit trail.
+  const shown = current.suggestion as { step?: string; glAccountId?: string; confidence?: string; model?: string; picks?: { glAccountId: string; step: string }[] } | null;
+  const suggestion = shown && (shown.glAccountId || shown.picks?.length)
+    ? { step: shown.step ?? null, glAccountId: shown.glAccountId ?? null, confidence: shown.confidence ?? null, picks: (shown.picks ?? []).map((p) => ({ glAccountId: p.glAccountId, step: p.step })), model: shown.model ?? null, followed: Boolean(after.glAccountId && after.glAccountId === shown.glAccountId) }
+    : null;
+  await logEvent(db, { qbConnectionId: args.qbConnectionId, transactionId: args.id, actor: args.userId, action: args.action ?? "bank.decision", detail: { before, after, ...(suggestion ? { suggestion } : {}), ...(args.aiFill ? { aiFill: args.aiFill } : {}) } });
+  // Smart Suggestions, step 2: a person picked a vendor for this payee, so later lines from it get that vendor.
+  if (typeof set.vendorId === "string" && set.vendorId) {
+    await linkPayeeToVendor(db, {
+      qbConnectionId: args.qbConnectionId,
+      payeeKey: updated.payeeKey ?? payeeKey(updated.merchantName ?? updated.counterpartyName, updated.description),
+      vendorId: set.vendorId,
+      payee: updated.payee,
+      userId: args.userId,
+    });
+  }
   return { ok: true, txn: toView(updated) };
 }
 
@@ -303,7 +365,7 @@ export function blankDecision(now: Date): Pick<
  * same line in another account is kept. Two identical lines in one file (two
  * coffees, same day, same price) are both kept: each gets an occurrence number.
  */
-export async function importCsv(db: Db, args: { qbConnectionId: string; userId: string; accountLabel: string; rows: CsvRowIn[] }): Promise<{ added: number; duplicates: number }> {
+export async function importCsv(db: Db, args: { qbConnectionId: string; userId: string; accountLabel: string; rows: CsvRowIn[]; currency?: string | null }): Promise<{ added: number; duplicates: number }> {
   if (args.rows.length === 0) return { added: 0, duplicates: 0 };
   const seen = new Map<string, number>();
   const now = new Date();
@@ -329,7 +391,8 @@ export async function importCsv(db: Db, args: { qbConnectionId: string; userId: 
       logoUrl: null,
       website: null,
       amountCents: Math.round(r.amount * 100),
-      currency: null,
+      // The currency of the bank account chosen at import (companyLists.accountCurrency).
+      currency: args.currency ?? null,
       categoryPrimary: null,
       categoryDetailed: null,
       categoryConfidence: null,

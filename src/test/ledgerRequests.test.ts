@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildQbBillBalanceQueries, buildQbEntryQuery, buildQbRequest, entriesFromQbAnswer, paidFromQbAnswer } from "../lib/bankFeeds/ledger/quickbooks";
+import { buildQbBillBalanceQueries, buildQbEntryQuery, buildQbRequest, entriesFromQbAnswer, paidFromQbAnswer, taxDetail } from "../lib/bankFeeds/ledger/quickbooks";
 import type { Posting } from "../lib/bankFeeds/ledger/types";
-import { buildXeroBillRequests, buildXeroEntryRequest, buildXeroRequest, entriesFromXeroAnswer, paidFromXeroAnswer, xeroDay } from "../lib/bankFeeds/ledger/xero";
+import { buildXeroBillRequests, buildXeroEntryRequest, buildXeroRequest, entriesFromXeroAnswer, paidFromXeroAnswer, xeroDay, xeroError } from "../lib/bankFeeds/ledger/xero";
 
 /** A JSON body, read loosely in assertions. */
 type Json = { [key: string]: Json } & { [index: number]: Json };
@@ -36,6 +36,40 @@ describe("QuickBooks requests", () => {
     assert.equal(b.Line[0].Amount, 106.67);
     assert.deepEqual(b.Line[0].AccountBasedExpenseLineDetail.TaxCodeRef, { value: "5" });
     assert.equal(b.Line[0].AccountBasedExpenseLineDetail.TaxInclusiveAmt, 112);
+  });
+
+  it("sends the tax lines so QuickBooks keeps the bank's exact total (85.40 at 13% was 85.41, 21 Nov)", () => {
+    const hst = [{ rateId: "11", percent: 13 }];
+    const b = buildQbRequest(expense({ amount: 85.4, taxCodeId: "5", taxRate: 13 }), "k", hst).request.body as unknown as Json;
+    assert.equal(b.Line[0].Amount, 75.58);
+    assert.equal(b.TxnTaxDetail.TotalTax, 9.82);
+    assert.equal(b.TxnTaxDetail.TaxLine[0].Amount, 9.82);
+    assert.deepEqual(b.TxnTaxDetail.TaxLine[0].TaxLineDetail.TaxRateRef, { value: "11" });
+    // Every amount from 1.00 to 500.00: net + tax is exactly the bank amount.
+    for (let c = 100; c <= 50_000; c++) {
+      const d = taxDetail(c / 100, Math.round(c / 1.13) / 100, hst)!;
+      assert.equal(Math.round((Math.round(c / 1.13) / 100 + d.TotalTax) * 100), c, `${c / 100}`);
+    }
+  });
+
+  it("a deposit carries the tax lines too, on the code's purchase rate as QuickBooks does itself", () => {
+    const b = buildQbRequest({ ...expense({ amount: 86.27, taxCodeId: "5", taxRate: 13 }), kind: "deposit", glAccountId: "67" } as Posting, "k", [{ rateId: "11", percent: 13 }]).request.body as unknown as Json;
+    assert.equal(b.Line[0].Amount, 76.35);
+    assert.equal(b.TxnTaxDetail.TotalTax, 9.92);
+    assert.deepEqual(b.TxnTaxDetail.TaxLine[0].TaxLineDetail.TaxRateRef, { value: "11" });
+  });
+
+  it("splits the tax over a code with two rates, the last one taking the rounding", () => {
+    const d = taxDetail(112, 100, [{ rateId: "15", percent: 5 }, { rateId: "17", percent: 7 }])!;
+    assert.deepEqual(d.TaxLine.map((l) => l.Amount), [5, 7]);
+    const odd = taxDetail(85.4, 76.25, [{ rateId: "15", percent: 5 }, { rateId: "17", percent: 7 }])!;
+    assert.equal(Math.round((odd.TaxLine[0].Amount + odd.TaxLine[1].Amount) * 100), Math.round(odd.TotalTax * 100));
+  });
+
+  it("leaves the tax to QuickBooks when the rates are unknown or don't add up to the code's rate", () => {
+    assert.equal((buildQbRequest(expense({ taxCodeId: "5", taxRate: 5 }), "k").request.body as unknown as Json).TxnTaxDetail, undefined);
+    assert.equal((buildQbRequest(expense({ taxCodeId: "5", taxRate: 5 }), "k", [{ rateId: "11", percent: 13 }]).request.body as unknown as Json).TxnTaxDetail, undefined);
+    assert.equal(taxDetail(10, 10, [{ rateId: "1", percent: 0 }]), null, "a zero rate has nothing to fix");
   });
 
   it("money out on a card is a CreditCard purchase; a card refund is a credit", () => {
@@ -241,3 +275,15 @@ describe("reading entries already in the books", () => {
     ]);
   });
 });
+
+describe("Xero errors", () => {
+  it("a lost connection reads as 'reconnect Xero', never Xero's code word (22 Nov)", () => {
+    const e = xeroError(403, new Headers(), { Type: null, Title: "Forbidden", Status: 403, Detail: "AuthenticationUnsuccessful" });
+    assert.equal(e.code, "reconnect");
+    assert.doesNotMatch(e.message, /AuthenticationUnsuccessful/);
+    assert.match(e.message, /Reconnect Xero/);
+    assert.equal(xeroError(401, new Headers(), null).code, "reconnect");
+    assert.equal(xeroError(403, new Headers(), { Detail: "You don't have access to Bank Transactions" }).code, "permission", "a real permission problem stays one");
+  });
+});
+

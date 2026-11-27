@@ -1,12 +1,13 @@
 "use client";
 
 import { AlertTriangle, FileUp, Landmark } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { PageHeader, Tabs } from "@/components/v2/ui";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { showToast } from "@/lib/dialogManager";
+import { confirmDialog, showToast } from "@/lib/dialogManager";
 import {
   bulkUpdateBankTransactions,
   checkFoundInLedger,
@@ -19,21 +20,37 @@ import {
   importBankCsv,
   postBankTransactions,
   updateBankTransaction,
+  fetchSuggestionSettings,
+  fetchOpenBills,
+  refuseTransferPair,
+  syncDueBanks,
+  type OpenBillDto,
+  ALL_FEATURES_ON,
   type BankTxnPatch,
+  type SuggestionSettingsDto,
 } from "@/store/bankFeeds/bankFeedsApi";
-import { getInvoices } from "@/store/invoice/invoiceApi";
+import { getInvoices, postInvoiceToQuickBooks } from "@/store/invoice/invoiceApi";
 import { useActiveProvider } from "@/store/quickBooks/useActiveProvider";
+import { selectActiveHomeCurrency } from "@/store/quickBooks/quickBooksSlice";
+import { requestAiPick, requestHistoryRead, requestSimilarSync } from "@/components/v2/suggestions/historyClient";
 
 import { useBankLookups } from "./coding";
 import { ConnectBankModal } from "./ConnectBankModal";
 import { ConnectedAccountsTab } from "./ConnectedAccountsTab";
 import { ImportFileModal } from "./ImportFileModal";
-import { closedBills, toCandidates, type StrongSuggestion } from "./matching";
+import { closedBills, toCandidates, withLedgerBills, type StrongSuggestion } from "./matching";
+import { fetchPaperwork } from "./paperworkClient";
+import { PaperworkTab } from "./PaperworkTab";
 import { TransactionModal } from "./TransactionModal";
+import { currencyMismatch, lineCurrency, lineLedgerId } from "./glList";
+import { billReadiness } from "./billPay";
+import { vendorNameKey } from "./lineCoding";
+import { confirmThenPost } from "./postWarning";
+import { findTransferPairs, pairPatches, type TransferPair } from "./transferPairs";
 import { ledgerBlock, TransactionsTab } from "./TransactionsTab";
 import type { BankAccount, BankTransaction } from "./types";
 
-type Tab = "transactions" | "accounts";
+type Tab = "transactions" | "accounts" | "requests";
 
 export function BankTransactionsContentV2() {
   const dispatch = useAppDispatch();
@@ -41,7 +58,11 @@ export function BankTransactionsContentV2() {
   const { pendingInvoices, autoPostedInvoices, manualPostedInvoices, invoices, loading } = useAppSelector((s) => s.invoice);
   const glAccounts = useAppSelector((s) => s.quickBooks.accounts);
 
-  const [tab, setTab] = useState<Tab>("transactions");
+  // ?tab=requests opens Paperwork requests (the link in the request email).
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>(searchParams.get("tab") === "requests" ? "requests" : "transactions");
+  const [openRequests, setOpenRequests] = useState<number | undefined>(undefined);
+  const [requestsKey, setRequestsKey] = useState(0);
   const qbConnectionId = useAppSelector((s) => s.quickBooks.qbConnectionId);
   // Mirrors the server's role rules (lib/bankFeeds/door.ts): owners and admins
   // connect banks; accountants code and post; contributors have no bank access.
@@ -52,6 +73,18 @@ export function BankTransactionsContentV2() {
   const noAccess = role === "contributor";
   // Owners, admins and accountants may post (APPROVE_POST_QBO on the backend).
   const canPost = !noAccess;
+  // How many paperwork requests are still open, for the tab.
+  useEffect(() => {
+    if (!qbConnectionId || noAccess) return;
+    let cancelled = false;
+    fetchPaperwork(qbConnectionId).then(
+      (r) => !cancelled && setOpenRequests(r.requests.filter((x) => x.status === "open").length),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [qbConnectionId, noAccess, requestsKey]);
   const bank = useAppSelector((s) => s.bankFeeds);
   const ledger = {
     accounts: bank.ledgerAccountsConnectionId === qbConnectionId ? bank.ledgerAccounts : [],
@@ -59,6 +92,16 @@ export function BankTransactionsContentV2() {
     error: bank.ledgerError,
   };
   const sendingIds = useMemo(() => new Set(bank.postingIds), [bank.postingIds]);
+  const named = bank.qbConnectionId === qbConnectionId ? bank.named : [];
+  const homeCurrency = useAppSelector(selectActiveHomeCurrency);
+  const refreshAccounts = () => {
+    void dispatch(fetchLedgerAccounts({ refresh: true })).then((r) => {
+      if (!fetchLedgerAccounts.fulfilled.match(r)) return;
+      // The server also read the vendors again and re-scored the lines.
+      dispatch(fetchBankTransactions());
+      showToast("Account and vendor lists read again.", "success");
+    });
+  };
   const bankAccounts: BankAccount[] = bank.qbConnectionId === qbConnectionId ? bank.accounts : [];
   const txns: BankTransaction[] = bank.transactionsConnectionId === qbConnectionId ? bank.transactions : [];
   const [connectOpen, setConnectOpen] = useState(false);
@@ -115,6 +158,26 @@ export function BankTransactionsContentV2() {
     if (results.some((r) => r.transaction?.status === "transfer")) dispatch(fetchBankTransactions());
   };
 
+  // New bank lines without "Sync now" (24 Nov): when the page opens and every
+  // 5 minutes while it is visible, the server syncs any bank login not synced
+  // for 15 minutes (the safety net for a missing or late Plaid webhook).
+  useEffect(() => {
+    if (!qbConnectionId || bankAccounts.length === 0) return;
+    const due = () => {
+      if (document.visibilityState !== "visible") return;
+      void dispatch(syncDueBanks()).then((r) => {
+        if (syncDueBanks.fulfilled.match(r) && r.payload.added > 0) {
+          dispatch(fetchBankTransactions());
+          dispatch(fetchBankAccounts());
+        }
+      });
+    };
+    due();
+    const timer = window.setInterval(due, 5 * 60_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, qbConnectionId, bankAccounts.length > 0]);
+
   // New lines arrive through Plaid's webhook while the page is open; check
   // every 30 seconds (only while the tab is visible) and on coming back to the
   // tab, so they appear without a reload.
@@ -133,9 +196,11 @@ export function BankTransactionsContentV2() {
     };
   }, [dispatch, qbConnectionId]);
 
+  // Bills entered straight into QuickBooks/Xero are candidates too (24 Nov), read when the page opens and every 5 minutes.
+  const [ledgerBills, setLedgerBills] = useState<OpenBillDto[]>([]);
   const candidates = useMemo(
-    () => toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices),
-    [pendingInvoices, autoPostedInvoices, manualPostedInvoices],
+    () => withLedgerBills(toCandidates(pendingInvoices, autoPostedInvoices, manualPostedInvoices), ledgerBills),
+    [pendingInvoices, autoPostedInvoices, manualPostedInvoices, ledgerBills],
   );
   // Bills paid in QuickBooks/Xero (or matched to a line already) aren't offered
   // for a match. Asked once per set of bills; on failure every bill is offered.
@@ -152,6 +217,49 @@ export function BankTransactionsContentV2() {
     };
   }, [dispatch, qbConnectionId, billIdsKey]);
   const closed = useMemo(() => closedBills(txns, candidates, paidBills), [txns, candidates, paidBills]);
+
+  // Auto-classification and the 24 Nov feature switches (Autopilot > Settings); all on until they load.
+  const [settings, setSettings] = useState<SuggestionSettingsDto | null>(null);
+  useEffect(() => {
+    if (!qbConnectionId) return;
+    let cancelled = false;
+    void dispatch(fetchSuggestionSettings()).then((r) => {
+      if (!cancelled && fetchSuggestionSettings.fulfilled.match(r)) setSettings(r.payload);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId]);
+  const mode = settings?.autoClassification ?? "fill";
+  const features = settings?.features ?? ALL_FEATURES_ON;
+  useEffect(() => {
+    if (!qbConnectionId || !canPost || !features.autoMatch) {
+      setLedgerBills([]);
+      return;
+    }
+    let cancelled = false;
+    const read = () =>
+      void dispatch(fetchOpenBills()).then((r) => {
+        if (!cancelled && fetchOpenBills.fulfilled.match(r)) setLedgerBills(r.payload);
+      });
+    read();
+    const timer = window.setInterval(() => document.visibilityState === "visible" && read(), 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [dispatch, qbConnectionId, canPost, features.autoMatch]);
+  // Suggested transfers: one clean pair between two mapped accounts (transferPairs.ts).
+  const pairs = useMemo(
+    () =>
+      features.transferSuggestions
+        ? findTransferPairs(txns, {
+            ledgerIdOf: (t) => lineLedgerId(t, bankAccounts, named),
+            currencyOf: (t) => lineCurrency(t, { bankAccounts, named, chart: ledger.accounts, homeCurrency }),
+          })
+        : [],
+    [features.transferSuggestions, txns, bankAccounts, named, ledger.accounts, homeCurrency],
+  );
 
   // Every decision is saved on the server. A status change carries the line's
   // version, so a teammate's newer change is never overwritten; field edits
@@ -175,7 +283,7 @@ export function BankTransactionsContentV2() {
   // "nothing in between"): save the decision, then send it. One line carries
   // its version, so a teammate's newer change isn't overwritten. A line that
   // can't go yet (a match whose bill isn't in the books, sending switched off)
-  // stays in Ready to post or Matched, with the reason, as before.
+  // stays in To review or Matched, with the reason.
   const saveAndSend = async (items: { txn: BankTransaction; patch: Partial<BankTransaction>; sendable: boolean }[], kind: "post" | "match") => {
     let saved: string[];
     if (items.length === 1) {
@@ -213,7 +321,33 @@ export function BankTransactionsContentV2() {
       picked.map((x) => ({ txn: x.txn, patch: { status: "matched" as const, matchedInvoiceId: x.invoice.id }, sendable: Boolean(x.invoice.billId) })),
       "match",
     );
-  const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
+  const postLines = (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) =>
+    // One popup per click: "Post it anyway?" when nothing is attached, or the batch count (postWarning.ts). A warning, never a block.
+    confirmThenPost(
+      items,
+      { providerName: provider.name, sendsNow: canPost && !ledgerBlock(ledger.reason, ledger.error, provider.name), warnReceipts: features.receiptWarning },
+      (d) => confirmDialog(d),
+      postCheckedLines,
+    );
+  const postCheckedLines = async (items: { txn: BankTransaction; patch: Partial<BankTransaction> }[]) => {
+    // A vendor in another currency than the bank account would book the line in
+    // the wrong currency (Saurabh, 18 Nov: currency must be right): ask first.
+    const odd = items.flatMap(({ txn, patch }) => {
+      const vendorId = patch.vendorId ?? txn.vendorId;
+      const vendor = vendorId ? lookups.vendorById.get(vendorId) : undefined;
+      const bankCurrency = lineCurrency(txn, { bankAccounts, named, chart: ledger.accounts, homeCurrency });
+      return vendor && currencyMismatch(vendor.currency, bankCurrency) ? [`${vendor.displayName} is in ${vendor.currency}, but ${txn.accountName} is in ${bankCurrency}.`] : [];
+    });
+    if (odd.length > 0) {
+      const ok = await confirmDialog({
+        title: "Different currency",
+        message: `${odd.slice(0, 3).join(" ")}${odd.length > 3 ? ` (${odd.length - 3} more)` : ""} ${provider.name} may refuse the line or book it in the wrong currency. Post anyway?`,
+        confirmLabel: "Post anyway",
+      });
+      if (!ok) return;
+    }
+    return saveAndSend(items.map((x) => ({ ...x, sendable: true })), "post");
+  };
   // Lines someone entered straight into QuickBooks/Xero leave To review by
   // themselves (lib/bankFeeds/foundInLedger.ts): checked when the page opens,
   // every 5 minutes while it is visible, and after an import.
@@ -231,6 +365,82 @@ export function BankTransactionsContentV2() {
     const timer = window.setInterval(() => void checkLedger(), 5 * 60_000);
     return () => window.clearInterval(timer);
   }, [checkLedger, qbConnectionId, canPost]);
+  // Smart Suggestions learns from the company's own books (lib/bankFeeds/history.ts):
+  // read once, the first time the page opens for the company; the lines
+  // reload when new history came in, since their suggestions changed.
+  useEffect(() => {
+    if (!qbConnectionId || !canPost) return;
+    let cancelled = false;
+    void (async () => {
+      const read = await requestHistoryRead(qbConnectionId);
+      // Step 3: new lines and new memory get their meaning vectors.
+      const embedded = await requestSimilarSync(qbConnectionId);
+      if (!cancelled && (read.imported || embedded > 0)) dispatch(fetchBankTransactions());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch, qbConnectionId, canPost]);
+  // A suggested transfer: both lines saved as a transfer to each other, then one entry sent (posting.ts marks the other side).
+  const postPair = async (pair: TransferPair) => {
+    const result = await dispatch(bulkUpdateBankTransactions({ items: pairPatches(pair).map((x) => ({ id: x.id, ...(x.patch as BankTxnPatch) })) }));
+    if (!bulkUpdateBankTransactions.fulfilled.match(result)) {
+      showToast(result.payload?.message ?? "Couldn't save the transfer.", "error");
+      return;
+    }
+    if (result.payload.failed.length > 0) {
+      showToast(`Not saved: ${result.payload.failed[0].error ?? "try again"}`, "error");
+      dispatch(fetchBankTransactions());
+      return;
+    }
+    refetchSoon();
+    const blocked = canPost ? ledgerBlock(ledger.reason, ledger.error, provider.name) : `Your role can't send lines to ${provider.name}.`;
+    if (blocked) showToast(`Both lines marked as a transfer. ${blocked}`, "info");
+    else await sendLines([pair.out.id]);
+  };
+  const refusePair = async (pair: TransferPair) => {
+    const result = await dispatch(refuseTransferPair([pair.out.id, pair.in.id]));
+    if (refuseTransferPair.fulfilled.match(result)) {
+      dispatch(fetchBankTransactions());
+      showToast("Both lines stay in To review. ScanTrix won't pair them again.", "info");
+    } else showToast(result.payload?.message ?? "Couldn't save that.", "error");
+  };
+  // "Bill not in QuickBooks yet": post the bill as the invoice screen would, then pay it with the line (billPay.ts).
+  // A bill's vendor name that is exactly one of the company's vendors counts as confirmed (billPay.ts).
+  const vendorIdByName = useMemo(() => {
+    const byKey = new Map<string, string | null>();
+    for (const v of lookups.vendors) {
+      const k = vendorNameKey(v.displayName);
+      byKey.set(k, byKey.has(k) ? null : v._id);
+    }
+    return (name: string) => byKey.get(vendorNameKey(name)) ?? undefined;
+  }, [lookups.vendors]);
+  const billWaiting = (invoiceId: string): string | null => {
+    const r = billReadiness(pendingInvoices.find((i) => i._id === invoiceId), { vendorIdByName });
+    return r.ok ? null : r.reason;
+  };
+  const postBillAndPay = async (s: StrongSuggestion) => {
+    const ready = billReadiness(pendingInvoices.find((i) => i._id === s.invoice.id), { vendorIdByName });
+    if (!ready.ok) {
+      showToast(`Bill waiting in ScanTrix: ${ready.reason} Open it from the paperclip to finish it.`, "info");
+      return;
+    }
+    const ok = await confirmDialog({
+      title: `Post the bill and pay it?`,
+      message: `ScanTrix posts ${s.invoice.vendor}${s.invoice.number ? ` #${s.invoice.number}` : ""} to ${provider.name} as a bill, then sends this bank line as its payment: one bill and one payment.`,
+      confirmLabel: "Post bill & pay",
+      cancelLabel: "Go back",
+    });
+    if (!ok) return;
+    const posted = await dispatch(postInvoiceToQuickBooks(ready.payload as Parameters<typeof postInvoiceToQuickBooks>[0]));
+    if (!postInvoiceToQuickBooks.fulfilled.match(posted)) {
+      const msg = typeof posted.payload === "string" ? posted.payload : `Couldn't post the bill to ${provider.name}.`;
+      showToast(`${msg} Nothing was paid.`, "error");
+      return;
+    }
+    dispatch(getInvoices());
+    await saveAndSend([{ txn: s.txn, patch: { status: "matched", matchedInvoiceId: s.invoice.id }, sendable: true }], "match");
+  };
   const linkFound = async (id: string, key: string) => {
     const result = await dispatch(linkFoundEntry({ id, key }));
     if (linkFoundEntry.fulfilled.match(result)) showToast(`Linked to the entry in ${provider.name}. Moved to Matched.`, "success");
@@ -238,11 +448,23 @@ export function BankTransactionsContentV2() {
   };
   const unlinkFound = async (id: string) => {
     const result = await dispatch(unlinkFoundEntry(id));
-    if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. Scantrix won't link that ${provider.name} entry to this line again.`, "info");
+    if (unlinkFoundEntry.fulfilled.match(result)) showToast(`Back in To review. ScanTrix won't link that ${provider.name} entry to this line again.`, "info");
     else showToast(result.payload?.message ?? "Couldn't put that line back.", "error");
   };
-  const [openFocus, setOpenFocus] = useState<"match" | "transfer" | undefined>(undefined);
+  const [openFocus, setOpenFocus] = useState<"match" | "transfer" | "payBill" | undefined>(undefined);
   const openTxn = txns.find((t) => t.id === openId) ?? null;
+  // Step 4: a line opened with no suggestion at all asks the AI once (the server
+  // keeps the answer, so opening it again sends nothing).
+  const askedAi = useRef(new Set<string>());
+  useEffect(() => {
+    if (!openTxn || !qbConnectionId || !canPost || openTxn.status !== "review" || askedAi.current.has(openTxn.id)) return;
+    const s = openTxn.suggestion as { kind?: string | null } | null | undefined;
+    if (s?.kind) return;
+    askedAi.current.add(openTxn.id);
+    void requestAiPick(qbConnectionId, openTxn.id).then((changed) => {
+      if (changed) void dispatch(fetchBankTransactions());
+    });
+  }, [openTxn, qbConnectionId, canPost, dispatch]);
 
   return (
     <div className="w-full p-[var(--space-md)] sm:p-[var(--space-lg)]">
@@ -268,9 +490,15 @@ export function BankTransactionsContentV2() {
       />
 
       {noAccess && (
-        <div role="alert" className="mt-[var(--space-lg)] rounded-md border border-border bg-surface p-[var(--space-lg)] text-body-sm text-content-secondary">
-          Bank transactions are for owners, admins and accountants of {active?.name ?? "this company"}. Ask an owner to change your role if you need them.
-        </div>
+        <>
+          <div role="alert" className="mt-[var(--space-lg)] rounded-md border border-border bg-surface p-[var(--space-lg)] text-body-sm text-content-secondary">
+            Bank transactions are for owners, admins and accountants of {active?.name ?? "this company"}. Below are the receipts someone asked you for.
+          </div>
+          {/* A contributor sees only the paperwork requests addressed to them. */}
+          <div className="mt-[var(--space-md)] rounded-lg border border-border bg-surface p-[var(--space-md)]">
+            <PaperworkTab />
+          </div>
+        </>
       )}
 
       {bankAccounts
@@ -309,6 +537,7 @@ export function BankTransactionsContentV2() {
             items={[
               { value: "transactions", label: "Transactions", count: txns.length },
               { value: "accounts", label: "Connected accounts", count: bankAccounts.length },
+              { value: "requests", label: "Paperwork requests", ...(openRequests !== undefined ? { count: openRequests } : {}) },
             ]}
             value={tab}
             onChange={(v) => setTab(v as Tab)}
@@ -330,6 +559,13 @@ export function BankTransactionsContentV2() {
             closedBills={closed}
             onBulkUpdate={patchMany}
             onPost={postLines}
+            mode={mode}
+            features={features}
+            pairs={pairs}
+            onPostPair={(p) => void postPair(p)}
+            onRefusePair={(p) => void refusePair(p)}
+            onPostBillAndPay={(x) => void postBillAndPay(x)}
+            billWaiting={billWaiting}
             lookups={lookups}
             loading={!bank.transactionsLoaded && bank.transactionsLoading}
             ledger={ledger}
@@ -337,7 +573,16 @@ export function BankTransactionsContentV2() {
             onUnlinkFound={unlinkFound}
             onSend={canPost ? sendLines : undefined}
             sendingIds={sendingIds}
+            bankAccounts={bankAccounts}
+            named={named}
+            homeCurrency={homeCurrency}
+            onRefreshAccounts={canPost ? refreshAccounts : undefined}
+            onPaperworkRequested={() => setRequestsKey((k) => k + 1)}
           />
+        ) : tab === "requests" ? (
+          <div className="p-[var(--space-md)]">
+            <PaperworkTab key={requestsKey} onChanged={setOpenRequests} />
+          </div>
         ) : (
           <ConnectedAccountsTab
             accounts={bankAccounts}
@@ -385,6 +630,10 @@ export function BankTransactionsContentV2() {
               showToast(`${n} transaction${n === 1 ? "" : "s"} imported${duplicates ? `, ${duplicates} already here` : ""}.`, "success");
               setTab("transactions");
               void checkLedger();
+              // After an import the sync always runs (it waits for one already running), so new lines get steps 3 and 4.
+              void requestSimilarSync(qbConnectionId ?? "", { afterImport: true }).then((embedded) => {
+                if (embedded > 0) dispatch(fetchBankTransactions());
+              });
               return true;
             }
             showToast(result.payload?.message ?? "Couldn't save the imported rows.", "error");
@@ -407,6 +656,10 @@ export function BankTransactionsContentV2() {
           onPost={(patch) => postLines([{ txn: openTxn, patch }])}
           onLinkFound={(key) => linkFound(openTxn.id, key)}
           onUnlinkFound={() => unlinkFound(openTxn.id)}
+          named={named}
+          chart={ledger.accounts}
+          homeCurrency={homeCurrency}
+          onRefreshAccounts={canPost ? refreshAccounts : undefined}
         />
       )}
     </div>

@@ -124,7 +124,7 @@ const expenseClaimsSlice = createSlice({
     builder.addCase(fetchExpenseClaims.rejected, (state, action) => {
       if (action.meta.requestId !== state.claimsRequestId) return;
       state.claimsLoading = false;
-      state.claimsError = action.payload?.message ?? "Couldn't load expense claims.";
+      state.claimsError = action.payload?.message ?? "Couldn't load reimbursements.";
       state.claims = [];
       state.claimsConnectionId = null;
     });
