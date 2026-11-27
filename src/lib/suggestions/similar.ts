@@ -49,9 +49,13 @@ export const MEDIUM_SHARE = 0.6;
 
 // ------------------------------------------------------------------ text
 
-/** Card numbers cut to the last 4: "4520 1234 5678 9012" → "****9012". Never send a full card number anywhere. */
+/**
+ * Card numbers cut to the last 4: "4520 1234 5678 9012" → "****9012". Never send a full card number anywhere.
+ * Any run of 12+ digits counts, also glued to letters ("CARD4520…"), or split by dots, underscores or
+ * double spaces (27 Nov audit: \b missed those); dates and phone numbers are shorter and stay.
+ */
 export function maskCardNumbers(text: string): string {
-  return text.replace(/\b\d(?:[ -]?\d){11,18}\b/g, (m) => `****${m.replace(/\D/g, "").slice(-4)}`);
+  return text.replace(/(?<!\d)\d(?:[ ._-]{0,2}\d){11,}(?!\d)/g, (m) => `****${m.replace(/\D/g, "").slice(-4)}`);
 }
 
 /** Bank text without card numbers or store / terminal numbers: "PETRO-CANADA 1234 TORONTO ON" → "PETRO-CANADA TORONTO ON". */

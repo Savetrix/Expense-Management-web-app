@@ -52,7 +52,9 @@ export async function bankContext(
 /** Maps a thrown error to a response; never echoes internals to the browser. */
 export function errorResponse(where: string, error: unknown): Response {
   if (isStoreError(error)) {
-    console.error(`[bank] ${where}: store unavailable`, ((error as { cause?: Error }).cause ?? (error as Error)).message ?? "");
+    const cause = ((error as { cause?: unknown }).cause ?? error) as { message?: string; code?: unknown; codeName?: string };
+    // A server error's message can repeat a key (an imported line's key holds its description): log its code only.
+    console.error(`[bank] ${where}: store unavailable`, typeof cause.code === "number" ? `mongo ${cause.code} ${cause.codeName ?? ""}`.trim() : (cause.message ?? ""));
     return fail(503, "ScanTrix couldn't reach its bank records just now. Try again in a moment.", { reason: "store_unavailable" });
   }
   if (error instanceof PlaidCallError) {

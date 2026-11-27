@@ -37,6 +37,18 @@ const item = (vector: number[], gl: string, days = 5, over: Partial<MemoryItem> 
 describe("the text that is compared", () => {
   it("cuts card numbers to the last 4 and drops store numbers", () => {
     assert.equal(maskCardNumbers("PAYMENT 4520 1234 5678 9012 THANK YOU"), "PAYMENT ****9012 THANK YOU");
+    // 27 Nov audit: glued to letters, underscores, dots, double spaces and a trailing letter went out in full.
+    for (const [raw, masked] of [
+      ["POS CARD4520123456789012 ESSO", "POS CARD****9012 ESSO"],
+      ["VISA_4520123456789012 ESSO", "VISA_****9012 ESSO"],
+      ["ESSO 4520.1234.5678.9012", "ESSO ****9012"],
+      ["ESSO 4520123456789012X", "ESSO ****9012X"],
+      ["ESSO 4520  1234  5678  9012", "ESSO ****9012"],
+      ["ESSO REF:4520123456789012", "ESSO REF:****9012"],
+      ["AMEX 3782 822463 10005 SHELL", "AMEX ****0005 SHELL"],
+    ]) assert.equal(maskCardNumbers(raw), masked, raw);
+    // Dates, phone numbers and store numbers stay.
+    for (const keep of ["ZOOM.US 888-799-9666 CA", "PAYROLL 2026-11-25", "TIM HORTONS #4411 TORONTO ON", "ROGERS 888-764-3771"]) assert.equal(maskCardNumbers(keep), keep);
     assert.equal(cleanText("PETRO-CANADA 1234 TORONTO ON"), "PETRO-CANADA TORONTO ON");
     assert.doesNotMatch(bankText({ description: "VISA 4520123456789012 ESSO" }), /4520123456789012/);
   });
