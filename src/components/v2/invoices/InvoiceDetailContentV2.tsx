@@ -8,6 +8,7 @@ import { PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRe
 
 import { BrandIcon } from "@/components/icons/BrandIcon";
 import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
+import { InvoicePrepaymentCard } from "@/components/v2/invoices/InvoicePrepaymentCard";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { deleteInvoice, getInvoiceDetails } from "@/store/invoice/invoiceApi";
@@ -403,6 +404,8 @@ export function InvoiceDetailContentV2({ invoiceId }: { invoiceId: string }) {
             <DetailRow label="GL Code / Category" value={glCode} />
             <DetailRow label="Posted By" value={uploadedByName} isLast />
           </SectionCard>
+
+          {invoiceObject && <InvoicePrepaymentCard invoice={invoiceObject} />}
 
           {/* Financial Summary */}
           <SectionCard title="Financial Summary" defaultOpen={false}>

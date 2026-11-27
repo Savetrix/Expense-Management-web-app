@@ -13,15 +13,23 @@ export const PAGE_ACCESS_OPTIONS = [
   { key: "vendors", label: "Vendors" },
   { key: "gl-tax-codes", label: "GL Account & TaxCode" },
   { key: "accounting-software", label: "Integrations" },
-  { key: "subscription", label: "Subscription" },
 ] as const;
+// Not here: /subscription and /plans — the user's OWN plan, on the Account
+// page (always open, like profile), whatever their role on the selected
+// company. Lists saved before carry "subscription"; it's ignored.
 
 export type PageKey = (typeof PAGE_ACCESS_OPTIONS)[number]["key"];
 export const ALL_PAGE_KEYS: PageKey[] = PAGE_ACCESS_OPTIONS.map((p) => p.key);
 // What a new contributor ("upload and edit invoices only") starts with on the
 // invite form — the owner ticks more if they want; company admin pages
-// (Team, Subscription, Integrations…) stay off unless picked.
+// (Team, Integrations…) stay off unless picked.
 export const CONTRIBUTOR_DEFAULT_PAGES: PageKey[] = ["dashboard", "invoices", "expense-claims"];
+
+// Bookkeeping pages: owners, admins and accountants only. A contributor never
+// gets them (the API refuses them too), so they aren't on the invite form.
+export const STAFF_ONLY_PAGES = ["month-end"] as const;
+type StaffPageKey = (typeof STAFF_ONLY_PAGES)[number];
+export type AnyPageKey = PageKey | StaffPageKey;
 
 // Pages reached from a sidebar page rather than the sidebar itself: they
 // follow that page's access.
@@ -31,18 +39,20 @@ const PAGE_ALIASES: Record<string, PageKey> = {
   quickbooks: "accounting-software",
   "google-drive": "accounting-software",
   onedrive: "accounting-software",
-  plans: "subscription",
 };
 
 /** The page key a path belongs to ("/invoices/123/review" → "invoices"), or null for pages that are always open. */
-export function pageKeyOf(pathname: string): PageKey | null {
+export function pageKeyOf(pathname: string): AnyPageKey | null {
   const first = pathname.split("/").filter(Boolean)[0] ?? "";
   if ((ALL_PAGE_KEYS as string[]).includes(first)) return first as PageKey;
+  if ((STAFF_ONLY_PAGES as readonly string[]).includes(first)) return first as StaffPageKey;
   return PAGE_ALIASES[first] ?? null;
 }
 
 /** Whether someone with this role and page list may open the page. Only contributors are ever restricted. */
-export function canOpenPage(role: string | undefined, pageAccess: string[] | null | undefined, key: PageKey | null): boolean {
-  if (!key || role !== "contributor" || !pageAccess) return true;
+export function canOpenPage(role: string | undefined, pageAccess: string[] | null | undefined, key: AnyPageKey | null): boolean {
+  if (!key || role !== "contributor") return true;
+  if ((STAFF_ONLY_PAGES as readonly string[]).includes(key)) return false;
+  if (!pageAccess) return true;
   return pageAccess.includes(key);
 }

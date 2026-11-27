@@ -198,8 +198,12 @@ export interface SavedCard {
 export interface AddonSlotsPreview {
   quantity: number;
   currentAddonSlots: number;
-  /** Charged right away to the saved card, for the rest of the period. 0 for a removal. */
+  /** Charged right away to the saved card, for the rest of the period (sales tax included). 0 for a removal. */
   amountDueNow: number;
+  /** The sales tax in amountDueNow (absent from older servers). */
+  taxNow?: number;
+  /** Renewals are charged sales tax on top. */
+  taxOnTop?: boolean;
   /** The new slots' price for a whole period — amountDueNow is below it only when prorated. */
   fullPeriodAmount: number;
   currency: string;
@@ -297,8 +301,12 @@ export interface PlanChangePreview {
   plan: SubscriptionPlanKey;
   planName: string;
   billingInterval: BillingInterval;
-  /** Charged now to the saved card: the change, prorated, after any coupon. */
+  /** Charged now to the saved card: the change, prorated, after any coupon, with sales tax. */
   amountDueNow: number;
+  /** The sales tax in amountDueNow (absent from older servers). */
+  taxNow?: number;
+  /** Renewals are charged sales tax on top. */
+  taxOnTop?: boolean;
   /** What the coupon takes off that charge. */
   discountNow: number;
   /** Send back with the purchase — it's charged at exactly amountDueNow. */
@@ -375,6 +383,77 @@ export const fetchDiscount = createAsyncThunk<CurrentDiscount | null, void, { re
       return (response.data.data.discount ?? null) as CurrentDiscount | null;
     } catch (error: any) {
       return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not load your discount" });
+    }
+  },
+);
+
+// ================================
+// THE OWNER'S OWN CARD on their plan — e.g. taking it back from a team admin
+// whose card pays for it (Scantrix_API stripe.service.js startPlanCardSetup).
+// The card is entered on Stripe's page (setup mode), back to /subscription.
+// ================================
+export const startOwnerCardSetup = createAsyncThunk<string, void, { rejectValue: { message: string } }>(
+  "subscription/startOwnerCardSetup",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.post("/subscription/card/setup", {});
+      return response.data.data.url as string;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not open the card page" });
+    }
+  },
+);
+
+export const confirmOwnerCardSetup = createAsyncThunk<string, string, { rejectValue: { message: string } }>(
+  "subscription/confirmOwnerCardSetup",
+  async (sessionId, thunkAPI) => {
+    try {
+      const response = await api.post("/subscription/card/confirm", { sessionId }, { timeout: 60_000 });
+      return response.data.message as string;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not put your card on the plan" });
+    }
+  },
+);
+
+// A move down waiting for the period end — queued by a team admin from the
+// Team page, or in Manage billing. The owner sees it and can cancel it.
+export interface ScheduledPlanChange {
+  plan: SubscriptionPlanKey;
+  planName: string;
+  billingInterval: BillingInterval;
+  addonSlots: number;
+  at: string;
+}
+
+/** Also taxPending: sales tax is on, but this plan (from before) isn't charged it yet — "Use my card" (with an address) starts it. */
+export const fetchScheduledChange = createAsyncThunk<
+  { scheduledChange: ScheduledPlanChange | null; taxPending: boolean },
+  void,
+  { rejectValue: { message: string } }
+>(
+  "subscription/fetchScheduledChange",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.get("/subscription/scheduled-change");
+      return {
+        scheduledChange: (response.data.data.scheduledChange ?? null) as ScheduledPlanChange | null,
+        taxPending: !!response.data.data.taxPending,
+      };
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not load the scheduled change" });
+    }
+  },
+);
+
+export const cancelScheduledChange = createAsyncThunk<string, void, { rejectValue: { message: string } }>(
+  "subscription/cancelScheduledChange",
+  async (_, thunkAPI) => {
+    try {
+      const response = await api.delete("/subscription/scheduled-change", { timeout: 60_000 });
+      return response.data.message as string;
+    } catch (error: any) {
+      return thunkAPI.rejectWithValue({ message: error?.response?.data?.message || error?.message || "Could not cancel the scheduled change" });
     }
   },
 );

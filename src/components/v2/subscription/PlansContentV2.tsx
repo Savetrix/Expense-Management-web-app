@@ -115,6 +115,8 @@ export function PlansContentV2() {
 
   const user = useAppSelector((state) => state.auth.user);
   const plans = useAppSelector((state) => state.subscription.plans);
+  // Web prices exclude sales tax — Stripe adds it at checkout from the billing address.
+  const taxOnTop = useAppSelector((state) => state.subscription.taxOnTop);
   const plansLoading = useAppSelector((state) => state.subscription.plansLoading);
   const subscription = useAppSelector((state) => state.subscription.subscription);
   // Only "still loading" when nothing is cached yet — every visit refetches
@@ -182,14 +184,14 @@ export function PlansContentV2() {
       title: `Upgrade to ${p.planName} (${p.billingInterval})?`,
       message: [
         p.amountDueNow > 0
-          ? `${money(p.amountDueNow)} will be charged now to ${cardLabel(p.paymentMethod)}. No payment page opens.`
+          ? `${money(p.amountDueNow)}${p.taxNow ? ` (incl. ${money(p.taxNow)} tax)` : ""} will be charged now to ${cardLabel(p.paymentMethod)}. No payment page opens.`
           : "Nothing to pay now. The unused time on your current plan covers it.",
         "The unused time on your current plan is already taken off.",
         ...(p.coupon
           ? [`${p.coupon.code}: ${p.coupon.description}${p.discountNow > 0 ? ` (${money(p.discountNow)} off today)` : ""}.`]
           : []),
         "",
-        `From ${formatDay(p.renewalDate)}, each renewal is ${money(p.renewalAmount)}${suffix}:`,
+        `From ${formatDay(p.renewalDate)}, each renewal is ${money(p.renewalAmount)}${suffix}${p.taxOnTop ? " + tax" : ""}:`,
         `• ${p.planName} plan: ${money(p.planRenewal)}${p.planRenewal < p.planListPrice ? " (with your coupon)" : ""}`,
         ...(p.extraSlots > 0
           ? [`• ${p.extraSlots} extra slot${p.extraSlots === 1 ? "" : "s"}: ${money(p.extraSlots * p.extraSlotsPrice)}`]
@@ -470,7 +472,10 @@ export function PlansContentV2() {
                     <span className="text-h1 font-bold text-text-primary">
                       {couponPrice != null ? `$${couponPrice.toFixed(2)}` : priceLabel(plan.key, plan.prices, cycle)}
                     </span>
-                    <span className="mb-1 text-body-sm text-text-secondary">{priceSuffix(plan.key, cycle)}</span>
+                    <span className="mb-1 text-body-sm text-text-secondary">
+                      {priceSuffix(plan.key, cycle)}
+                      {taxOnTop && isPaid && " + tax"}
+                    </span>
                   </div>
                   <p className="mt-[var(--space-xs)] text-caption text-text-secondary">
                     {couponPrice != null && appliedCoupon ? (

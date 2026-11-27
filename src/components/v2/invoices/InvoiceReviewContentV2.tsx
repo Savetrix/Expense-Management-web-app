@@ -37,6 +37,7 @@ import type { InlineEditFieldHandle } from "@/components/v2/ui";
 import { AddGlAccountModalV2 } from "@/components/v2/glTaxCode/AddGlAccountModalV2";
 import { AddVendorModalV2 } from "@/components/v2/vendors/AddVendorModalV2";
 import { VendorResolutionDialogV2 } from "@/components/v2/invoices/VendorResolutionDialogV2";
+import { PrepaymentFields, prepaymentError } from "@/components/v2/invoices/PrepaymentFields";
 import { InvoiceHeroCard } from "@/components/v2/invoices/InvoiceHeroCard";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -661,6 +662,8 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
   // so a refresh of the SAME invoice only resets an untouched form.
   const resetForInvoiceIdRef = useRef<string | null>(null);
   const userEditedRef = useRef(false);
+  // Service period + whether it posts as a prepayment (on: null = undecided).
+  const [prepayment, setPrepayment] = useState<{ start: string; end: string; on: boolean | null }>({ start: "", end: "", on: null });
 
   // Full reset only when the underlying invoice itself changes — see
   // InvoiceReviewContent.tsx (v1) for why this deliberately does NOT re-run
@@ -690,6 +693,11 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
     );
     setExtraCharges(withGlDefaults(invoiceObject?.extractedData?.extraCharges || [], normalized.glAccountId));
     setDiscounts(withGlDefaults(invoiceObject?.extractedData?.discounts || [], normalized.glAccountId));
+    setPrepayment({
+      start: toDateInputValue(invoiceObject?.extractedData?.servicePeriodStart ?? ""),
+      end: toDateInputValue(invoiceObject?.extractedData?.servicePeriodEnd ?? ""),
+      on: invoiceObject?.extractedData?.isPrepayment ?? null,
+    });
     hadLineItemsRef.current = (invoiceObject?.extractedData?.lineItems?.length ?? 0) > 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoiceObject]);
@@ -731,6 +739,16 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
   const editDiscounts: typeof setDiscounts = (value) => {
     userEditedRef.current = true;
     setDiscounts(value);
+  };
+  const editPrepayment = (patch: Partial<{ start: string; end: string; on: boolean }>) => {
+    userEditedRef.current = true;
+    setPrepayment((prev) => ({ ...prev, ...patch }));
+    setFieldErrors((prev) => {
+      if (!prev.servicePeriod) return prev;
+      const updated = { ...prev };
+      delete updated.servicePeriod;
+      return updated;
+    });
   };
 
   const updateField = (key: keyof NormalizedInvoiceData, value: string) => {
@@ -1125,6 +1143,9 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
     // A claim receipt can be saved uncoded — whoever approves the claim picks
     // the GL account (approving refuses until every receipt has one).
     if (!cleanValue(invoice.glAccountId) && !everyRowHasGl && !isClaimReceipt) errors.glAccountId = "GL account is required";
+    // A prepayment's whole release schedule hangs on its service period.
+    const periodError = isClaimReceipt ? "" : prepaymentError(prepayment.on === true, prepayment.start, prepayment.end);
+    if (periodError) errors.servicePeriod = periodError;
     return errors;
   };
 
@@ -1157,6 +1178,10 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
     bankingDetails: cleanValue(invoice.vendorBankDetails) || null,
     glAccountId: cleanValue(invoice.glAccountId) || null,
     taxCodeId: cleanValue(invoice.taxCodeId) || null,
+    servicePeriodStart: prepayment.start || null,
+    servicePeriodEnd: prepayment.end || null,
+    // Claim receipts are billed to the employee on the claim, never prepaid.
+    isPrepayment: isClaimReceipt ? null : prepayment.on,
   });
 
   const handleReject = async () => {
@@ -1870,6 +1895,29 @@ export function InvoiceReviewContentV2({ invoiceId, returnTo }: { invoiceId: str
               {!lastModifiedByName && !realmId && "—"}
             </div>
           </SectionCard>
+
+          {/* Prepayment — service period and the prepaid-account switch */}
+          {!isClaimReceipt && (
+            <div id="field-servicePeriod">
+              <SectionCard
+                title="Service Period & Prepayment"
+                defaultOpen={prepayment.on === true || !!prepayment.start || !!invoiceObject?.prepaymentDetected}
+                // defaultOpen is read before the invoice has loaded — this opens
+                // it once it turns out to be (or is switched to) a prepayment.
+                forceOpen={!!fieldErrors.servicePeriod || prepayment.on === true}
+                badge={prepayment.on === true ? <Badge variant="warning">Prepayment</Badge> : undefined}
+              >
+                <PrepaymentFields
+                  start={prepayment.start}
+                  end={prepayment.end}
+                  on={prepayment.on}
+                  detected={!!invoiceObject?.prepaymentDetected}
+                  expenseAccountName={resolvedGlAccountName}
+                  onChange={editPrepayment}
+                />
+              </SectionCard>
+            </div>
+          )}
 
           {/* Financial Summary */}
           <SectionCard
