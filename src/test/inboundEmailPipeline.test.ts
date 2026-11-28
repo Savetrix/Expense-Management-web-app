@@ -267,6 +267,32 @@ describe("authentication verdicts reconstructed from headers", () => {
     assert.equal(derived.results.dmarc, "fail");
   });
 
+  it("reads a header that arrived as one string holding a JSON list (Microsoft 365 senders)", () => {
+    // The real header from 17 Nov 2026: a forward from Outlook, rejected as
+    // "header did not match the pinned server id" with authserv-id ["",""].
+    const listed = JSON.stringify([
+      "amazonses.com; spf=pass (spfCheck: domain of worklinks.ca designates 52.101.56.140 as permitted sender) client-ip=52.101.56.140; envelope-from=someone@worklinks.ca; helo=BN1PR04CU002.outbound.protection.outlook.com; dkim=pass header.i=@pendylum.onmicrosoft.com; dmarc=pass header.from=worklinks.ca;",
+      "mx.microsoft.com 1; dkim=none (message not signed) header.d=none;dmarc=none action=none header.from=worklinks.ca;",
+    ]);
+    const derived = deriveAuthResults({ "Authentication-Results": listed }, { expectedAuthservId: "amazonses.com" });
+    assert.equal(derived.diagnostics.trust, "verified");
+    assert.equal(derived.diagnostics.authservId, "amazonses.com");
+    assert.deepEqual(derived.results, { spf: "pass", dkim: "pass", dmarc: "pass" });
+    assert.equal(derived.missing, false);
+  });
+
+  it("still refuses a listed header when none of its entries is the pinned server's", () => {
+    const listed = JSON.stringify(["evil.example; dmarc=pass; dkim=pass; spf=pass", "mx.microsoft.com 1; dmarc=pass"]);
+    const derived = deriveAuthResults({ "Authentication-Results": listed }, { expectedAuthservId: "amazonses.com" });
+    assert.equal(derived.diagnostics.trust, "rejected");
+    assert.equal(derived.missing, true);
+  });
+
+  it("keeps a value that only looks like a list as it came", () => {
+    const derived = deriveAuthResults({ "Authentication-Results": "[mx; dmarc=pass]" });
+    assert.equal(derived.results.dmarc, "pass");
+  });
+
   it("fills an unstated SPF verdict from Received-SPF but never overrules one", () => {
     const filled = deriveAuthResults({
       "Authentication-Results": "mx; dkim=pass",
