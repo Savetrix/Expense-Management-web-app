@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { billsFor, closedBills, findStrongSuggestions, isStrongMatch, paperworkHref, rankInvoices, vendorAgrees } from "../components/v2/bankTransactions/matching";
+import { billsFor, closedBills, findStrongSuggestions, isStrongMatch, matchAmount, paperworkHref, rankInvoices, vendorAgrees } from "../components/v2/bankTransactions/matching";
 import type { BankTransaction, InvoiceCandidate } from "../components/v2/bankTransactions/types";
 
 const txn = (over: Partial<BankTransaction> = {}): BankTransaction => ({
@@ -39,6 +39,24 @@ describe("isStrongMatch", () => {
     assert.equal(isStrongMatch(txn(), inv({ date: "2025-03-18" })), false);
     assert.equal(isStrongMatch(txn(), inv({ total: null })), false);
     assert.equal(isStrongMatch(txn(), inv({ date: "" })), false);
+  });
+});
+
+describe("matchAmount: a match never goes through silently when amounts differ", () => {
+  it("is exact only to the cent", () => {
+    assert.deepEqual(matchAmount(txn({ amount: -120.5 }), inv({ total: 120.5 })), { kind: "exact" });
+    assert.deepEqual(matchAmount(txn({ amount: -120.5 }), inv({ total: 120.51 })), { kind: "part", leftCents: 1 });
+  });
+  it("a bank line of 54 against a bill of 70 is a part payment with 16 left", () => {
+    assert.deepEqual(matchAmount(txn({ amount: -54 }), inv({ total: 70 })), { kind: "part", leftCents: 1600 });
+  });
+  it("a bank line bigger than the bill is refused, and an unknown total is flagged", () => {
+    assert.deepEqual(matchAmount(txn({ amount: -70 }), inv({ total: 54 })), { kind: "over", extraCents: 1600 });
+    assert.deepEqual(matchAmount(txn(), inv({ total: null })), { kind: "unknown" });
+  });
+  it("the strong suggestion still needs the same amount to the cent", () => {
+    assert.equal(isStrongMatch(txn({ amount: -54 }), inv({ total: 70 })), false);
+    assert.equal(isStrongMatch(txn({ amount: -120.5 }), inv({ total: 120.49 })), false);
   });
 });
 
