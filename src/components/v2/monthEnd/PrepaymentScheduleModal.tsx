@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ExternalLink, FileText } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -40,6 +40,8 @@ interface Draft {
   endDate: string;
   releaseFrom: string;
   pnlAccountId: string;
+  /** Releases typed in here and not saved yet, by entry number (the input's text). */
+  amounts: Record<number, string>;
 }
 
 const draftOf = (p: PrepaymentDto): Draft => ({
@@ -47,7 +49,16 @@ const draftOf = (p: PrepaymentDto): Draft => ({
   endDate: p.endDate,
   releaseFrom: p.releaseFrom ?? "",
   pnlAccountId: p.pnlAccountId ?? "",
+  amounts: {},
 });
+
+const cents = (n: number) => Math.round(n * 100);
+// A typed release: a number of 0 or more with at most 2 decimals, else null.
+const parseAmount = (text: string): number | null => {
+  const t = text.trim();
+  if (!/^\d+(\.\d{0,2})?$/.test(t)) return null;
+  return Number(t);
+};
 
 // What changed in the draft, as the PATCH body.
 const patchOf = (p: PrepaymentDto, d: Draft): PrepaymentPatch => {
@@ -56,11 +67,18 @@ const patchOf = (p: PrepaymentDto, d: Draft): PrepaymentPatch => {
   if (d.endDate !== p.endDate) patch.endDate = d.endDate;
   if ((d.releaseFrom || null) !== p.releaseFrom) patch.releaseFrom = d.releaseFrom || null;
   if ((d.pnlAccountId || null) !== p.pnlAccountId) patch.pnlAccountId = d.pnlAccountId || null;
+  // A new period or reference date regroups and renumbers the entries — typed
+  // releases (keyed by the old numbers) never go out with it.
+  if (patch.startDate || patch.endDate || patch.releaseFrom !== undefined) return patch;
+  const amounts = Object.entries(d.amounts)
+    .map(([seq, text]) => ({ seq: Number(seq), amount: parseAmount(text) }))
+    .filter((a): a is { seq: number; amount: number } => a.amount != null && cents(a.amount) !== cents(p.entries.find((e) => e.seq === a.seq)?.amount ?? NaN));
+  if (amounts.length > 0) patch.amounts = amounts;
   return patch;
 };
 
 function JournalCell({ entry, prepayment }: { entry: PrepaymentEntryDto; prepayment: PrepaymentDto }) {
-  if (entry.trackedOnly) return <span className="text-content-secondary">Tracked only</span>;
+  if (entry.trackedOnly) return <span className="text-content-secondary">No journal (0.00)</span>;
   if (entry.status === "posted") {
     return entry.url ? (
       <a href={entry.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-accent hover:underline">
@@ -97,7 +115,31 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
 
   const editable = canPost && p.status === "review";
   const dirty = Object.keys(patchOf(p, draft)).length > 0;
-  const set = (key: keyof Draft, value: string) => setDraft((d) => ({ ...d, [key]: value }));
+  // A new period means new months — the releases are recalculated on save,
+  // so they can't be edited until it's saved.
+  const periodDirty = draft.startDate !== p.startDate || draft.endDate !== p.endDate;
+  // A new reference date regroups the entries too.
+  const layoutDirty = periodDirty || (draft.releaseFrom || null) !== p.releaseFrom;
+  const badAmount = Object.values(draft.amounts).some((t) => parseAmount(t) == null);
+  // The table as typed: an edited release changes only its own month; every
+  // balance after it follows from the prepaid total.
+  const rows = useMemo(() => {
+    let released = 0;
+    return p.entries.map((e) => {
+      const typed = draft.amounts[e.seq];
+      const amount = typed !== undefined ? (parseAmount(typed) ?? e.amount) : e.amount;
+      released += cents(amount);
+      const changed = typed !== undefined && cents(amount) !== cents(e.amount);
+      return { ...e, amount, balanceAfter: (cents(p.total) - released) / 100, typed: changed, trackedOnly: changed ? amount === 0 : e.trackedOnly };
+    });
+  }, [p, draft.amounts]);
+  const leftOver = rows.length ? rows[rows.length - 1].balanceAfter : 0;
+  const balanced = cents(leftOver) === 0;
+  const editedCount = rows.filter((r) => r.typed || (r.edited && draft.amounts[r.seq] === undefined)).length;
+  // Changing the period or reference date drops typed releases: the entries
+  // they were typed against are regrouped and renumbered.
+  const set = (key: Exclude<keyof Draft, "amounts">, value: string) =>
+    setDraft((d) => ({ ...d, [key]: value, ...(key === "startDate" || key === "endDate" || key === "releaseFrom" ? { amounts: {} } : {}) }));
 
   const apply = useCallback(
     (next: PrepaymentDto) => {
@@ -157,6 +199,10 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
       setError("Enter the service start and end dates.");
       return Promise.resolve(null);
     }
+    if (badAmount) {
+      setError("A release must be a number of 0 or more, with up to 2 decimals.");
+      return Promise.resolve(null);
+    }
     return run("save", async () => {
       const r = await dispatch(updatePrepayment({ id: p._id, patch: patchOf(p, draft) }));
       return updatePrepayment.fulfilled.match(r) ? { ok: true, value: r.payload } : { ok: false, error: r.payload ?? { message: "Couldn't save." } };
@@ -173,9 +219,12 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
 
   const publish = async () => {
     if (!p.balanceAccountId || !draft.pnlAccountId) return setError("Choose the expense account it's released to.");
+    if (!balanced) return setError(`The releases must add up to ${formatMoney(p.total, p.currency)} — change a month so the last balance is 0.00.`);
     // The count must come from the schedule as just saved, not the one on screen before.
     const current = dirty ? await save() : p;
     if (!current) return;
+    // What was saved is what publishes — check it, not the screen.
+    if (!current.balanced) return setError(`The releases must add up to ${formatMoney(current.total, current.currency)} — change an entry so the last balance is 0.00.`);
     const toPost = current.entries.filter((e) => !e.trackedOnly).length;
     const ok = await confirmDialog({
       title: "Publish this schedule?",
@@ -207,8 +256,51 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
   const columns: DataTableColumn<PrepaymentEntryDto>[] = [
     { key: "seq", header: "#", width: "44px", render: (e) => <span className="text-content-secondary">{e.seq}</span> },
     { key: "date", header: "Journal date", width: "120px", render: (e) => <span className="font-semibold">{dateLabel(e.date)}</span> },
-    { key: "covers", header: "Covers", width: "180px", render: (e) => <span className="block truncate text-content-secondary">{periodCoveredLabel(e.periodStart, e.periodEnd, e.days)}</span> },
-    { key: "amount", header: `Release${p.currency ? ` (${p.currency})` : ""}`, width: "120px", align: "right", render: (e) => formatMoney(e.amount) },
+    {
+      key: "covers",
+      header: "Covers",
+      width: "200px",
+      render: (e) =>
+        e.catchUp ? (
+          <span className="block text-content-secondary">
+            <span className="block font-semibold text-content-primary">Catch-up ({e.months} months)</span>
+            <span className="block text-caption">
+              {dateLabel(e.periodStart)} – {dateLabel(e.periodEnd)}
+            </span>
+          </span>
+        ) : (
+          <span className="block truncate text-content-secondary">{periodCoveredLabel(e.periodStart, e.periodEnd, e.days)}</span>
+        ),
+    },
+    {
+      key: "amount",
+      header: `Release${p.currency ? ` (${p.currency})` : ""}`,
+      width: "130px",
+      align: "right",
+      render: (e) =>
+        editable && !layoutDirty ? (
+          <span className="flex items-center justify-end gap-1">
+            {(e.edited || (e as PrepaymentEntryDto & { typed?: boolean }).typed) && <span title="Edited" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+            <input
+              type="text"
+              inputMode="decimal"
+              aria-label={`Release for entry ${e.seq}: ${e.catchUp ? `catch-up of ${e.months} months` : periodCoveredLabel(e.periodStart, e.periodEnd, e.days)}`}
+              aria-invalid={draft.amounts[e.seq] !== undefined && parseAmount(draft.amounts[e.seq]) == null}
+              disabled={working}
+              value={draft.amounts[e.seq] ?? e.amount.toFixed(2)}
+              onChange={(ev) => setDraft((d) => ({ ...d, amounts: { ...d.amounts, [e.seq]: ev.target.value } }))}
+              className={`h-8 w-[96px] rounded-md border bg-page px-2 text-right text-body-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-accent/40 ${
+                draft.amounts[e.seq] !== undefined && parseAmount(draft.amounts[e.seq]) == null ? "border-error" : "border-border"
+              }`}
+            />
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1">
+            {e.edited && <span title="Edited" className="h-1.5 w-1.5 rounded-full bg-accent" />}
+            {formatMoney(e.amount)}
+          </span>
+        ),
+    },
     // A foreign bill's journals post in the home currency (spread from the bill's own home value).
     ...(p.homeCurrency
       ? [{ key: "home", header: `Journal (${p.homeCurrency})`, width: "120px", align: "right" as const, render: (e: PrepaymentEntryDto) => (e.homeAmount != null ? formatMoney(e.homeAmount) : "—") }]
@@ -250,7 +342,7 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
             </Button>
           )}
           {editable && (
-            <Button size="sm" onClick={publish} disabled={working || p.entries.length === 0} loading={busy === "publish"}>
+            <Button size="sm" onClick={publish} disabled={working || p.entries.length === 0 || !balanced || badAmount} loading={busy === "publish"}>
               Publish schedule
             </Button>
           )}
@@ -290,15 +382,23 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
 
         {editable ? (
           <div className="grid grid-cols-1 gap-[var(--space-md)] sm:grid-cols-3">
-            <TextField label="Service start" type="date" value={draft.startDate} onChange={(v) => set("startDate", v)} />
-            <TextField label="Service end" type="date" value={draft.endDate} onChange={(v) => set("endDate", v)} />
-            <TextField
-              label="Release from"
-              type="date"
-              value={draft.releaseFrom}
-              onChange={(v) => set("releaseFrom", v)}
-              hint="Optional. Earlier months were already expensed outside ScanTrix."
-            />
+            <TextField label="Service start" type="date" value={draft.startDate} onChange={(v) => set("startDate", v)} disabled={working} />
+            <TextField label="Service end" type="date" value={draft.endDate} onChange={(v) => set("endDate", v)} disabled={working} />
+            <div>
+              <TextField
+                label={draft.releaseFrom ? "Reference date" : "Reference date (today, automatic)"}
+                type="date"
+                value={draft.releaseFrom || p.referenceDate || ""}
+                onChange={(v) => set("releaseFrom", v)}
+                disabled={working}
+                hint="Months before this date's month are added up into one catch-up entry on this date; the rest stay monthly. Set it to the service start to post every month on its own date."
+              />
+              {draft.releaseFrom && (
+                <button type="button" onClick={() => set("releaseFrom", "")} disabled={working} className="mt-1 text-caption font-bold text-accent hover:underline">
+                  Use today (automatic)
+                </button>
+              )}
+            </div>
             {/* Fixed: the journals must credit the account the bill was posted to. */}
             <TextField
               label="Prepaid account (credited)"
@@ -314,7 +414,7 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
             <ModalDefinitionRow label="Service period">
               {dateLabel(p.startDate)} – {dateLabel(p.endDate)}
             </ModalDefinitionRow>
-            {p.releaseFrom && <ModalDefinitionRow label="Release from">{dateLabel(p.releaseFrom)}</ModalDefinitionRow>}
+            {p.releaseFrom && <ModalDefinitionRow label="Reference date">{dateLabel(p.releaseFrom)}</ModalDefinitionRow>}
             <ModalDefinitionRow label="From (prepaid)">{p.balanceAccountName ?? p.balanceAccountId ?? "—"}</ModalDefinitionRow>
             <ModalDefinitionRow label="To (expense)">{p.pnlAccountName ?? p.pnlAccountId ?? "—"}</ModalDefinitionRow>
             <ModalDefinitionRow label="Released to date">{formatMoney(p.releasedToDate, p.currency)}</ModalDefinitionRow>
@@ -322,8 +422,42 @@ export function PrepaymentScheduleModal({ prepayment: initial, canPost, onClose,
         )}
 
         <div className="flex flex-col gap-[var(--space-sm)]">
-          <p className={SECTION_TITLE_CLASS}>Monthly release schedule{dirty ? " (save to recalculate)" : ""}</p>
-          <DataTable columns={columns} rows={p.entries} getRowKey={(e) => String(e.seq)} maxHeightClassName="max-h-[320px]" />
+          <div className="flex flex-wrap items-center justify-between gap-[var(--space-sm)]">
+            <p className={SECTION_TITLE_CLASS}>Monthly release schedule{layoutDirty ? " (save to recalculate)" : ""}</p>
+            {editable && editedCount > 0 && (
+              <button
+                type="button"
+                disabled={working}
+                onClick={async () => {
+                  // Unsaved edits just go; saved ones go back to the calculation.
+                  // Only the releases are reset — other unsaved changes stay, and
+                  // the typed values stay too if the reset fails.
+                  if (p.editedCount === 0) return setDraft((d) => ({ ...d, amounts: {} }));
+                  setBusy("save");
+                  setError("");
+                  const r = await dispatch(updatePrepayment({ id: p._id, patch: { amounts: null } }));
+                  setBusy("");
+                  if (!updatePrepayment.fulfilled.match(r)) return setError(r.payload?.message ?? "Couldn't reset.");
+                  setP(r.payload);
+                  onChange(r.payload);
+                  setDraft((d) => ({ ...d, amounts: {} }));
+                }}
+                className="text-caption font-bold text-accent hover:underline disabled:opacity-50"
+              >
+                Reset to calculated
+              </button>
+            )}
+          </div>
+          {editable && !layoutDirty && <p className="text-caption text-content-secondary">Change any release — only that entry changes; the balances after it follow.</p>}
+          {editable && badAmount && <p className={ERROR_NOTE_CLASS}>A release must be a number of 0 or more, with up to 2 decimals — fix the highlighted entry.</p>}
+          {editable && !balanced && (
+            <p className={ERROR_NOTE_CLASS}>
+              The releases add up to {formatMoney(rows.reduce((t, r) => t + r.amount, 0), p.currency)}, not {formatMoney(p.total, p.currency)} —{" "}
+              {formatMoney(leftOver, p.currency)} would {leftOver > 0 ? "stay in" : "be taken beyond"} the prepaid account. Change a month so the last
+              balance is 0.00 before publishing.
+            </p>
+          )}
+          <DataTable columns={columns} rows={rows} getRowKey={(e) => String(e.seq)} maxHeightClassName="max-h-[320px]" />
         </div>
 
         <p className={NOTE_CLASS}>

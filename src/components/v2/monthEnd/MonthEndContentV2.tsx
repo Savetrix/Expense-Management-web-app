@@ -74,6 +74,8 @@ export function MonthEndContentV2({ openPrepaymentId = null }: { openPrepaymentI
     if (!deepLink || !activeId) return;
     setDeepLink({ ...deepLink, error: "" });
     const r = await dispatch(fetchPrepayment(deepLink.id));
+    // The company changed while it loaded: not this one's to open.
+    if (currentIdRef.current !== activeId) return;
     if (fetchPrepayment.fulfilled.match(r)) {
       setSelected(r.payload);
       setDeepLink(null);

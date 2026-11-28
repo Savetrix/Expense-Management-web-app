@@ -19,11 +19,17 @@ export interface PrepaymentEntryDto {
   periodStart: string;
   periodEnd: string;
   days: number;
+  /** The months before release-from, released together on that date. */
+  catchUp: boolean;
+  /** How many months this entry covers (more than 1 only for a catch-up). */
+  months: number;
   amount: number;
+  /** Typed in on the draft instead of the calculated amount. */
+  edited: boolean;
   /** A foreign bill's release in the home currency — what the journal actually posts. */
   homeAmount: number | null;
   balanceAfter: number;
-  /** Before release-from: released outside ScanTrix, never posted. */
+  /** No journal (a release of 0.00). */
   trackedOnly: boolean;
   status: PrepaymentEntryStatus;
   externalId: string | null;
@@ -49,16 +55,27 @@ export interface PrepaymentDto {
   homeTotal: number | null;
   startDate: string;
   endDate: string;
+  /** The reference date set by the user; null = automatic (today). */
   releaseFrom: string | null;
+  /** The reference date in effect (today when automatic; null before the period starts). */
+  referenceDate: string | null;
+  referenceDateAuto: boolean;
   balanceAccountId: string | null;
   balanceAccountName: string | null;
   pnlAccountId: string | null;
   pnlAccountName: string | null;
   status: PrepaymentStatus;
   displayStatus: PrepaymentDisplayStatus;
+  /** Months the service period covers. */
   months: number;
+  /** Journal entries (a catch-up entry spans several months). */
+  entryCount: number;
   releasedToDate: number;
   balance: number;
+  /** The releases add up to the prepaid amount — publishing needs this. */
+  balanced: boolean;
+  /** How many releases were typed in instead of calculated. */
+  editedCount: number;
   postedCount: number;
   failedCount: number;
   /** A background job is running (posting or removing journals) — poll until false. */
@@ -132,6 +149,8 @@ export type PrepaymentPatch = Partial<{
   endDate: string;
   releaseFrom: string | null;
   pnlAccountId: string | null;
+  /** Edited releases by entry number; null = back to the calculated ones. Changing the period drops them. */
+  amounts: { seq: number; amount: number }[] | null;
 }>;
 
 /** Only while in review — the schedule is recalculated server-side. */

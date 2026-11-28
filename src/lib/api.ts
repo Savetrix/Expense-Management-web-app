@@ -188,6 +188,11 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`;
       }
 
+      // The user's calendar day — the backend's "today" for prepayment catch-up
+      // dates (the server's UTC date is another day for part of every day).
+      const now = new Date();
+      config.headers["X-Client-Date"] = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
       // Every QB-scoped endpoint (invoices, vendors, accounts, status, etc.)
       // requires X-QB-Id. Attach it here so individual API calls don't each
       // need to remember to pass it. Read via qbConnection.ts rather than
